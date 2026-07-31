@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    VFF club mark: a white high-wing single (the 172, seen from above) on the
+    club's orange disc. Next.js App Router serves this as the favicon.
+  -->
+  <circle cx="256" cy="256" r="248" fill="#c64912"/>
+  <circle cx="256" cy="256" r="209" fill="none" stroke="#ffe6d5" stroke-width="9"/>
+  <g fill="#ffffff">
+    <!-- fuselage -->
+    <path d="M239 111 q17 -34 34 0 l13 222 -60 0 Z"/>
+    <rect x="226" y="316" width="60" height="77" rx="17"/>
+    <!-- wing -->
+    <path d="M77 230 l358 0 l0 39 l-358 0 Z"/>
+    <!-- tailplane -->
+    <path d="M171 375 l170 0 l0 30 l-170 0 Z"/>
+    <!-- spinner -->
+    <circle cx="256" cy="102" r="17"/>
+  </g>
+</svg>

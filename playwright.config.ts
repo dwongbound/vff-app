@@ -1,0 +1,56 @@
+// E2E config. Prereq: the test db must be running —
+//   docker compose --profile test up -d db-test
+// Then: npm run test:e2e
+// (Or run the whole suite in docker: docker compose --profile test up.)
+//
+// global-setup resets + reseeds the db, and the webServer block boots the
+// app on port 3100 with env/test.env automatically.
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
+  // Tests share one database, so run serially to keep state predictable.
+  fullyParallel: false,
+  workers: 1,
+  // Retry rather than fail the suite on a transient miss under container load;
+  // a genuinely broken test still fails all its attempts.
+  retries: 2,
+  // The suite runs against `next dev`, which compiles each route the first
+  // time a test visits it — in a container that can take longer than the 30s
+  // default before the page even renders. Generous per-test and per-assertion
+  // budgets keep a cold compile from being reported as a broken app.
+  timeout: 90_000,
+  expect: { timeout: 30_000 },
+  use: {
+    baseURL: "http://localhost:3100",
+    trace: "retain-on-failure",
+  },
+  // Projects by layout. `mobile.spec.ts` is the phone-width pass over the app's
+  // responsive branches (bottom tab bar, the reservation list that replaces the
+  // month grid, the "+" FAB); every other spec is written against the desktop
+  // layout. testMatch/testIgnore keep each project to its own half.
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /mobile\.spec\.ts/,
+    },
+    {
+      name: "mobile-ios",
+      use: { ...devices["iPhone 16 Pro"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
+    {
+      name: "mobile-android",
+      use: { ...devices["Galaxy S24"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
+  ],
+  webServer: {
+    command: "npm run e2e:server",
+    url: "http://localhost:3100/login",
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
+});

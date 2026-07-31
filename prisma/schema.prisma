@@ -1,0 +1,309 @@
+// VFF flying club data model.
+//
+// The core loop, in the order a member touches it:
+//   Reservation    — book the airplane for a block of time.
+//   PreflightCheck — walk the checklist before you fly (answers stored as JSON;
+//                    the checklist itself is business logic, see lib/checklist.ts).
+//   Flight         — the post-flight entry: tach/Hobbs in-out, fuel, oil,
+//                    landings. Every row is one line of the shared flight log.
+//   Squawk         — anything wrong with the airplane, open until signed off.
+//   Photo          — attaches to any of the above (meter shots, damage, receipts).
+//                    Bytes live in object storage; this table is the index.
+
+generator client {
+  // Prisma 7: the Rust-free "prisma-client" generator with a required output.
+  // Import from "@/lib/prisma" (never "@prisma/client").
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// How badly a squawk affects dispatch.
+//   NOTE      — worth writing down (a burned-out map light).
+//   MONITOR   — airworthy but watch it (a slightly weak brake).
+//   GROUNDING — the airplane does not fly until it's signed off. The
+//               reservation + preflight pages show a red grounded banner.
+enum SquawkSeverity {
+  NOTE
+  MONITOR
+  GROUNDING
+}
+
+enum SquawkStatus {
+  OPEN
+  RESOLVED
+}
+
+enum ReservationStatus {
+  CONFIRMED
+  CANCELED
+}
+
+// What a member is doing with the airplane. Shown as a chip color on the
+// calendar so a "maintenance" block reads differently from a member's flight.
+enum ReservationPurpose {
+  LOCAL // sightseeing / practice area
+  CROSS_COUNTRY
+  TRAINING // with a CFI
+  CHECKRIDE
+  MAINTENANCE // shop / annual — blocks the airplane, not a member flight
+}
+
+model User {
+  id           String  @id @default(cuid())
+  // Email doubles as the username you sign in with.
+  username     String  @unique
+  email        String? @unique
+  passwordHash String
+  name         String
+  phone        String?
+
+  // Club admins manage the aircraft, resolve squawks, and can edit or cancel
+  // anyone's reservation. Everyone else only touches their own rows.
+  isAdmin Boolean @default(false)
+
+  // Pilot paperwork, surfaced on the profile page and used for the
+  // "your medical expires soon" reminder. All optional — a student who hasn't
+  // soloed yet has none of it.
+  certificate      String? // e.g. "Private Pilot ASEL", "Student"
+  medicalExpiresOn DateTime?
+  flightReviewOn   DateTime? // last flight review (BFR); currency = +24 calendar months
+
+  reservations    Reservation[]
+  flights         Flight[]
+  preflightChecks PreflightCheck[]
+  squawksReported Squawk[]         @relation("SquawkReporter")
+  squawksResolved Squawk[]         @relation("SquawkResolver")
+  photos          Photo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// One airplane. The club flies a single 172 today, but everything is keyed by
+// aircraft so adding a second one is a row, not a migration.
+model Aircraft {
+  id         String @id @default(cuid())
+  tailNumber String @unique // "N172VF"
+  model      String // "Cessna 172S Skyhawk"
+  year       Int?
+
+  // Rates in whole cents to avoid float drift. Wet = fuel included.
+  hourlyRateCents Int?
+  fuelCapacityGal Float? // usable fuel — 53.0 on an S-model 172
+  homeBase        String? // airport identifier, e.g. "KRHV"
+
+  // Live meter readings, advanced by each filed flight so the next pilot's
+  // post-flight form can prefill "start" without hunting for the last entry.
+  lastTach  Float?
+  lastHobbs Float?
+
+  // Retired airplanes stay for their history but stop showing up in pickers.
+  active Boolean @default(true)
+  notes  String?
+
+  reservations    Reservation[]
+  flights         Flight[]
+  preflightChecks PreflightCheck[]
+  squawks         Squawk[]
+
+  createdAt DateTime @default(now())
+
+  @@map("aircraft")
+}
+
+// A booking of one airplane for one block of time. Overlap is rejected by the
+// API (see lib/reservations.ts overlaps()) rather than by a db constraint, so
+// the error message can name the conflicting booking.
+model Reservation {
+  id String @id @default(cuid())
+
+  aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  aircraftId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  purpose ReservationPurpose @default(LOCAL)
+  notes   String?
+
+  // Canceled rows are kept (not deleted) so the calendar history stays honest;
+  // they're filtered out of conflict checks and the default list view.
+  status ReservationStatus @default(CONFIRMED)
+
+  // The flight actually flown against this booking, if one was filed.
+  flight Flight?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The calendar always queries "this aircraft, this month".
+  @@index([aircraftId, startsAt])
+  @@index([userId, startsAt])
+  @@map("reservations")
+}
+
+// One completed flight — the post-flight form's output and one line of the
+// flight log. Tach time bills; Hobbs is recorded because some clubs bill on it
+// and the two together catch a mis-read meter (see lib/hours.ts).
+model Flight {
+  id String @id @default(cuid())
+
+  aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  aircraftId String
+  pilot      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  // The booking this flight was flown against (null for an unbooked hop).
+  // Unique: one filed flight per reservation.
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  reservationId String?      @unique
+
+  flownOn DateTime // the calendar day of the flight (local midnight)
+
+  // Meter readings. Tach is required (it's what bills); Hobbs is optional
+  // because not every airplane has one.
+  tachStart  Float
+  tachEnd    Float
+  hobbsStart Float?
+  hobbsEnd   Float?
+
+  landings Int @default(1)
+
+  // Route as filed by the pilot, e.g. "KRHV → KWVI → KRHV".
+  departure String?
+  arrival   String?
+  route     String?
+
+  // Servicing done after the flight, so the next pilot knows what they're
+  // getting. Fuel in gallons added, oil in quarts.
+  fuelAddedGal  Float?
+  fuelCostCents Int?
+  oilAddedQts   Float?
+
+  // Did the airplane get put away properly? Nags in the flight log when false.
+  tiedDown  Boolean @default(true)
+  cabinClean Boolean @default(true)
+
+  notes String?
+
+  squawks Squawk[]
+  photos  Photo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([aircraftId, flownOn])
+  @@index([userId, flownOn])
+  @@map("flights")
+}
+
+// Something wrong with the airplane. Raised from the preflight checklist
+// (a failed item) or the post-flight form, and cleared by an admin.
+model Squawk {
+  id String @id @default(cuid())
+
+  aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  aircraftId String
+
+  reportedBy   User   @relation("SquawkReporter", fields: [reportedById], references: [id], onDelete: Cascade)
+  reportedById String
+
+  // Where it was noticed, if it came out of a specific flight/preflight.
+  flight     Flight?         @relation(fields: [flightId], references: [id], onDelete: SetNull)
+  flightId   String?
+  preflight  PreflightCheck? @relation(fields: [preflightId], references: [id], onDelete: SetNull)
+  preflightId String?
+
+  title       String
+  description String?
+  severity    SquawkSeverity @default(NOTE)
+  status      SquawkStatus   @default(OPEN)
+
+  // Sign-off trail.
+  resolvedBy   User?     @relation("SquawkResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedById String?
+  resolvedAt   DateTime?
+  resolution   String?
+
+  photos Photo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The grounded banner asks "any OPEN squawk on this airplane?" constantly.
+  @@index([aircraftId, status])
+  @@map("squawks")
+}
+
+// One run of the preflight checklist. `answers` is a { itemId: boolean } map
+// against the checklist in lib/checklist.ts — keeping it JSON means editing the
+// checklist is a code change, not a migration, and old runs stay readable.
+model PreflightCheck {
+  id String @id @default(cuid())
+
+  aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  aircraftId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  // Version of the checklist that was answered, so a future edit to
+  // lib/checklist.ts can't silently rewrite history.
+  checklistVersion Int  @default(1)
+  answers          Json // { "cabin.mags": true, "exterior.tires": false, ... }
+
+  // Fuel/oil found on the walkaround (before any servicing).
+  fuelOnBoardGal Float?
+  oilQuarts      Float?
+
+  notes       String?
+  completedAt DateTime? // null while a run is in progress
+
+  squawks Squawk[]
+  photos  Photo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([aircraftId, createdAt])
+  @@index([userId, createdAt])
+  @@map("preflight_checks")
+}
+
+// Index row for one uploaded image. The bytes live in object storage under
+// `key` (see lib/storage) — this table never holds the image itself. Photos
+// are served through /api/photos/[id], which checks the session first, so a
+// bucket URL never has to be public.
+model Photo {
+  id  String @id @default(cuid())
+  key String @unique // storage object key, e.g. "flights/<id>/<uuid>.jpg"
+
+  contentType String
+  sizeBytes   Int
+  caption     String?
+
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  uploadedById String
+
+  // Exactly one of these is set in practice — the subject the photo documents.
+  flight      Flight?         @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  flightId    String?
+  squawk      Squawk?         @relation(fields: [squawkId], references: [id], onDelete: Cascade)
+  squawkId    String?
+  preflight   PreflightCheck? @relation(fields: [preflightId], references: [id], onDelete: Cascade)
+  preflightId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([flightId])
+  @@index([squawkId])
+  @@index([preflightId])
+  @@map("photos")
+}

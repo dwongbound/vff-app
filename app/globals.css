@@ -1,0 +1,84 @@
+/* Tailwind v4 entrypoint. The JS config (dark mode = "class", content globs,
+   and our custom keyframes/animations) is loaded via @config for backward
+   compatibility. Keep tailwind.config.ts as the source of that config. */
+@config "../tailwind.config.ts";
+@import "tailwindcss";
+
+@layer base {
+  /* Tailwind v4 dropped the default `cursor: pointer` on buttons (it now uses
+     the browser default). Restore the hand cursor on interactive elements. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+
+  /* Tell the browser which scheme to paint native controls in (the
+     datetime-local picker, spinners, scrollbars) so they match light/dark.
+     The `.dark` class is toggled on <html> by the theme script. */
+  html {
+    color-scheme: light;
+    /* Live height of the sticky nav (bar + any banners), published by
+       Navbar.tsx. Full-height pages subtract it so they fit under the header
+       without scrolling, even as banners come and go. ~4rem = bar, no banners. */
+    --app-header-h: 4rem;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  /* Phones navigate between tabs with a horizontal swipe (see SwipePager).
+     Clip any horizontal page overflow and disable horizontal overscroll so a
+     swipe can't drag the whole page — and with it the sticky navbar —
+     sideways. `clip` (not `hidden`) doesn't turn the body into a scroll
+     container, so the viewport still scrolls vertically and `position: sticky`
+     keeps working. */
+  html {
+    overscroll-behavior-x: none;
+  }
+  body {
+    overflow-x: clip;
+  }
+
+  /* Meter readings, tail numbers, and tach times are compared column-to-column
+     constantly — tabular figures keep the digits from dancing. */
+  input[type="number"],
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Always-visible, styled scrollbar for capped scroll areas (e.g. the checklist
+   sections). macOS overlay scrollbars auto-hide, which hides the fact that
+   there's more to scroll. */
+.scrollbar-visible {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: #9ca3af transparent; /* gray-400 thumb */
+}
+.scrollbar-visible::-webkit-scrollbar {
+  width: 8px;
+}
+.scrollbar-visible::-webkit-scrollbar-thumb {
+  background-color: #9ca3af;
+  border-radius: 9999px;
+}
+html.dark .scrollbar-visible {
+  scrollbar-color: #4b5563 transparent; /* gray-600 thumb */
+}
+html.dark .scrollbar-visible::-webkit-scrollbar-thumb {
+  background-color: #4b5563;
+}
+
+/* Respect "reduce motion": the splash animations are decorative, and the swipe
+   pager's transitions are already short. Keep them from moving at all for
+   anyone who asked the OS not to animate. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fly,
+  .animate-drift,
+  .animate-prop,
+  .animate-radiate,
+  .animate-pulse-name,
+  .animate-jump {
+    animation: none !important;
+  }
+}
