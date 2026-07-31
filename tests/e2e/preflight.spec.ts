@@ -49,7 +49,8 @@ test("filing a flight adds it to the log and advances the tach", async ({ page }
   const tachStart = await page.getByLabel("Tach start").inputValue();
   const end = (Number(tachStart) + 1.5).toFixed(1);
   await page.getByLabel("Tach end").fill(end);
-  await page.getByLabel("Landings").fill("2");
+  await page.getByLabel("Landings", { exact: true }).fill("2");
+  await page.getByLabel("Night landings").fill("1");
 
   await expect(page.getByText("1.5 hr")).toBeVisible();
 
@@ -58,6 +59,8 @@ test("filing a flight adds it to the log and advances the tach", async ({ page }
 
   await gotoTab(page, "/log", "Flight log");
   await expect(page.getByText("1.5").first()).toBeVisible();
+  // The night landing lands in the currency card, not just the log line.
+  await expect(page.getByText(/Night: [1-9]\d*\/3 full-stop/)).toBeVisible();
 });
 
 test("an impossible meter reading is caught before it can be filed", async ({

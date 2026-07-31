@@ -30,8 +30,8 @@ test("booking the airplane, then cancelling it", async ({ page }) => {
       d.getMinutes()
     ).padStart(2, "0")}`;
 
-  await page.getByLabel("Start").fill(local(start));
-  await page.getByLabel("End").fill(local(end));
+  await page.getByLabel("Start", { exact: true }).fill(local(start));
+  await page.getByLabel("End", { exact: true }).fill(local(end));
   await page.getByLabel("Notes (optional)").fill("E2E booking");
   await page.getByRole("button", { name: "Book it" }).click();
 
@@ -43,6 +43,32 @@ test("booking the airplane, then cancelling it", async ({ page }) => {
   await page.getByRole("button", { name: "Cancel booking" }).click();
   await page.getByRole("button", { name: "Yes, cancel it" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
+});
+
+test("desktop gets the themed calendar popover, and picking a day fills the field", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Book the airplane", exact: true }).click();
+
+  // The custom picker only exists where there's a fine pointer — see
+  // components/common/DateTimeField.tsx.
+  await page.getByRole("button", { name: "Open calendar for Start" }).click();
+  const calendar = page.getByRole("dialog", { name: "Start calendar picker" });
+  await expect(calendar).toBeVisible();
+
+  // Pick a day and a time from the popover rather than typing. Page forward a
+  // month first: the field's `min` is today, so mid-month days are disabled
+  // whenever the suite happens to run late in a month.
+  const before = await page.getByLabel("Start", { exact: true }).inputValue();
+  await calendar.getByRole("button", { name: "Next month" }).click();
+  await calendar.getByRole("button", { name: "15", exact: true }).click();
+  await calendar.getByRole("button", { name: /10:00/ }).first().click();
+
+  const after = await page.getByLabel("Start", { exact: true }).inputValue();
+  expect(after).not.toBe(before);
+  expect(after).toMatch(/-15T10:00$/);
+  // Picking a time closes the popover.
+  await expect(calendar).toBeHidden();
 });
 
 test("a double booking is rejected with a useful message", async ({ page }) => {
@@ -60,8 +86,8 @@ test("a double booking is rejected with a useful message", async ({ page }) => {
     ).padStart(2, "0")}`;
 
   await page.getByRole("button", { name: "Book the airplane", exact: true }).click();
-  await page.getByLabel("Start").fill(local(start));
-  await page.getByLabel("End").fill(local(end));
+  await page.getByLabel("Start", { exact: true }).fill(local(start));
+  await page.getByLabel("End", { exact: true }).fill(local(end));
   await page.getByRole("button", { name: "Book it" }).click();
 
   await expect(page.getByText(new RegExp(`already has ${TAIL_NUMBER}`))).toBeVisible();

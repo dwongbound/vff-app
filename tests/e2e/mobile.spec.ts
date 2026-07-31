@@ -27,7 +27,22 @@ test("the schedule is a list, and the + button opens the booking sheet", async (
 
   await page.getByRole("button", { name: "New reservation" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByLabel("Start")).toBeVisible();
+  await expect(page.getByLabel("Start", { exact: true })).toBeVisible();
+});
+
+test("phones keep the native date picker instead of the custom popover", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "New reservation" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+
+  // No custom calendar button: on a touch device the OS picker is the better
+  // control, so DateTimeField leaves the native one alone.
+  await expect(
+    page.getByRole("button", { name: "Open calendar for Start" })
+  ).toBeHidden();
+  // …and the field itself is still a real datetime input.
+  await expect(page.getByLabel("Start", { exact: true })).toHaveAttribute("type", "datetime-local");
 });
 
 test("tabs are reachable from the bottom bar", async ({ page }) => {

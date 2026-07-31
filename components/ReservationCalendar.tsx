@@ -240,8 +240,27 @@ export default function ReservationCalendar({
   );
 }
 
-// One booking as a compact chip inside a day cell. Your own bookings are
-// filled orange; everyone else's are tinted, so "when can I fly?" is a glance.
+// The chip's fill, spelled out as three named cases rather than a nested
+// ternary: maintenance is the club's block, "mine" is solid so you can find
+// your own bookings at a glance, everyone else's is tinted.
+function chipFillClasses(reservation: ApiReservation): string {
+  if (reservation.purpose === "MAINTENANCE") {
+    return "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300";
+  }
+  if (reservation.mine) {
+    return "bg-indigo-600 text-white hover:bg-indigo-700";
+  }
+  return "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/70";
+}
+
+/** Who the chip is for: the club, you, or the member who booked it. */
+function chipLabel(reservation: ApiReservation): string {
+  if (reservation.purpose === "MAINTENANCE") return "Maintenance";
+  if (reservation.mine) return "You";
+  return reservation.user.name;
+}
+
+// One booking as a compact chip inside a day cell.
 function BookingChip({
   reservation,
   past,
@@ -251,29 +270,22 @@ function BookingChip({
   past: boolean;
   onClick: () => void;
 }) {
-  const maintenance = reservation.purpose === "MAINTENANCE";
   return (
     <button
       onClick={onClick}
       title={`${reservation.user.name} · ${formatTime(reservation.startsAt)}–${formatTime(
         reservation.endsAt
       )} · ${PURPOSE_LABELS[reservation.purpose]}`}
-      className={`flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-xs font-medium transition ${
-        maintenance
-          ? "bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
-          : reservation.mine
-            ? "bg-indigo-600 text-white hover:bg-indigo-700"
-            : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/70"
-      } ${
-        // Past bookings read as done: dimmed, but still a live button.
-        past ? "opacity-50 grayscale-[35%] hover:opacity-100" : ""
-      }`}
+      // Past bookings read as done — dimmed, but still a live button.
+      className={`flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-xs font-medium transition
+        ${chipFillClasses(reservation)}
+        ${past ? "opacity-50 grayscale-[35%] hover:opacity-100" : ""}`}
     >
       <span className="truncate">
         <span className={reservation.mine ? "opacity-90" : "opacity-70"}>
           {formatTime(reservation.startsAt)}
         </span>{" "}
-        {maintenance ? "Maintenance" : reservation.mine ? "You" : reservation.user.name}
+        {chipLabel(reservation)}
       </span>
     </button>
   );

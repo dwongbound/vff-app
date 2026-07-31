@@ -12,9 +12,11 @@ import Card from "@/components/common/Card";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
+import InfoTip from "@/components/common/InfoTip";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
-import { useAircraft, AIRCRAFT_CHANGED_EVENT } from "@/components/AircraftProvider";
+import { GumpsCard, MyLimitsCard } from "@/components/OperatingRules";
+import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import {
@@ -27,11 +29,17 @@ import {
   type Answers,
 } from "@/lib/checklist";
 import { SEVERITY_LABELS, SEVERITY_TONES } from "@/lib/constants";
-import { formatDay, formatTime } from "@/lib/dates";
-import type { ApiPreflight, ApiSquawk } from "@/lib/types";
+import { formatDay } from "@/lib/dates";
+import { hoursInLastYear, pilotTier } from "@/lib/operatingRules";
+import { useMe } from "@/components/MeProvider";
+import type { ApiFlight, ApiPreflight, ApiSquawk } from "@/lib/types";
 
 export default function PreflightPage() {
-  const { selected, loading: fleetLoading, refreshAircraft } = useAircraft();
+  const { selected, loading: fleetLoading } = useAircraft();
+  // Fetches key off the ID, not the aircraft object: the provider hands back a
+  // fresh object on every refresh, so depending on it would re-run this page's
+  // queries every time anyone touched a squawk.
+  const aircraftId = selected?.id ?? null;
   const [answers, setAnswers] = useState<Answers>({});
   const [openSection, setOpenSection] = useState<string>(PREFLIGHT_CHECKLIST[0].id);
   const [fuel, setFuel] = useState("");
@@ -42,25 +50,43 @@ export default function PreflightPage() {
   const [squawkModalOpen, setSquawkModalOpen] = useState(false);
   const [recent, setRecent] = useState<ApiPreflight[] | null>(null);
   const [openSquawks, setOpenSquawks] = useState<ApiSquawk[]>([]);
+  // My own flights, for the experience/currency half of the operating rules.
+  const [myFlights, setMyFlights] = useState<ApiFlight[]>([]);
+  const { me } = useMe();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  usePageLoading(fleetLoading || (Boolean(selected) && recent === null));
+  // See the reservations page for why this isn't just `recent === null`.
+  const showSplash = fleetLoading || (selected !== null && recent === null);
+  usePageLoading(showSplash);
 
   const refresh = useCallback(async () => {
-    if (!selected) return;
-    const [runs, squawks] = await Promise.all([
-      fetchJsonArray<ApiPreflight>(`/api/preflight?aircraftId=${selected.id}&limit=5`),
-      fetchJsonArray<ApiSquawk>(`/api/squawks?aircraftId=${selected.id}&status=OPEN`),
+    if (!aircraftId) return;
+    // Both lists are always shown together, so they go out together rather
+    // than one after the other.
+    const [runs, squawks, flights] = await Promise.all([
+      fetchJsonArray<ApiPreflight>(`/api/preflight?aircraftId=${aircraftId}&limit=5`),
+      fetchJsonArray<ApiSquawk>(`/api/squawks?aircraftId=${aircraftId}&status=OPEN`),
+      fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${aircraftId}&mine=1&limit=300`),
     ]);
     setRecent(runs);
     setOpenSquawks(squawks);
-  }, [selected]);
+    setMyFlights(flights);
+  }, [aircraftId]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Which column of the club's operating rules applies to this member today.
+  // The recent half comes from this club's log; the total is whatever they
+  // declared on their profile (the club can't see their logbook).
+  const recentHours = hoursInLastYear(myFlights);
+  const tier = pilotTier({
+    totalTimeHours: me?.totalTimeHours ?? null,
+    recentHours,
+  });
 
   const checked = countChecked(answers);
   const complete = isComplete(answers);
@@ -138,8 +164,7 @@ export default function PreflightPage() {
 
     // A new grounding squawk changes the whole app's banner state.
     if (squawkDrafts.some((d) => d.severity === "GROUNDING")) {
-      await refreshAircraft();
-      window.dispatchEvent(new Event(AIRCRAFT_CHANGED_EVENT));
+      notifyAircraftChanged();
     }
 
     // Start clean for the next run.
@@ -184,11 +209,25 @@ export default function PreflightPage() {
         </p>
       </header>
 
+      {/* The club's limits for THIS member, before anything else — they decide
+          whether the flight happens at all. */}
+      <MyLimitsCard
+        tier={tier}
+        totalTimeHours={me?.totalTimeHours ?? null}
+        recentHours={recentHours}
+      />
+
       {/* Open squawks up top: knowing what's already wrong changes what you
           look at on the walkaround. */}
       {openSquawks.length > 0 && (
         <Card className="space-y-2">
           <h2 className="text-sm font-semibold">Open squawks</h2>
+          {tier === "BUILDING" && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+              Club rules: call the VFF Safety Officer to discuss before flying
+              with an open squawk.
+            </p>
+          )}
           <ul className="space-y-1.5">
             {openSquawks.map((s) => (
               <li key={s.id} className="flex items-start gap-2 text-sm">
@@ -277,14 +316,20 @@ export default function PreflightPage() {
                   <ul>
                     {section.items.map((item) => {
                       const on = Boolean(answers[item.id]);
+                      // The row's tick target and its (i) are SIBLINGS, not
+                      // nested: a button inside a button is invalid HTML and
+                      // React refuses to hydrate it. The tick target still
+                      // takes all the leftover width, so it stays a
+                      // thumb-sized target on a ramp.
                       return (
-                        <li key={item.id}>
-                          {/* The whole row is the tap target — on a ramp you
-                              are not aiming for a 16px checkbox. */}
+                        <li
+                          key={item.id}
+                          className="flex items-start gap-2 pr-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                        >
                           <button
                             onClick={() => toggle(item.id)}
                             aria-pressed={on}
-                            className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                            className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left"
                           >
                             <span
                               className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-colors ${
@@ -312,6 +357,9 @@ export default function PreflightPage() {
                               )}
                             </span>
                           </button>
+                          <span className="mt-4 shrink-0">
+                            <InfoTip label={item.label}>{item.why}</InfoTip>
+                          </span>
                         </li>
                       );
                     })}
@@ -429,6 +477,10 @@ export default function PreflightPage() {
           </ul>
         )}
       </Card>
+
+      {/* The last mnemonic of the rules — not a checklist item because it's
+          flown, not walked: you run it on every approach. */}
+      <GumpsCard />
 
       {/* Submit. "Sign off" is gated on a complete checklist and says exactly
           what's missing when it isn't — never a silently disabled button. */}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHECKLIST_VERSION,
   PREFLIGHT_CHECKLIST,
   TOTAL_ITEMS,
   allItemIds,
@@ -22,6 +23,24 @@ describe("checklist shape", () => {
     for (const section of PREFLIGHT_CHECKLIST) {
       expect(section.items.length).toBeGreaterThan(0);
     }
+  });
+
+  // The (i) popover is only useful if nothing is missing one.
+  it("explains why every single item is on the list", () => {
+    for (const section of PREFLIGHT_CHECKLIST) {
+      for (const item of section.items) {
+        expect(item.why, `${item.id} has no why`).toBeTruthy();
+        expect(item.why.length, item.id).toBeGreaterThan(30);
+      }
+    }
+  });
+
+  // The club's operating rules put I'M SAFE before the walkaround and the
+  // 5 Ps at the runup, so the checklist has to bracket the airplane checks.
+  it("brackets the walkaround with the club's mnemonics", () => {
+    expect(PREFLIGHT_CHECKLIST[0].id).toBe("imsafe");
+    expect(PREFLIGHT_CHECKLIST[PREFLIGHT_CHECKLIST.length - 1].id).toBe("fiveps");
+    expect(CHECKLIST_VERSION).toBeGreaterThanOrEqual(2);
   });
 });
 

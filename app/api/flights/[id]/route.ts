@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { purgePhotosFor } from "@/lib/photos";
 import { serializeFlight } from "@/lib/serialize";
 import { validateMeters } from "@/lib/hours";
 
@@ -81,7 +82,10 @@ export async function PATCH(
   for (const field of ["fuelAddedGal", "oilAddedQts", "fuelCostCents"] as const) {
     if (field in body) data[field] = num(body[field]);
   }
-  for (const field of ["tiedDown", "cabinClean"] as const) {
+  if ("nightLandings" in body) {
+    data.nightLandings = Math.max(0, Math.round(num(body.nightLandings) ?? 0));
+  }
+  for (const field of ["tiedDown", "cabinClean", "withInstructor"] as const) {
     if (typeof body[field] === "boolean") data[field] = body[field];
   }
   if (body.flownOn) {
@@ -120,9 +124,11 @@ export async function DELETE(
     return NextResponse.json({ error: "That's not your flight." }, { status: 403 });
   }
 
-  // Photos cascade with the row; the bytes are cleaned up by the photo route
-  // when a photo is deleted individually. Orphaned objects are harmless and
-  // cheap, and keeping the delete synchronous keeps this endpoint fast.
+  // The Photo ROWS cascade with the flight, but object storage doesn't know
+  // about that — drop the bytes first or they'd sit in the bucket forever with
+  // nothing left pointing at them. Squawks raised on this flight survive
+  // (flightId is SetNull), so their photos are deliberately untouched.
+  await purgePhotosFor({ flightId: id });
   await prisma.flight.delete({ where: { id } });
 
   return NextResponse.json({ ok: true });

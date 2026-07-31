@@ -1,0 +1,133 @@
+name: CI
+
+# Every push and PR runs the same three gates a developer runs locally:
+# typecheck, unit tests, then the e2e suite against a real Postgres and a real
+# Next server. Nothing here is mocked — the e2e job seeds the database exactly
+# the way `docker compose --profile test` does.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  # Lets you re-run the suite from the Actions tab without pushing anything.
+  workflow_dispatch:
+
+# A second push to the same branch cancels the run already in flight; the old
+# result would be thrown away anyway.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Reservation and flight dates are interpreted in the club's zone (see
+  # instrumentation.ts) — pin it so a runner in UTC can't shift a test's idea
+  # of "today" across a date boundary.
+  APP_TZ: America/Los_Angeles
+  TZ: America/Los_Angeles
+
+jobs:
+  # Fast feedback: types and pure logic, no database needed.
+  unit:
+    name: Typecheck & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        # `prisma generate` runs on postinstall and reads DATABASE_URL from the
+        # config, so it has to be set even though nothing connects here.
+        run: npm ci
+        env:
+          DATABASE_URL: postgresql://vff:vff@localhost:5432/vff_test
+
+      - run: npm run typecheck
+
+      - run: npm run test:unit
+
+  e2e:
+    name: End-to-end (desktop + mobile)
+    runs-on: ubuntu-latest
+    # Both halves of the suite are worth running even when the other fails, but
+    # there's no point booting Postgres if the code doesn't compile.
+    needs: unit
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: vff
+          POSTGRES_PASSWORD: vff
+          POSTGRES_DB: vff_test
+        ports:
+          - 5433:5432
+        # Give the job a database that's actually accepting connections rather
+        # than one that has merely started.
+        options: >-
+          --health-cmd "pg_isready -U vff -d vff_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Write the test environment
+        # Mirrors env.example/test.env. The e2e harness loads env/test.env
+        # itself (playwright.config.ts + tests/e2e/global-setup.ts), so CI has
+        # to materialise the file rather than relying on process env alone.
+        run: |
+          mkdir -p env
+          cat > env/test.env <<'EOF'
+          DATABASE_URL=postgresql://vff:vff@localhost:5433/vff_test
+          NEXTAUTH_URL=http://localhost:3100
+          NEXTAUTH_SECRET=ci-secret-not-a-real-one
+          SEED_ADMIN_EMAIL=admin@vffclub.test
+          SEED_ADMIN_PASSWORD=flyvff123
+          SEED_TAIL_NUMBER=N172VF
+          STORAGE_DRIVER=local
+          STORAGE_LOCAL_DIR=storage/test-photos
+          APP_TZ=America/Los_Angeles
+          EOF
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          DATABASE_URL: postgresql://vff:vff@localhost:5433/vff_test
+
+      - name: Install Playwright browsers
+        # Only the engine the projects actually use (all three projects are
+        # Chromium-based device presets), so the download stays small.
+        run: npx playwright install --with-deps chromium
+
+      - name: Push the schema
+        # global-setup force-resets and reseeds per run; this just makes sure
+        # the database exists in the shape the client expects first.
+        run: npx prisma db push
+        env:
+          DATABASE_URL: postgresql://vff:vff@localhost:5433/vff_test
+
+      - name: Run the e2e suite
+        run: npm run test:e2e
+        env:
+          CI: "true"
+
+      - name: Upload the Playwright report
+        # The report is only interesting when something failed, and it's what
+        # you need to work out WHY without reproducing locally.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

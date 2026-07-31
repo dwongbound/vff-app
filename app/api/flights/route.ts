@@ -30,6 +30,23 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * What the fuel cost, in whole cents.
+ *
+ * The post-flight form asks for dollars (that's what the receipt says) while
+ * the column stores cents, so both spellings are accepted here rather than
+ * making the client do money arithmetic.
+ */
+function fuelCostCents(body: Record<string, unknown>): number | null {
+  const cents = num(body.fuelCostCents);
+  if (cents != null) return Math.round(cents);
+
+  const dollars = num(body.fuelCostDollars);
+  if (dollars != null) return Math.round(dollars * 100);
+
+  return null;
+}
+
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
@@ -125,16 +142,19 @@ export async function POST(req: Request) {
       hobbsStart,
       hobbsEnd,
       landings: Math.max(0, Math.round(num(body.landings) ?? 1)),
+      // Night landings count toward currency only when they're a subset of the
+      // flight's landings — clamp rather than reject, since the pilot is
+      // reporting one number they already know.
+      nightLandings: Math.min(
+        Math.max(0, Math.round(num(body.nightLandings) ?? 0)),
+        Math.max(0, Math.round(num(body.landings) ?? 1))
+      ),
+      withInstructor: body.withInstructor === true,
       departure: body.departure ? String(body.departure).trim().toUpperCase() : null,
       arrival: body.arrival ? String(body.arrival).trim().toUpperCase() : null,
       route: body.route ? String(body.route).trim() : null,
       fuelAddedGal: num(body.fuelAddedGal),
-      fuelCostCents:
-        num(body.fuelCostCents) ??
-        // The form collects dollars; accept either and store cents.
-        (num(body.fuelCostDollars) == null
-          ? null
-          : Math.round((num(body.fuelCostDollars) as number) * 100)),
+      fuelCostCents: fuelCostCents(body),
       oilAddedQts: num(body.oilAddedQts),
       tiedDown: body.tiedDown !== false,
       cabinClean: body.cabinClean !== false,

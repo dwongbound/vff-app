@@ -13,6 +13,7 @@ function toApi(u: {
   phone: string | null;
   isAdmin: boolean;
   certificate: string | null;
+  totalTimeHours: number | null;
   medicalExpiresOn: Date | null;
   flightReviewOn: Date | null;
 }): ApiMe {
@@ -23,6 +24,7 @@ function toApi(u: {
     phone: u.phone,
     isAdmin: u.isAdmin,
     certificate: u.certificate,
+    totalTimeHours: u.totalTimeHours,
     medicalExpiresOn: u.medicalExpiresOn?.toISOString() ?? null,
     flightReviewOn: u.flightReviewOn?.toISOString() ?? null,
   };
@@ -35,6 +37,7 @@ const SELECT = {
   phone: true,
   isAdmin: true,
   certificate: true,
+  totalTimeHours: true,
   medicalExpiresOn: true,
   flightReviewOn: true,
 } as const;
@@ -66,6 +69,18 @@ export async function PATCH(req: Request) {
   if ("phone" in body) data.phone = body.phone ? String(body.phone).trim() : null;
   if ("certificate" in body) {
     data.certificate = body.certificate ? String(body.certificate).trim() : null;
+  }
+  // Total time is self-declared: the club can't see a member's logbook, and it
+  // decides which column of the operating rules applies to them.
+  if ("totalTimeHours" in body) {
+    const hours = Number(body.totalTimeHours);
+    if (body.totalTimeHours === null || body.totalTimeHours === "") {
+      data.totalTimeHours = null;
+    } else if (!Number.isFinite(hours) || hours < 0) {
+      return NextResponse.json({ error: "Total time has to be a number." }, { status: 400 });
+    } else {
+      data.totalTimeHours = hours;
+    }
   }
   // Date-only fields arrive as "YYYY-MM-DD" from <input type="date">.
   for (const field of ["medicalExpiresOn", "flightReviewOn"] as const) {

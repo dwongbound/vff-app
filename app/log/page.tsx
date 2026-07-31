@@ -12,11 +12,18 @@ import Badge from "@/components/common/Badge";
 import Card from "@/components/common/Card";
 import FlightDetailModal from "@/components/FlightDetailModal";
 import SquawkPanel from "@/components/SquawkPanel";
-import { AIRCRAFT_CHANGED_EVENT, useAircraft } from "@/components/AircraftProvider";
+import { RulesReference } from "@/components/OperatingRules";
+import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { formatDay } from "@/lib/dates";
+import {
+  REQUIRED_LANDINGS,
+  hoursInLastYear,
+  landingCurrency,
+  pilotTier,
+} from "@/lib/operatingRules";
 import {
   formatHours,
   inRange,
@@ -40,6 +47,8 @@ export default function FlightLogPage() {
 
 function FlightLog() {
   const { selected, loading: fleetLoading } = useAircraft();
+  // See the preflight page: depend on the id, not the object identity.
+  const aircraftId = selected?.id ?? null;
   const { me } = useMe();
   const searchParams = useSearchParams();
   const [flights, setFlights] = useState<ApiFlight[] | null>(null);
@@ -50,19 +59,23 @@ function FlightLog() {
   // everything when someone asks for the full history instead.
   const showAllSquawks = searchParams.get("squawks") === "all";
 
-  usePageLoading(fleetLoading || (Boolean(selected) && flights === null));
+  // See the reservations page for why this isn't just `flights === null`.
+  const showSplash = fleetLoading || (selected !== null && flights === null);
+  usePageLoading(showSplash);
 
   const refresh = useCallback(async () => {
-    if (!selected) return;
+    if (!aircraftId) return;
+    // The log and the squawk list are always on screen together, so they're
+    // fetched together rather than in sequence.
     const [rows, squawkRows] = await Promise.all([
-      fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${selected.id}&limit=300`),
+      fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${aircraftId}&limit=300`),
       fetchJsonArray<ApiSquawk>(
-        `/api/squawks?aircraftId=${selected.id}&status=${showAllSquawks ? "all" : "OPEN"}`
+        `/api/squawks?aircraftId=${aircraftId}&status=${showAllSquawks ? "all" : "OPEN"}`
       ),
     ]);
     setFlights(rows);
     setSquawks(squawkRows);
-  }, [selected, showAllSquawks]);
+  }, [aircraftId, showAllSquawks]);
 
   useEffect(() => {
     refresh();
@@ -86,6 +99,19 @@ function FlightLog() {
       landings: totalLandings(all),
     };
   }, [all]);
+
+  // Landing currency, per the club's rules: 3 landings inside the window that
+  // applies to this member's experience column (90 days, or 30 while building
+  // time). Night landings must be to a full stop, which is why they're logged
+  // separately on the post-flight form.
+  const currency = useMemo(() => {
+    const mine = all.filter((f) => f.mine);
+    const tier = pilotTier({
+      totalTimeHours: me?.totalTimeHours ?? null,
+      recentHours: hoursInLastYear(mine),
+    });
+    return { tier, ...landingCurrency(mine, tier) };
+  }, [all, me?.totalTimeHours]);
 
   async function deleteFlight(flight: ApiFlight) {
     const result = await sendJson(`/api/flights/${flight.id}`, "DELETE");
@@ -142,6 +168,31 @@ function FlightLog() {
         <Stat label="Your flights" value={String(stats.myFlights)} />
         <Stat label="Club landings" value={String(stats.landings)} />
       </div>
+
+      {/* What the club's log can say about your currency. Deliberately framed
+          as "this log shows", not "you are current": hours flown in another
+          club's airplane are invisible here, and the pilot is still PIC of
+          that decision. */}
+      <Card className="space-y-2">
+        <h2 className="text-sm font-semibold">
+          Your landing currency
+          <span className="ml-2 font-normal text-gray-500 dark:text-gray-400">
+            last {currency.windowDays} days, from this club&rsquo;s log
+          </span>
+        </h2>
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={currency.dayCurrent ? "green" : "amber"}>
+            Day: {currency.dayLandings}/{REQUIRED_LANDINGS} landings
+          </Badge>
+          <Badge tone={currency.nightCurrent ? "green" : "gray"}>
+            Night: {currency.nightLandings}/{REQUIRED_LANDINGS} full-stop
+          </Badge>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Flights in other airplanes don&rsquo;t appear here — this is what the club
+          log alone shows.
+        </p>
+      </Card>
 
       {visible.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 px-4 py-12 text-center dark:border-gray-600">
@@ -219,9 +270,11 @@ function FlightLog() {
         onChanged={() => {
           refresh();
           // The grounded banner is derived from the aircraft payload.
-          window.dispatchEvent(new Event(AIRCRAFT_CHANGED_EVENT));
+          notifyAircraftChanged();
         }}
       />
+
+      <RulesReference />
 
       <FlightDetailModal
         flight={openFlight}

@@ -72,6 +72,12 @@ model User {
   medicalExpiresOn DateTime?
   flightReviewOn   DateTime? // last flight review (BFR); currency = +24 calendar months
 
+  // Total time from the member's own logbook, which the club can't see. Half
+  // of the operating rules' experience gate (VFF-OR-A: over 200 h total AND
+  // 50 h in the last 12 months); the recent half is computed from this club's
+  // flight log. Null = treated as the lower-experience column.
+  totalTimeHours Float?
+
   reservations    Reservation[]
   flights         Flight[]
   preflightChecks PreflightCheck[]
@@ -176,6 +182,15 @@ model Flight {
   hobbsEnd   Float?
 
   landings Int @default(1)
+
+  // Night landings must be to a full stop to count for currency (VFF-OR-A /
+  // 61.57(b)), so they're recorded separately rather than inferred. Always a
+  // subset of `landings`.
+  nightLandings Int @default(0)
+
+  // Flown with an approved instructor, which is the third column of the
+  // operating rules — the club's personal minimums don't apply to that flight.
+  withInstructor Boolean @default(false)
 
   // Route as filed by the pilot, e.g. "KRHV → KWVI → KRHV".
   departure String?

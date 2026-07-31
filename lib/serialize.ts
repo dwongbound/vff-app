@@ -159,6 +159,8 @@ interface FlightRow {
   hobbsStart: number | null;
   hobbsEnd: number | null;
   landings: number;
+  nightLandings: number;
+  withInstructor: boolean;
   departure: string | null;
   arrival: string | null;
   route: string | null;
@@ -185,6 +187,8 @@ export function serializeFlight(f: FlightRow, viewerId: string): ApiFlight {
     hobbsStart: f.hobbsStart,
     hobbsEnd: f.hobbsEnd,
     landings: f.landings,
+    nightLandings: f.nightLandings,
+    withInstructor: f.withInstructor,
     departure: f.departure,
     arrival: f.arrival,
     route: f.route,

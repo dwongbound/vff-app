@@ -6,7 +6,6 @@ import {
   hobbsHours,
   inRange,
   tachHours,
-  totalFuelGal,
   totalLandings,
   totalTachHours,
   validateMeters,
@@ -76,9 +75,8 @@ describe("totals", () => {
     expect(totalTachHours(flights)).toBe(4);
   });
 
-  it("adds landings and fuel", () => {
+  it("adds landings", () => {
     expect(totalLandings(flights)).toBe(6);
-    expect(totalFuelGal(flights)).toBe(22.1);
   });
 
   it("filters to a date window, end-exclusive", () => {

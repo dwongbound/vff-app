@@ -27,6 +27,8 @@ type Filter = "all" | "mine";
 
 export default function ReservationsPage() {
   const { selected, loading: fleetLoading } = useAircraft();
+  // See the preflight page: depend on the id, not the object identity.
+  const aircraftId = selected?.id ?? null;
   const { me } = useMe();
   const [reservations, setReservations] = useState<ApiReservation[] | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -40,12 +42,16 @@ export default function ReservationsPage() {
   const [createDate, setCreateDate] = useState<Date | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  usePageLoading(fleetLoading || (Boolean(selected) && reservations === null));
+  // Hold the splash until we know the fleet, and (once we do) until this
+  // airplane's schedule has arrived. A club with no airplane at all is not
+  // loading — it needs to see the "seed one" message.
+  const showSplash = fleetLoading || (selected !== null && reservations === null);
+  usePageLoading(showSplash);
 
   // One fetch feeds both views: a window wide enough for the month on screen
   // AND the phone list's horizon, so switching layouts (or rotating a tablet)
   // never shows a gap.
-  const window = useMemo(() => {
+  const range = useMemo(() => {
     const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 1);
     const now = new Date();
@@ -58,12 +64,12 @@ export default function ReservationsPage() {
   }, [month]);
 
   const refresh = useCallback(async () => {
-    if (!selected) return;
+    if (!aircraftId) return;
     const rows = await fetchJsonArray<ApiReservation>(
-      `/api/reservations?aircraftId=${selected.id}&from=${window.from}&to=${window.to}`
+      `/api/reservations?aircraftId=${aircraftId}&from=${range.from}&to=${range.to}`
     );
     setReservations(rows);
-  }, [selected, window.from, window.to]);
+  }, [aircraftId, range.from, range.to]);
 
   useEffect(() => {
     refresh();

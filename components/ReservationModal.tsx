@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import Badge from "./common/Badge";
 import Button from "./common/Button";
-import Input from "./common/Input";
+import DateTimeField from "./common/DateTimeField";
 import LoadingDots from "./common/LoadingDots";
 import Modal from "./common/Modal";
 import Select from "./common/Select";
@@ -15,15 +15,19 @@ import Textarea from "./common/Textarea";
 import { sendJson } from "@/lib/api";
 import {
   DEFAULT_RESERVATION_HOURS,
+  MAX_ADVANCE_DAYS,
   PURPOSES,
   PURPOSE_LABELS,
   PURPOSE_TONES,
   type Purpose,
 } from "@/lib/constants";
 import {
+  addDays,
   addMinutes,
   formatDuration,
   formatFullDate,
+  splitLocalDateTime,
+  toDateInputValue,
   toLocalInputValue,
 } from "@/lib/dates";
 import { validateReservation } from "@/lib/reservations";
@@ -233,17 +237,19 @@ export default function ReservationModal({
       }
     >
       <div className="space-y-4">
-        <Input
+        <DateTimeField
           label="Start"
-          type="datetime-local"
           value={start}
-          onChange={(e) => onStartChange(e.target.value)}
+          onChange={onStartChange}
+          // No point offering days the club won't accept a booking on.
+          min={toDateInputValue(new Date())}
+          max={toDateInputValue(addDays(new Date(), MAX_ADVANCE_DAYS))}
         />
-        <Input
+        <DateTimeField
           label="End"
-          type="datetime-local"
           value={end}
-          onChange={(e) => setEnd(e.target.value)}
+          onChange={setEnd}
+          min={splitLocalDateTime(start).date || toDateInputValue(new Date())}
           hint={
             timesUsable && endsAt > startsAt
               ? `You'll have the airplane for ${formatDuration(startsAt, endsAt)}.`

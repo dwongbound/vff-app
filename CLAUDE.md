@@ -36,7 +36,11 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 - **Squawk** — severity `NOTE|MONITOR|GROUNDING`, status `OPEN|RESOLVED`.
   Open GROUNDING ⇒ app-wide red banner (Navbar). Admin-only sign-off.
 - **PreflightCheck** — `answers` JSON `{ itemId: true }` against
-  `lib/checklist.ts` + `checklistVersion`; `completedAt` = signed off.
+  `lib/checklist.ts` + `checklistVersion` (v2 = I'M SAFE + 5 Ps sections);
+  `completedAt` = signed off.
+- **Flight** also carries `nightLandings` (full-stop, for currency) and
+  `withInstructor` (selects the third column of the operating rules);
+  **User** carries self-declared `totalTimeHours`.
 - **Photo** — storage `key` + metadata; `flightId` / `squawkId` / `preflightId`.
 
 ## Pages (`app/*/page.tsx`)
@@ -62,7 +66,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   legal), `findConflict`, `validateReservation`, `upcoming`/`past`. ✅tested
 - `hours.ts` — tach/Hobbs math, `validateMeters` (catches the mis-read meter),
   totals, cost, formatting. ✅tested
-- `checklist.ts` — the 172 walkaround + `parseAnswers`/`isComplete`. ✅tested
+- `checklist.ts` — I'M SAFE + the 172 walkaround + 5 Ps, every item with a
+  `why` for the (i) popover; `parseAnswers`/`isComplete`. ✅tested
+- `operatingRules.ts` — VFF-OR-A as data: `pilotTier`, `ruleFor`,
+  `landingCurrency`, `hoursInLastYear`, the mnemonics. ✅tested
 - `dates.ts` — formatting, `toLocalInputValue`, `calendarMonthsFrom`.
 - `constants.ts` — club name, purposes/severities + tones, policy limits.
 - `auth.ts` — `authOptions`, `getSessionUser()`, `getAdminUser()` (re-reads db).
@@ -79,9 +86,12 @@ Feature: `Navbar` (top strip + phone bottom bar), `SwipePager`/`SwipeProvider`
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
 sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
 (phone), `ReservationModal`, `FlightDetailModal`, `SquawkPanel`,
-`SquawkDraftModal`, `PhotoUploader`, `Logo`.
-Primitives in `components/common/`: `Badge Banner Button Card Dropdown Input
-Modal Select Textarea LoadingDots LoadingScreen`. Prefer extending these.
+`SquawkDraftModal`, `PhotoUploader`, `Logo`, `OperatingRules`
+(`MyLimitsCard` on preflight / `RulesReference` on the log / `GumpsCard`).
+Primitives in `components/common/`: `Badge Banner Button Card DateTimeField
+Dropdown InfoTip Input Modal Select Textarea LoadingDots LoadingScreen`.
+Prefer extending these. `DateTimeField` = native picker on touch, themed
+popover on desktop; `InfoTip` = the (i) marker (hover opens, click pins).
 
 ## Gotchas
 
@@ -99,3 +109,7 @@ Modal Select Textarea LoadingDots LoadingScreen`. Prefer extending these.
   `File[]`; the page calls `uploadPhotos()` with the new id).
 - The Playwright image tag in `docker-compose.yml` must match the pinned
   `@playwright/test` version.
+- `getByLabel` matches substrings: "Landings" also hits "Night landings", and
+  "Start" hits "Open calendar for Start". Specs use `{ exact: true }`.
+- CI lives in `.github/workflows/ci.yml` and materialises `env/test.env`
+  itself, since the e2e harness loads that file rather than process env.

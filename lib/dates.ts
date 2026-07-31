@@ -64,6 +64,40 @@ export function toDateInputValue(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * "YYYY-MM-DD" → a LOCAL Date. Parsed by hand because `new Date("2026-08-02")`
+ * is interpreted as midnight UTC, which lands on the previous day in the US.
+ */
+export function fromDateInputValue(ymd: string): Date | null {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+/** Split "2026-08-02T09:30" into its date and time halves. */
+export function splitLocalDateTime(value: string): { date: string; time: string } {
+  const [date = "", time = ""] = value.split("T");
+  // Some browsers hand back seconds ("09:30:00"); the pickers only deal in
+  // hours and minutes.
+  return { date, time: time.slice(0, 5) };
+}
+
+/** Rejoin the halves. Returns "" unless both are present. */
+export function joinLocalDateTime(date: string, time: string): string {
+  if (!date || !time) return "";
+  return `${date}T${time}`;
+}
+
+/** "09:30" → "9:30 AM" in the viewer's locale. */
+export function formatClock(hm: string): string {
+  const [h, m] = hm.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return hm;
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Local midnight of the day `d` falls on. */
 export function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());

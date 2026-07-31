@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import DateTimeField from "@/components/common/DateTimeField";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import { useMe } from "@/components/MeProvider";
@@ -21,6 +22,7 @@ export default function ProfilePage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [certificate, setCertificate] = useState("");
+  const [totalTime, setTotalTime] = useState("");
   const [medical, setMedical] = useState("");
   const [review, setReview] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,6 +37,7 @@ export default function ProfilePage() {
     setName(me.name);
     setPhone(me.phone ?? "");
     setCertificate(me.certificate ?? "");
+    setTotalTime(me.totalTimeHours == null ? "" : String(me.totalTimeHours));
     setMedical(me.medicalExpiresOn ? toDateInputValue(new Date(me.medicalExpiresOn)) : "");
     setReview(me.flightReviewOn ? toDateInputValue(new Date(me.flightReviewOn)) : "");
   }, [me]);
@@ -47,6 +50,7 @@ export default function ProfilePage() {
       name: name.trim(),
       phone: phone.trim() || null,
       certificate: certificate.trim() || null,
+      totalTimeHours: totalTime === "" ? null : Number(totalTime),
       medicalExpiresOn: medical || null,
       flightReviewOn: review || null,
     });
@@ -109,10 +113,20 @@ export default function ProfilePage() {
           placeholder="Private Pilot ASEL"
         />
         <Input
+          label="Total flight time"
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.1"
+          value={totalTime}
+          onChange={(e) => setTotalTime(e.target.value)}
+          hint="Hours from your own logbook. The club can't see it, and it decides which column of the operating rules applies to you."
+        />
+        <DateTimeField
           label="Medical expires"
-          type="date"
+          mode="date"
           value={medical}
-          onChange={(e) => setMedical(e.target.value)}
+          onChange={setMedical}
           hint={
             medicalDate
               ? medicalDate < now
@@ -121,11 +135,13 @@ export default function ProfilePage() {
               : "Leave blank if you fly under BasicMed or sport rules."
           }
         />
-        <Input
+        <DateTimeField
           label="Last flight review"
-          type="date"
+          mode="date"
+          // A review you took in the future isn't a review.
+          max={toDateInputValue(new Date())}
           value={review}
-          onChange={(e) => setReview(e.target.value)}
+          onChange={setReview}
           hint={
             reviewDueOn
               ? `Current through ${formatFullDate(reviewDueOn)} (${FLIGHT_REVIEW_MONTHS} calendar months).`

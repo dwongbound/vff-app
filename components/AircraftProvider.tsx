@@ -26,6 +26,17 @@ const STORAGE_KEY = "aircraftId";
 /** Fired after a squawk is opened/resolved so the grounded banner re-reads. */
 export const AIRCRAFT_CHANGED_EVENT = "aircraft-changed";
 
+/**
+ * Tell the app the airplane's state changed (new squawk, meters advanced).
+ *
+ * Always prefer this over calling `refreshAircraft()` directly from a page:
+ * the provider already listens for the event, so doing both fires two
+ * identical requests for one change.
+ */
+export function notifyAircraftChanged(): void {
+  window.dispatchEvent(new Event(AIRCRAFT_CHANGED_EVENT));
+}
+
 interface AircraftCtx {
   /** null until the first successful fetch. */
   aircraft: ApiAircraft[] | null;

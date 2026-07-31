@@ -10,13 +10,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import DateTimeField from "@/components/common/DateTimeField";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
-import { AIRCRAFT_CHANGED_EVENT, useAircraft } from "@/components/AircraftProvider";
+import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { SEVERITY_LABELS, SEVERITY_TONES } from "@/lib/constants";
@@ -32,7 +33,9 @@ import {
 import type { ApiFlight, ApiReservation, ApiSquawk } from "@/lib/types";
 
 export default function PostflightPage() {
-  const { selected, loading: fleetLoading, refreshAircraft } = useAircraft();
+  const { selected, loading: fleetLoading } = useAircraft();
+  // See the preflight page: depend on the id, not the object identity.
+  const aircraftId = selected?.id ?? null;
 
   const [reservationId, setReservationId] = useState("");
   const [flownOn, setFlownOn] = useState(() => toDateInputValue(new Date()));
@@ -41,6 +44,8 @@ export default function PostflightPage() {
   const [hobbsStart, setHobbsStart] = useState("");
   const [hobbsEnd, setHobbsEnd] = useState("");
   const [landings, setLandings] = useState("1");
+  const [nightLandings, setNightLandings] = useState("0");
+  const [withInstructor, setWithInstructor] = useState(false);
   const [departure, setDeparture] = useState("");
   const [arrival, setArrival] = useState("");
   const [route, setRoute] = useState("");
@@ -61,19 +66,21 @@ export default function PostflightPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  usePageLoading(fleetLoading || (Boolean(selected) && openBookings === null));
+  // See the reservations page for why this isn't just `openBookings === null`.
+  const showSplash = fleetLoading || (selected !== null && openBookings === null);
+  usePageLoading(showSplash);
 
   const loadBookings = useCallback(async () => {
-    if (!selected) return;
+    if (!aircraftId) return;
     // Everything of mine from the last two weeks through now — a flight filed
     // days late still finds its booking.
     const from = new Date(Date.now() - 14 * 86_400_000).toISOString();
     const to = new Date(Date.now() + 86_400_000).toISOString();
     const rows = await fetchJsonArray<ApiReservation>(
-      `/api/reservations?aircraftId=${selected.id}&mine=1&from=${from}&to=${to}`
+      `/api/reservations?aircraftId=${aircraftId}&mine=1&from=${from}&to=${to}`
     );
     setOpenBookings(rows.filter((r) => !r.hasFlight));
-  }, [selected]);
+  }, [aircraftId]);
 
   useEffect(() => {
     loadBookings();
@@ -82,15 +89,16 @@ export default function PostflightPage() {
   // Prefill the "start" meters from where the airplane was left. The pilot
   // still confirms them against the panel — they're editable, and a mismatch
   // usually means someone forgot to file a flight.
+  const lastTach = selected?.lastTach ?? null;
+  const lastHobbs = selected?.lastHobbs ?? null;
   useEffect(() => {
-    if (!selected) return;
     setTachStart((current) =>
-      current === "" && selected.lastTach != null ? String(selected.lastTach) : current
+      current === "" && lastTach != null ? String(lastTach) : current
     );
     setHobbsStart((current) =>
-      current === "" && selected.lastHobbs != null ? String(selected.lastHobbs) : current
+      current === "" && lastHobbs != null ? String(lastHobbs) : current
     );
-  }, [selected]);
+  }, [lastTach, lastHobbs]);
 
   // Hobbs counts as recorded only when BOTH readings are there. The start is
   // prefilled from the airplane, so without this a pilot who simply doesn't use
@@ -135,6 +143,8 @@ export default function PostflightPage() {
       hobbsStart: hobbsPair ? Number(hobbsStart) : null,
       hobbsEnd: hobbsPair ? Number(hobbsEnd) : null,
       landings: Number(landings || 1),
+      nightLandings: Number(nightLandings || 0),
+      withInstructor,
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
@@ -180,6 +190,8 @@ export default function PostflightPage() {
     setHobbsStart(hobbsEnd);
     setHobbsEnd("");
     setLandings("1");
+    setNightLandings("0");
+    setWithInstructor(false);
     setDeparture("");
     setArrival("");
     setRoute("");
@@ -190,8 +202,9 @@ export default function PostflightPage() {
     setPhotos([]);
     setSquawkDrafts([]);
 
-    await refreshAircraft();
-    window.dispatchEvent(new Event(AIRCRAFT_CHANGED_EVENT));
+    // The filed flight advanced the airplane's meters, so everyone's view of
+    // it is stale — one event, which the provider turns into one refetch.
+    notifyAircraftChanged();
     await loadBookings();
   }
 
@@ -308,11 +321,13 @@ export default function PostflightPage() {
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <Input
+          <DateTimeField
             label="Date flown"
-            type="date"
+            mode="date"
             value={flownOn}
-            onChange={(e) => setFlownOn(e.target.value)}
+            onChange={setFlownOn}
+            // You can file a flight late, but not one you haven't flown yet.
+            max={toDateInputValue(new Date())}
           />
           <Input
             label="Landings"
@@ -322,6 +337,16 @@ export default function PostflightPage() {
             step="1"
             value={landings}
             onChange={(e) => setLandings(e.target.value)}
+          />
+          <Input
+            label="Night landings"
+            type="number"
+            inputMode="numeric"
+            min="0"
+            step="1"
+            value={nightLandings}
+            onChange={(e) => setNightLandings(e.target.value)}
+            hint="to a full stop — that's what counts for currency"
           />
           <Input
             label="From"
@@ -343,6 +368,13 @@ export default function PostflightPage() {
           value={route}
           onChange={(e) => setRoute(e.target.value)}
           placeholder="KRHV → KWVI → practice area → KRHV"
+        />
+        {/* Which column of the club's operating rules covered this flight —
+            an instructor on board supersedes the personal minimums. */}
+        <Toggle
+          checked={withInstructor}
+          onChange={setWithInstructor}
+          label="Flown with an approved flight instructor"
         />
       </Card>
 

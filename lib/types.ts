@@ -68,6 +68,8 @@ export interface ApiFlight {
   hobbsStart: number | null;
   hobbsEnd: number | null;
   landings: number;
+  nightLandings: number;
+  withInstructor: boolean;
   departure: string | null;
   arrival: string | null;
   route: string | null;
@@ -120,6 +122,7 @@ export interface ApiMe {
   phone: string | null;
   isAdmin: boolean;
   certificate: string | null;
+  totalTimeHours: number | null;
   medicalExpiresOn: string | null;
   flightReviewOn: string | null;
 }

@@ -19,6 +19,14 @@ const INCLUDE = {
   flight: { select: { id: true } },
 } as const;
 
+/** Whatever the client sent, narrowed to a Purpose. Anything odd = LOCAL. */
+function parsePurpose(value: unknown): Purpose {
+  if (typeof value === "string" && value in PURPOSE_LABELS) {
+    return value as Purpose;
+  }
+  return "LOCAL";
+}
+
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
@@ -57,9 +65,7 @@ export async function POST(req: Request) {
   const aircraftId = String(body.aircraftId ?? "");
   const startsAt = new Date(String(body.startsAt ?? ""));
   const endsAt = new Date(String(body.endsAt ?? ""));
-  const purpose = (String(body.purpose ?? "LOCAL") as Purpose) in PURPOSE_LABELS
-    ? (String(body.purpose ?? "LOCAL") as Purpose)
-    : "LOCAL";
+  const purpose = parsePurpose(body.purpose);
   const notes = body.notes ? String(body.notes).trim() : null;
 
   const aircraft = await prisma.aircraft.findUnique({

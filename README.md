@@ -7,13 +7,19 @@ Four tabs, in the order a flight actually happens:
 
 | Tab              | What it's for                                                                 |
 | ---------------- | ----------------------------------------------------------------------------- |
-| **Preflight**    | The POH walkaround as a tappable checklist, with squawks and photos           |
+| **Preflight**    | I'M SAFE, the POH walkaround, and the 5 Ps — tappable, with squawks and photos |
 | **Post-flight**  | Tach/Hobbs in-out, landings, fuel, oil, put-away — one line of the club log   |
-| **Flight Log**   | Every flight the club has flown, club/member totals, and the squawk list      |
+| **Flight Log**   | Every flight flown, totals, landing currency, the squawk list and the rules   |
 | **Reservations** | Month calendar on desktop; upcoming list + a "+" button on phones             |
 
 Light and dark themes follow the OS by default. On phones the nav collapses to
 a floating bottom bar and you can swipe left/right between tabs.
+
+The club's operating rules (**VFF-OR-A**) are built in rather than filed away:
+the preflight tab shows the column that applies to *you* today, every checklist
+step has an (i) explaining what it catches and why, and the flight log carries
+the full table plus what the club's log says about your landing currency. See
+"Operating rules" below.
 
 ## Stack
 
@@ -59,6 +65,39 @@ persistent database; fill `env/prod.env` first.
 > The Playwright image tag in `docker-compose.yml` must match the
 > `@playwright/test` version in `package.json` (pinned exactly for that
 > reason) — the image only ships the browsers its own version expects.
+
+## Operating rules
+
+`lib/operatingRules.ts` encodes VFF-OR-A as data: both experience columns, the
+instructor column, the airports needing a checkout (KAVX, KL35), and the
+I'M SAFE / 5 Ps / GUMPS mnemonics. Nothing in the app relaxes a limit — where
+the club defers to the FARs it says so, and the printed rule that a lower
+personal or FAA minimum always wins is quoted on the page.
+
+Which column applies comes from two numbers:
+
+- **Total time** — self-declared on the profile, because the club can't see a
+  member's logbook.
+- **Hours in the last 12 months** — computed from this club's flight log.
+
+Both must clear the gate (over 200 h total *and* 50 h recent) for the standard
+column; anything else gets the tighter one, and a flight logged as flown with
+an approved instructor uses the third. Landing currency is likewise presented
+as "what the club log shows", never as a verdict — hours flown elsewhere are
+invisible to it.
+
+When the Safety Officer revises the rules, edit that one file and bump
+`RULES_REVISION`.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main`, every PR, and on
+demand:
+
+- **Typecheck & unit tests** — `tsc --noEmit` then `vitest run`.
+- **End-to-end** — a real Postgres service, `prisma db push`, then the full
+  Playwright suite across the desktop and both phone projects. The report is
+  uploaded as an artifact when something fails.
 
 ## Setting the club up
 

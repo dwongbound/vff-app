@@ -48,6 +48,18 @@
   }
 }
 
+/* Date/time fields that carry their own themed popover (components/common/
+   DateTimeField.tsx, desktop only) hide the browser's built-in calendar button
+   so there aren't two of them side by side. Touch devices never get this class
+   — there the native picker is the good one. */
+.no-native-picker::-webkit-calendar-picker-indicator {
+  display: none;
+}
+/* Chrome/Safari also reserve room for that button inside the field. */
+.no-native-picker::-webkit-inner-spin-button {
+  display: none;
+}
+
 /* Always-visible, styled scrollbar for capped scroll areas (e.g. the checklist
    sections). macOS overlay scrollbars auto-hide, which hides the fact that
    there's more to scroll. */

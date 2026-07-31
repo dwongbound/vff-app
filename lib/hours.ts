@@ -97,19 +97,8 @@ export function totalTachHours(flights: FlightLike[]): number {
   return round1(flights.reduce((sum, f) => sum + tachHours(f), 0));
 }
 
-/** Total Hobbs hours, ignoring flights that didn't record it. */
-export function totalHobbsHours(flights: FlightLike[]): number {
-  return round1(
-    flights.reduce((sum, f) => sum + (hobbsHours(f) ?? 0), 0)
-  );
-}
-
 export function totalLandings(flights: FlightLike[]): number {
   return flights.reduce((sum, f) => sum + (f.landings ?? 0), 0);
-}
-
-export function totalFuelGal(flights: FlightLike[]): number {
-  return round1(flights.reduce((sum, f) => sum + (f.fuelAddedGal ?? 0), 0));
 }
 
 /** Flights whose `flownOn` falls in [from, to). */
