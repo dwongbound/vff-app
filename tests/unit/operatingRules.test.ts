@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CHECKOUT_AIRPORTS,
+  soloEligibility,
   EXPERIENCED_RECENT_HOURS,
   EXPERIENCED_TOTAL_HOURS,
   REQUIRED_LANDINGS,
@@ -129,5 +130,79 @@ describe("hoursInLastYear", () => {
       { flownOn: "2025-06-01", tachStart: 90, tachEnd: 99 },
     ];
     expect(hoursInLastYear(rows, now)).toBe(3.5);
+  });
+});
+
+describe("soloEligibility — the question the rules exist to answer", () => {
+  const now = new Date("2026-08-01T12:00:00");
+  const daysAgo = (n: number) =>
+    new Date(now.getTime() - n * 86_400_000).toISOString();
+
+  it("sends a member with an empty club log to an instructor", () => {
+    const verdict = soloEligibility({ totalTimeHours: 90, flights: [], now });
+    expect(verdict.tier).toBe("BUILDING");
+    expect(verdict.daySolo).toBe(false);
+    expect(verdict.nightSolo).toBe(false);
+    // The blocker has to say what's missing, not just "no".
+    expect(verdict.dayBlockers[0]).toMatch(/0 of 3 landings in the last 30 days/);
+  });
+
+  it("clears a lower-time member once they have 3 landings in 30 days", () => {
+    const verdict = soloEligibility({
+      totalTimeHours: 90,
+      flights: [
+        { flownOn: daysAgo(3), landings: 2, tachStart: 100, tachEnd: 101 },
+        { flownOn: daysAgo(21), landings: 1, tachStart: 101, tachEnd: 102 },
+      ],
+      now,
+    });
+    expect(verdict.daySolo).toBe(true);
+    expect(verdict.dayBlockers).toEqual([]);
+  });
+
+  // The same three landings, 60 days old: fine on the 90-day window an
+  // experienced member gets, not on the 30-day window a lower-time member has.
+  it("gives the two columns different windows", () => {
+    const flights = [
+      { flownOn: daysAgo(60), landings: 3, tachStart: 100, tachEnd: 160 },
+    ];
+
+    const building = soloEligibility({ totalTimeHours: 90, flights, now });
+    expect(building.tier).toBe("BUILDING");
+    expect(building.windowDays).toBe(30);
+    expect(building.daySolo).toBe(false);
+
+    // 300 h declared, and the log above carries 60 h in the last year.
+    const experienced = soloEligibility({ totalTimeHours: 300, flights, now });
+    expect(experienced.tier).toBe("EXPERIENCED");
+    expect(experienced.windowDays).toBe(90);
+    expect(experienced.daySolo).toBe(true);
+  });
+
+  it("answers night separately, and only counts full-stop landings", () => {
+    const verdict = soloEligibility({
+      totalTimeHours: 90,
+      flights: [
+        { flownOn: daysAgo(2), landings: 5, nightLandings: 2, tachStart: 100, tachEnd: 103 },
+      ],
+      now,
+    });
+    expect(verdict.daySolo).toBe(true);
+    expect(verdict.nightSolo).toBe(false);
+    expect(verdict.nightBlockers[0]).toMatch(/2 of 3 full-stop night landings/);
+  });
+
+  // Plenty of recent hours doesn't help if the logbook total is short — the
+  // gate is an AND, and failing it just means the tighter column, not a ban.
+  it("still lets a low-total member fly solo when they're current", () => {
+    const verdict = soloEligibility({
+      totalTimeHours: 60,
+      flights: [
+        { flownOn: daysAgo(1), landings: 3, tachStart: 100, tachEnd: 160 },
+      ],
+      now,
+    });
+    expect(verdict.tier).toBe("BUILDING");
+    expect(verdict.daySolo).toBe(true);
   });
 });

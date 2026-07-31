@@ -18,12 +18,7 @@ import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { formatDay } from "@/lib/dates";
-import {
-  REQUIRED_LANDINGS,
-  hoursInLastYear,
-  landingCurrency,
-  pilotTier,
-} from "@/lib/operatingRules";
+import { REQUIRED_LANDINGS, soloEligibility } from "@/lib/operatingRules";
 import {
   formatHours,
   inRange,
@@ -104,14 +99,14 @@ function FlightLog() {
   // applies to this member's experience column (90 days, or 30 while building
   // time). Night landings must be to a full stop, which is why they're logged
   // separately on the post-flight form.
-  const currency = useMemo(() => {
-    const mine = all.filter((f) => f.mine);
-    const tier = pilotTier({
-      totalTimeHours: me?.totalTimeHours ?? null,
-      recentHours: hoursInLastYear(mine),
-    });
-    return { tier, ...landingCurrency(mine, tier) };
-  }, [all, me?.totalTimeHours]);
+  const currency = useMemo(
+    () =>
+      soloEligibility({
+        totalTimeHours: me?.totalTimeHours ?? null,
+        flights: all.filter((f) => f.mine),
+      }),
+    [all, me?.totalTimeHours]
+  );
 
   async function deleteFlight(flight: ApiFlight) {
     const result = await sendJson(`/api/flights/${flight.id}`, "DELETE");
@@ -181,16 +176,18 @@ function FlightLog() {
           </span>
         </h2>
         <div className="flex flex-wrap gap-2">
-          <Badge tone={currency.dayCurrent ? "green" : "amber"}>
+          <Badge tone={currency.daySolo ? "green" : "amber"}>
             Day: {currency.dayLandings}/{REQUIRED_LANDINGS} landings
           </Badge>
-          <Badge tone={currency.nightCurrent ? "green" : "gray"}>
+          <Badge tone={currency.nightSolo ? "green" : "gray"}>
             Night: {currency.nightLandings}/{REQUIRED_LANDINGS} full-stop
           </Badge>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          Flights in other airplanes don&rsquo;t appear here — this is what the club
-          log alone shows.
+          {currency.daySolo
+            ? "You're current to fly solo or as PIC by day."
+            : "Not current for solo by day — fly with an approved instructor until you are."}{" "}
+          Flights in other airplanes don&rsquo;t appear here.
         </p>
       </Card>
 

@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
+import { authCookies } from "./authCookies";
 import { prisma } from "./prisma";
 
 // Google sign-in is optional: it's only registered when its OAuth credentials
@@ -16,6 +17,10 @@ export const authOptions: NextAuthOptions = {
   // Credentials logins require JWT sessions (no db session rows).
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
+  // Our own session cookie name, so two apps on localhost don't fight over
+  // NextAuth's default one. proxy.ts has to be told the same name — see
+  // lib/authCookies.ts.
+  cookies: authCookies,
   providers: [
     Credentials({
       name: "Email & Password",

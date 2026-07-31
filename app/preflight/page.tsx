@@ -30,7 +30,7 @@ import {
 } from "@/lib/checklist";
 import { SEVERITY_LABELS, SEVERITY_TONES } from "@/lib/constants";
 import { formatDay } from "@/lib/dates";
-import { hoursInLastYear, pilotTier } from "@/lib/operatingRules";
+import { soloEligibility } from "@/lib/operatingRules";
 import { useMe } from "@/components/MeProvider";
 import type { ApiFlight, ApiPreflight, ApiSquawk } from "@/lib/types";
 
@@ -79,13 +79,11 @@ export default function PreflightPage() {
     refresh();
   }, [refresh]);
 
-  // Which column of the club's operating rules applies to this member today.
-  // The recent half comes from this club's log; the total is whatever they
-  // declared on their profile (the club can't see their logbook).
-  const recentHours = hoursInLastYear(myFlights);
-  const tier = pilotTier({
+  // Solo or instructor? The club's rules answer that from the member's
+  // declared total time plus this club's log — see lib/operatingRules.
+  const eligibility = soloEligibility({
     totalTimeHours: me?.totalTimeHours ?? null,
-    recentHours,
+    flights: myFlights,
   });
 
   const checked = countChecked(answers);
@@ -212,9 +210,8 @@ export default function PreflightPage() {
       {/* The club's limits for THIS member, before anything else — they decide
           whether the flight happens at all. */}
       <MyLimitsCard
-        tier={tier}
+        eligibility={eligibility}
         totalTimeHours={me?.totalTimeHours ?? null}
-        recentHours={recentHours}
       />
 
       {/* Open squawks up top: knowing what's already wrong changes what you
@@ -222,7 +219,7 @@ export default function PreflightPage() {
       {openSquawks.length > 0 && (
         <Card className="space-y-2">
           <h2 className="text-sm font-semibold">Open squawks</h2>
-          {tier === "BUILDING" && (
+          {eligibility.tier === "BUILDING" && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
               Club rules: call the VFF Safety Officer to discuss before flying
               with an open squawk.

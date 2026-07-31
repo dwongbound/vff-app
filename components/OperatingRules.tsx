@@ -2,8 +2,9 @@
 // The club's operating rules (VFF-OR-A) as UI.
 //
 // Two views of the same data in lib/operatingRules.ts:
-//   • MyLimitsCard — the column that applies to YOU today, on the preflight
-//     tab, where the decision is actually being made.
+//   • MyLimitsCard — the verdict for YOU today ("solo, or do you need an
+//     instructor?") plus the minimums that go with it, on the preflight tab,
+//     where the decision is actually being made.
 //   • RulesReference — the whole table, collapsed by default, on the flight
 //     log tab, where it serves as the club's reference copy.
 //
@@ -25,53 +26,87 @@ import {
   TIER_LABELS,
   ruleFor,
   type MnemonicItem,
-  type PilotTier,
+  type SoloEligibility,
 } from "@/lib/operatingRules";
 import { formatHours } from "@/lib/hours";
 
 /**
- * "Here are your limits today." Which column applies is derived from the
- * member's declared total time plus what this club's log shows for the last
- * 12 months — so the card also says where those numbers came from, because a
- * member who flies elsewhere will look more current on paper than here.
+ * The verdict: can this member fly today, and under what limits?
+ *
+ * The rules' whole purpose is to answer "solo or instructor", so that's the
+ * headline — computed from the member's declared total time plus the club's
+ * own flight log. Below it are the minimums that actually apply to them, not
+ * all three columns.
  */
 export function MyLimitsCard({
-  tier,
+  eligibility,
   totalTimeHours,
-  recentHours,
 }: {
-  tier: PilotTier;
+  eligibility: SoloEligibility;
   totalTimeHours: number | null;
-  recentHours: number;
 }) {
-  const building = tier === "BUILDING";
+  const { tier, daySolo, nightSolo, dayBlockers, nightBlockers, recentHours } =
+    eligibility;
 
   return (
     <Card className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">
-          Your limits today
+          Can you fly today?
           <span className="ml-2 font-normal text-gray-500 dark:text-gray-400">
             {RULES_ID} · {RULES_REVISION}
           </span>
         </h2>
-        <Badge tone={building ? "amber" : "green"}>{TIER_LABELS[tier]}</Badge>
+        <Badge tone={tier === "BUILDING" ? "amber" : "green"}>
+          {TIER_LABELS[tier]}
+        </Badge>
+      </div>
+
+      {/* The headline. Failing your column's currency doesn't ground you — the
+          rules' third column is "fly with an approved instructor". */}
+      <div
+        className={`rounded-lg px-3 py-2.5 text-sm ${
+          daySolo
+            ? "bg-green-50 text-green-900 dark:bg-green-900/30 dark:text-green-200"
+            : "bg-amber-50 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+        }`}
+      >
+        <p className="font-semibold">
+          {daySolo
+            ? "Cleared to fly solo or as PIC by day."
+            : "You need an approved flight instructor for this flight."}
+        </p>
+        {dayBlockers.length > 0 && (
+          <ul className="mt-1 list-inside list-disc">
+            {dayBlockers.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-1 text-xs">
+          Night:{" "}
+          {nightSolo
+            ? "current for solo night flying."
+            : `instructor required — ${nightBlockers.join(" ")}`}
+        </p>
       </div>
 
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        {tier === "WITH_INSTRUCTOR" ? (
-          <>Flying with an approved instructor — the club&rsquo;s personal minimums don&rsquo;t apply to this flight.</>
-        ) : (
-          <>
-            Based on {totalTimeHours == null ? "no declared total time" : `${formatHours(totalTimeHours)} h total`}{" "}
-            and {formatHours(recentHours)} h in this club&rsquo;s log over the last 12
-            months. The club&rsquo;s standard column needs over {EXPERIENCED_TOTAL_HOURS} h
-            total and {EXPERIENCED_RECENT_HOURS} h recent — add hours flown elsewhere
-            on your profile so this reflects your logbook.
-          </>
-        )}
+        From{" "}
+        {totalTimeHours == null
+          ? "no declared total time"
+          : `${formatHours(totalTimeHours)} h total`}{" "}
+        and {formatHours(recentHours)} h in this club&rsquo;s log over the last 12
+        months. The club&rsquo;s standard column needs over {EXPERIENCED_TOTAL_HOURS} h
+        total and {EXPERIENCED_RECENT_HOURS} h recent. Only flights logged here
+        count — if you fly elsewhere, add your total time on your profile and
+        talk to the Safety Officer. IFR currency is yours to assess: the club
+        log doesn&rsquo;t record approaches.
       </p>
 
+      <h3 className="pt-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        Your minimums today
+      </h3>
       <dl className="divide-y divide-gray-100 dark:divide-gray-700">
         {RULE_ROWS.filter((row) => row.id !== "experience").map((row) => (
           <div key={row.id} className="flex items-start gap-3 py-2 text-sm">

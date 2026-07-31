@@ -15,11 +15,11 @@ Four tabs, in the order a flight actually happens:
 Light and dark themes follow the OS by default. On phones the nav collapses to
 a floating bottom bar and you can swipe left/right between tabs.
 
-The club's operating rules (**VFF-OR-A**) are built in rather than filed away:
-the preflight tab shows the column that applies to *you* today, every checklist
-step has an (i) explaining what it catches and why, and the flight log carries
-the full table plus what the club's log says about your landing currency. See
-"Operating rules" below.
+The club's operating rules (**VFF-OR-A**) are built in rather than filed away.
+The preflight tab answers the question they exist to answer — *can you fly this
+today, solo or with an instructor?* — from your own flight log, then lists the
+minimums that come with that answer. Every checklist step has an (i) explaining
+what it catches and why. See "Operating rules" below.
 
 ## Stack
 
@@ -74,17 +74,24 @@ I'M SAFE / 5 Ps / GUMPS mnemonics. Nothing in the app relaxes a limit — where
 the club defers to the FARs it says so, and the printed rule that a lower
 personal or FAA minimum always wins is quoted on the page.
 
-Which column applies comes from two numbers:
+**The verdict.** `soloEligibility()` decides whether a member may fly solo or
+as PIC today, and says why not when the answer is no:
 
-- **Total time** — self-declared on the profile, because the club can't see a
-  member's logbook.
-- **Hours in the last 12 months** — computed from this club's flight log.
+1. **Which column applies** — over 200 h total *and* 50 h in the last 12 months
+   gets the club's standard minimums; anything less gets the tighter set. Total
+   time is self-declared on the profile (the club can't see a logbook); the
+   recent hours come from this club's flight log.
+2. **Are they current** — 3 landings inside that column's window (90 days on
+   the standard column, 30 on the tighter one). Night is answered separately
+   and counts only full-stop landings.
 
-Both must clear the gate (over 200 h total *and* 50 h recent) for the standard
-column; anything else gets the tighter one, and a flight logged as flown with
-an approved instructor uses the third. Landing currency is likewise presented
-as "what the club log shows", never as a verdict — hours flown elsewhere are
-invisible to it.
+Failing the currency check doesn't ground anyone: the rules' third column is
+"fly with an approved flight instructor", and that's what the app tells them —
+along with the exact shortfall ("1 of 3 landings in the last 30 days").
+
+Two honest limits, stated on the page itself: only flights logged in this app
+count, so a member who flies elsewhere should talk to the Safety Officer; and
+IFR currency is self-assessed, because the log doesn't record approaches.
 
 When the Safety Officer revises the rules, edit that one file and bump
 `RULES_REVISION`.

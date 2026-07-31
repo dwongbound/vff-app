@@ -12,7 +12,7 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 
 ## Commands
 
-- Dev (docker): `docker compose --profile dev up` → http://localhost:3000
+- Dev (docker): `docker compose --profile dev up` → `http://localhost:3000`
 - Dev (host): `npm run dev` (loads `env/dev.env`)
 - Unit: `npm run test:unit` · E2E: `npm run test:e2e` (needs `db-test` up)
 - Everything in containers: `docker compose --profile test up --abort-on-container-exit`
@@ -113,3 +113,13 @@ popover on desktop; `InfoTip` = the (i) marker (hover opens, click pins).
   "Start" hits "Open calendar for Start". Specs use `{ exact: true }`.
 - CI lives in `.github/workflows/ci.yml` and materialises `env/test.env`
   itself, since the e2e harness loads that file rather than process env.
+- Killing a `docker compose --profile test run` leaves the container up and a
+  stale Next dev lock inside the `test-next` volume, so every later run dies
+  with "Another next dev server is already running". Clean up with
+  `docker ps -aq --filter name=vff-app-vff-app-test | xargs -r docker rm -f`
+  then `docker volume rm vff-app_test-next`.
+- The session cookie is renamed (`lib/authCookies.ts`) because cookies are
+  scoped to a host, not a port, and every local app would otherwise share
+  NextAuth's default name. `proxy.ts` must be given the same config — it reads
+  the token itself, and with the default name it bounces every signed-in
+  member straight back to /login.

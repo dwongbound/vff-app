@@ -261,6 +261,82 @@ export function landingCurrency(
   };
 }
 
+/**
+ * The question the rules exist to answer: can this member fly the airplane
+ * solo (or as PIC) today, or do they need an approved instructor?
+ *
+ * Both halves come from what the club can actually see — the member's declared
+ * total time, and this club's flight log for the recency and landings. A pilot
+ * who fails the currency their column requires isn't grounded: the rules'
+ * third column says they fly with an approved instructor instead.
+ *
+ * Night is answered separately because night landings must be to a full stop,
+ * and a pilot can easily be current by day and not by night.
+ */
+export interface SoloEligibilityInput {
+  /** Declared total time from the member's profile. */
+  totalTimeHours: number | null | undefined;
+  /** This member's flights from the club log. */
+  flights: (CurrencyFlight & { tachStart: number; tachEnd: number })[];
+  now?: Date;
+}
+
+export interface SoloEligibility {
+  tier: Exclude<PilotTier, "WITH_INSTRUCTOR">;
+  /** Hours in the last 12 months, from the club log. */
+  recentHours: number;
+  /** The landing-currency window their column gets: 90 or 30 days. */
+  windowDays: number;
+  dayLandings: number;
+  nightLandings: number;
+  /** May they fly solo/PIC by day? */
+  daySolo: boolean;
+  /** …and at night? */
+  nightSolo: boolean;
+  /** Plain-language reasons they can't, in the order they'd want to fix them. */
+  dayBlockers: string[];
+  nightBlockers: string[];
+}
+
+export function soloEligibility(input: SoloEligibilityInput): SoloEligibility {
+  const now = input.now ?? new Date();
+  const recentHours = hoursInLastYear(input.flights, now);
+  const tier = pilotTier({
+    totalTimeHours: input.totalTimeHours,
+    recentHours,
+  }) as Exclude<PilotTier, "WITH_INSTRUCTOR">;
+
+  const currency = landingCurrency(input.flights, tier, now);
+
+  const dayBlockers: string[] = [];
+  if (!currency.dayCurrent) {
+    dayBlockers.push(
+      `${currency.dayLandings} of ${REQUIRED_LANDINGS} landings in the last ` +
+        `${currency.windowDays} days.`
+    );
+  }
+
+  const nightBlockers: string[] = [];
+  if (!currency.nightCurrent) {
+    nightBlockers.push(
+      `${currency.nightLandings} of ${REQUIRED_LANDINGS} full-stop night ` +
+        `landings in the last ${currency.windowDays} days.`
+    );
+  }
+
+  return {
+    tier,
+    recentHours,
+    windowDays: currency.windowDays,
+    dayLandings: currency.dayLandings,
+    nightLandings: currency.nightLandings,
+    daySolo: dayBlockers.length === 0,
+    nightSolo: nightBlockers.length === 0,
+    dayBlockers,
+    nightBlockers,
+  };
+}
+
 /** Hours flown in the last 12 months, from the club log. */
 export function hoursInLastYear(
   flights: { flownOn: string | Date; tachStart: number; tachEnd: number }[],
