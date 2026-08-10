@@ -11,7 +11,7 @@ import { getStorage } from "./storage";
 type Owner =
   | { flightId: string }
   | { squawkId: string }
-  | { preflightId: string };
+  | { checkoutId: string };
 
 /**
  * Delete the stored objects for every photo attached to `owner`, leaving the

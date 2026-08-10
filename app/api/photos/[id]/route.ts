@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getStorage } from "@/lib/storage";
+import { getStorage, storageStatus } from "@/lib/storage";
 
 export async function GET(
   _req: Request,
@@ -15,6 +15,17 @@ export async function GET(
 ) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
+  // Rows outlive the bucket. Without this the <img> tags on an old flight all
+  // fire at a route that throws, which reads as the app being broken rather
+  // than as photos being switched off.
+  const storage = storageStatus();
+  if (!storage.configured) {
+    return NextResponse.json(
+      { error: storage.reason ?? "Photo storage is unavailable." },
+      { status: 503 }
+    );
+  }
 
   const { id } = await params;
   const photo = await prisma.photo.findUnique({

@@ -158,7 +158,13 @@ export const RULE_ROWS: RuleRow[] = [
   },
 ];
 
-/** Airports that need a checkout or Safety Officer approval before you go. */
+/**
+ * Airports that need a field checkout or Safety Officer approval before you go.
+ *
+ * "Checkout" here is the OTHER sense of the word — a pilot being signed off to
+ * fly somewhere — not the card walkthroughs in lib/checkouts.ts. Two unrelated
+ * meanings, both correct aviation English; don't merge them.
+ */
 export const CHECKOUT_AIRPORTS = [
   { id: "KAVX", name: "Catalina Island Airport" },
   { id: "KL35", name: "Big Bear City Airport" },
@@ -349,7 +355,7 @@ export function hoursInLastYear(
   return Math.round(total * 10) / 10;
 }
 
-// ── The mnemonic checklists the rules require ──────────────────────────────
+// ── The mnemonics the rules require ───────────────────────────────────────
 
 export interface MnemonicItem {
   letter: string;
@@ -387,7 +393,7 @@ export const GUMPS: MnemonicItem[] = [
 
 /**
  * The club's cancellation policy, quoted where it matters most: on the
- * checklist, at the moment somebody is deciding whether to talk themselves
+ * checkout, at the moment somebody is deciding whether to talk themselves
  * into a flight.
  */
 export const CANCELLATION_POLICY =

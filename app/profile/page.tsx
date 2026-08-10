@@ -176,7 +176,7 @@ export default function ProfilePage() {
           </p>
         )}
         <Button size="lg" onClick={save} disabled={busy} className="w-full sm:w-auto">
-          {busy ? <LoadingDots size="sm" /> : "Save profile"}
+          {busy ? <LoadingDots size="sm" /> : "Save"}
         </Button>
       </div>
     </div>

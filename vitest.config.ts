@@ -1,5 +1,5 @@
 // Unit tests only — the pure business logic in lib/ (overlap detection,
-// tach/Hobbs math, checklist progress).
+// tach/Hobbs math, checkout progress).
 import { defineConfig } from "vitest/config";
 import path from "path";
 import { fileURLToPath } from "node:url";

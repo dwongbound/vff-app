@@ -1,14 +1,18 @@
 "use client";
-// Photo picker used by the post-flight form, the preflight run, and squawks.
+// Photo picker used by the post-flight form, the checkouts, and squawks.
 //
 // It holds Files locally and does NOT upload on pick: the row a photo attaches
-// to (flight, squawk, preflight) usually doesn't exist yet when you're taking
+// to (flight, squawk, checkout) usually doesn't exist yet when you're taking
 // the picture. The parent form submits, gets an id back, and then calls
 // uploadPhotos() — which is why this is a controlled component over File[].
 //
 // On phones `capture="environment"` makes the camera the default source, so
 // photographing the Hobbs meter is two taps.
 import { useEffect, useState } from "react";
+import {
+  NoImageSupport,
+  usePhotoSupport,
+} from "@/components/PhotoSupportProvider";
 import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES } from "@/lib/constants";
 
 export default function PhotoUploader({
@@ -22,6 +26,7 @@ export default function PhotoUploader({
   label?: string;
   hint?: string;
 }) {
+  const { enabled } = usePhotoSupport();
   const [error, setError] = useState<string | null>(null);
   // Object URLs for the thumbnails, revoked on unmount so we don't leak blobs.
   const [previews, setPreviews] = useState<string[]>([]);
@@ -53,6 +58,22 @@ export default function PhotoUploader({
       setError(null);
       onChange([...files, ...next]);
     }
+  }
+
+  // Nowhere to put the bytes. Say so INSTEAD of the picker rather than
+  // disabling it: a greyed-out camera invites a tap, and the failure this
+  // avoids is a photo taken at the airplane and then lost on upload. Every
+  // form that offers photos goes through this component, so one branch here
+  // covers the post-flight form, both checkouts and the squawk modal.
+  if (!enabled) {
+    return (
+      <div>
+        <span className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {label}
+        </span>
+        <NoImageSupport />
+      </div>
+    );
   }
 
   return (
@@ -87,7 +108,7 @@ export default function PhotoUploader({
             />
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
           </svg>
-          <span className="text-[10px] font-medium">Add</span>
+          <span className="text-[10px] font-medium">Photo</span>
           <input
             type="file"
             accept="image/*"
@@ -119,7 +140,7 @@ export default function PhotoUploader({
  */
 export async function uploadPhotos(
   files: File[],
-  subject: "flight" | "squawk" | "preflight",
+  subject: "flight" | "squawk" | "checkout",
   subjectId: string
 ): Promise<{ uploaded: number; failed: number }> {
   let uploaded = 0;

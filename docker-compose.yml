@@ -28,7 +28,7 @@ services:
       # app container (see the app service below).
       TZ: America/Los_Angeles
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       # Postgres 18 stores data under a major-version-specific subdirectory.
       # Mount the parent directory so the image can manage that layout.
@@ -50,7 +50,7 @@ services:
       - dev-node-modules:/app/node_modules # keep linux node_modules off the mac fs
       - dev-next:/app/.next # isolate build output (Next 16 dev-server lock is per .next)
     ports:
-      - "3000:3000"
+      - "3001:3000"
     env_file: env/dev.env
     environment:
       # Inside the compose network the db is reachable at its service name.
@@ -62,7 +62,14 @@ services:
         condition: service_healthy
     # Install deps, generate the client, sync the schema, seed demo data
     # (idempotent), run dev server.
-    command: sh -c "npm install && npx prisma generate && npx prisma db push && npx prisma db seed && npx next dev -H 0.0.0.0"
+    #
+    # `--accept-data-loss` matches the test profile below. Without it, any
+    # destructive schema change (a renamed column, a dropped table) makes this
+    # container refuse to start and boot-loop — and since `db seed` runs on the
+    # very next line, the dev database's contents are disposable by design.
+    # Nothing here is anyone's real data; production goes through
+    # `db:migrate:deploy:prod`, which never sees this flag.
+    command: sh -c "npm install && npx prisma generate && npx prisma db push --accept-data-loss && npx prisma db seed && npx next dev -H 0.0.0.0"
 
   # ---- test ----------------------------------------------------------------
   db-test:
@@ -106,10 +113,16 @@ services:
     # Install deps, sync schema, then run BOTH suites. Unit first (fast fail),
     # then e2e — playwright's webServer block boots the app on :3100 itself.
     # The service exits with the test exit code.
+    #
+    # `--accept-data-loss` because this database is a fixture, not records: it
+    # holds whatever the last run seeded and global-setup resets it again
+    # before the first spec. Without the flag, any schema change that drops a
+    # column (a rename, a refactor) stops the whole suite with a prompt about
+    # losing data nobody wanted to keep.
     command: >
       sh -c "npm install &&
              npx prisma generate &&
-             npx prisma db push &&
+             npx prisma db push --accept-data-loss &&
              npm run test:unit &&
              npm run test:e2e"
 
@@ -131,7 +144,13 @@ services:
 
   vff-app-prod:
     profiles: ["prod"]
-    build: .
+    build:
+      context: .
+      args:
+        # Stamps the login screen. .git is dockerignored, so the sha has to be
+        # handed in; export COMMIT_SHA=$(git rev-parse HEAD) before `up --build`
+        # to get one, or leave it unset and the stamp renders bare.
+        COMMIT_SHA: ${COMMIT_SHA:-}
     ports:
       - "3000:3000"
     env_file: env/prod.env

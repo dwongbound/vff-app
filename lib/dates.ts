@@ -1,6 +1,11 @@
 // Date/time helpers. Everything is stored as a UTC instant in the db and
 // rendered in the server/browser local zone (APP_TZ in prod — see
 // instrumentation.ts), which is the club's home field time.
+//
+// `clubTimeNow` is the one exception, and deliberately so: it names the club's
+// zone outright instead of trusting the device's, because it produces a
+// reading that gets WRITTEN DOWN rather than one that gets displayed.
+import { CLUB_TIME_ZONE } from "./constants";
 
 /** "Sat, Aug 2" — the list/calendar day label. */
 export function formatDay(iso: string | Date): string {
@@ -86,6 +91,46 @@ export function splitLocalDateTime(value: string): { date: string; time: string 
 export function joinLocalDateTime(date: string, time: string): string {
   if (!date || !time) return "";
   return `${date}T${time}`;
+}
+
+/**
+ * The clock right now at the club's field, as the "HH:MM" a time input takes.
+ *
+ * Explicitly in `CLUB_TIME_ZONE` rather than the device's: this stamps a
+ * reading being written onto the airplane's card, and "14:05" on a preflight
+ * means 14:05 at KBFI. A member whose laptop is still on Eastern from last
+ * week's trip would otherwise silently record a time three hours out, and
+ * nothing downstream could tell.
+ *
+ * 24-hour with `h23`, because that's the format `<input type="time">` parses —
+ * and `h23` specifically, since `hour12: false` renders midnight as "24:00" in
+ * some locales, which the input then rejects.
+ */
+export function clubTimeNow(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: CLUB_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+}
+
+/**
+ * The calendar day an instant falls on AT THE CLUB, as "YYYY-MM-DD".
+ *
+ * For comparing two instants for same-day-ness where the day that matters is
+ * the flying day at the field — "was the airplane walked today?" is a question
+ * about KBFI, and answering it in the device's zone means a member whose phone
+ * is an hour ahead can be told the morning's preflight was yesterday's.
+ */
+export function clubDateKey(iso: string | Date): string {
+  // en-CA formats as YYYY-MM-DD, which sorts and compares as a string.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: CLUB_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
 }
 
 /** "09:30" → "9:30 AM" in the viewer's locale. */

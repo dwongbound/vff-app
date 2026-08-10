@@ -1,10 +1,14 @@
 "use client";
-// Preflight tab — the walkaround, in POH order.
+// Preflight checkout — N8318B's preflight card, walked and signed for.
 //
-// Design notes: this page is used standing on a ramp, one-handed, often in
-// sun. So: big tap targets (the whole row toggles), a running progress bar,
-// sections that collapse once they're done, and no destructive action within
-// reach of a thumb. The checklist itself lives in lib/checklist.ts.
+// Homework, consumables, cockpit, then the walk: left wing → nose → right wing
+// → tail, and the standard weather briefing. It ends at the cabin door; what
+// happens once you're sitting in it is the runway checkout (/runway).
+//
+// The card itself lives in lib/checkouts.ts and the tick rows are rendered by
+// CheckoutList, which the runway page shares. What's specific to this page is
+// everything AROUND the card: the club's limits for this member, the open
+// squawks, what the walkaround found (fuel and oil), and any squawks it raised.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
@@ -12,27 +16,27 @@ import Card from "@/components/common/Card";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
-import InfoTip from "@/components/common/InfoTip";
+import CheckoutList from "@/components/CheckoutList";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
-import { GumpsCard, MyLimitsCard } from "@/components/OperatingRules";
+import { MyLimitsCard } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import {
-  PREFLIGHT_CHECKLIST,
-  TOTAL_ITEMS,
-  countChecked,
-  countSectionChecked,
+  PREFLIGHT_CHECKOUT,
   isComplete,
+  deriveFuelOil,
+  initialValues,
   missingItems,
   type Answers,
-} from "@/lib/checklist";
-import { SEVERITY_LABELS, SEVERITY_TONES } from "@/lib/constants";
+  type Values,
+} from "@/lib/checkouts";
 import { formatDay } from "@/lib/dates";
+import { SQUAWK_STATUS_SHORT, SQUAWK_STATUS_TONES } from "@/lib/squawks";
 import { soloEligibility } from "@/lib/operatingRules";
 import { useMe } from "@/components/MeProvider";
-import type { ApiFlight, ApiPreflight, ApiSquawk } from "@/lib/types";
+import type { ApiCheckout, ApiFlight, ApiSquawk } from "@/lib/types";
 
 export default function PreflightPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -41,14 +45,15 @@ export default function PreflightPage() {
   // queries every time anyone touched a squawk.
   const aircraftId = selected?.id ?? null;
   const [answers, setAnswers] = useState<Answers>({});
-  const [openSection, setOpenSection] = useState<string>(PREFLIGHT_CHECKLIST[0].id);
-  const [fuel, setFuel] = useState("");
-  const [oil, setOil] = useState("");
+  // Seeded rather than empty: the card's time field starts at the club's
+  // current clock (see `initialValues`), which the pilot can type over.
+  const [values, setValues] = useState<Values>(() => initialValues("PREFLIGHT"));
+  const [resetKey, setResetKey] = useState(0);
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [squawkDrafts, setSquawkDrafts] = useState<SquawkDraft[]>([]);
   const [squawkModalOpen, setSquawkModalOpen] = useState(false);
-  const [recent, setRecent] = useState<ApiPreflight[] | null>(null);
+  const [recent, setRecent] = useState<ApiCheckout[] | null>(null);
   const [openSquawks, setOpenSquawks] = useState<ApiSquawk[]>([]);
   // My own flights, for the experience/currency half of the operating rules.
   const [myFlights, setMyFlights] = useState<ApiFlight[]>([]);
@@ -63,11 +68,13 @@ export default function PreflightPage() {
 
   const refresh = useCallback(async () => {
     if (!aircraftId) return;
-    // Both lists are always shown together, so they go out together rather
+    // All three are always shown together, so they go out together rather
     // than one after the other.
     const [runs, squawks, flights] = await Promise.all([
-      fetchJsonArray<ApiPreflight>(`/api/preflight?aircraftId=${aircraftId}&limit=5`),
-      fetchJsonArray<ApiSquawk>(`/api/squawks?aircraftId=${aircraftId}&status=OPEN`),
+      fetchJsonArray<ApiCheckout>(
+        `/api/checkouts?aircraftId=${aircraftId}&kind=PREFLIGHT&limit=5`
+      ),
+      fetchJsonArray<ApiSquawk>(`/api/squawks?aircraftId=${aircraftId}&status=open`),
       fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${aircraftId}&mine=1&limit=300`),
     ]);
     setRecent(runs);
@@ -79,6 +86,26 @@ export default function PreflightPage() {
     refresh();
   }, [refresh]);
 
+  // Prefill the meters from where the last filed flight left the airplane, so
+  // the common case is confirming two numbers rather than typing them. Only
+  // fills a field that is EMPTY: it must never overwrite a reading the pilot
+  // has already corrected against the panel, and `resetKey` is what lets it
+  // seed the next run after a sign-off cleared them.
+  const lastTach = selected?.lastTach ?? null;
+  const lastHobbs = selected?.lastHobbs ?? null;
+  useEffect(() => {
+    setValues((current) => {
+      const next = { ...current };
+      if (next["cockpit.meters.tach"] == null && lastTach != null) {
+        next["cockpit.meters.tach"] = lastTach;
+      }
+      if (next["cockpit.meters.hobbs"] == null && lastHobbs != null) {
+        next["cockpit.meters.hobbs"] = lastHobbs;
+      }
+      return next;
+    });
+  }, [lastTach, lastHobbs, resetKey]);
+
   // Solo or instructor? The club's rules answer that from the member's
   // declared total time plus this club's log — see lib/operatingRules.
   const eligibility = soloEligibility({
@@ -86,32 +113,12 @@ export default function PreflightPage() {
     flights: myFlights,
   });
 
-  const checked = countChecked(answers);
-  const complete = isComplete(answers);
-  const progress = Math.round((checked / TOTAL_ITEMS) * 100);
-  const remaining = useMemo(() => missingItems(answers), [answers]);
-
-  function toggle(id: string) {
-    setAnswers((prev) => {
-      const next = { ...prev };
-      if (next[id]) delete next[id];
-      else next[id] = true;
-      return next;
-    });
-  }
-
-  function toggleSection(sectionId: string, on: boolean) {
-    const section = PREFLIGHT_CHECKLIST.find((s) => s.id === sectionId);
-    if (!section) return;
-    setAnswers((prev) => {
-      const next = { ...prev };
-      for (const item of section.items) {
-        if (on) next[item.id] = true;
-        else delete next[item.id];
-      }
-      return next;
-    });
-  }
+  const complete = isComplete("PREFLIGHT", answers);
+  const anyChecked = Object.keys(answers).length > 0;
+  const remaining = useMemo(() => missingItems("PREFLIGHT", answers), [answers]);
+  // Echoed back below the card so the two figures Plane Status depends on are
+  // visible before you sign off, without asking for them a second time.
+  const fuelOil = useMemo(() => deriveFuelOil(values), [values]);
 
   async function submit(signOff: boolean) {
     if (!selected) return;
@@ -119,34 +126,36 @@ export default function PreflightPage() {
     setSaved(null);
     setBusy(true);
 
-    const result = await sendJson<ApiPreflight>("/api/preflight", "POST", {
+    const result = await sendJson<ApiCheckout>("/api/checkouts", "POST", {
       aircraftId: selected.id,
+      kind: "PREFLIGHT",
       answers,
-      fuelOnBoardGal: fuel === "" ? null : Number(fuel),
-      oilQuarts: oil === "" ? null : Number(oil),
+      // Fuel and oil are no longer asked for twice: they're recorded on the
+      // consumables items, and the API derives the columns from those (it
+      // re-derives server-side too — this is not the client's decision).
+      values,
       notes: notes.trim() || null,
       complete: signOff,
     });
 
     if (!result.ok || !result.data) {
       setBusy(false);
-      setError(result.error ?? "Could not save the preflight.");
+      setError(result.error ?? "Could not save the preflight checkout.");
       return;
     }
 
-    const preflightId = result.data.id;
+    const checkoutId = result.data.id;
 
     // Photos and squawks both need the row's id, so they go up after it.
     if (photos.length) {
-      await uploadPhotos(photos, "preflight", preflightId);
+      await uploadPhotos(photos, "checkout", checkoutId);
     }
     for (const draft of squawkDrafts) {
       const squawk = await sendJson<ApiSquawk>("/api/squawks", "POST", {
         aircraftId: selected.id,
-        preflightId,
+        checkoutId,
         title: draft.title,
         description: draft.description || null,
-        severity: draft.severity,
       });
       if (squawk.ok && squawk.data && draft.photos.length) {
         await uploadPhotos(draft.photos, "squawk", squawk.data.id);
@@ -156,23 +165,26 @@ export default function PreflightPage() {
     setBusy(false);
     setSaved(
       signOff
-        ? "Preflight signed off. Have a good flight."
+        ? "Preflight checkout signed off. Next: the runway checkout, once you're sitting in it."
         : "Progress saved — pick it back up any time."
     );
 
-    // A new grounding squawk changes the whole app's banner state.
-    if (squawkDrafts.some((d) => d.severity === "GROUNDING")) {
+    // A new squawk changes the open count the Status tab shows. It can no
+    // longer ground the airplane by itself — only the Safety Officer's triage
+    // does that — so this refreshes the count rather than a banner.
+    if (squawkDrafts.length > 0) {
       notifyAircraftChanged();
     }
 
-    // Start clean for the next run.
+    // Start clean for the next run — clean meaning "a fresh card", which
+    // includes a fresh clock reading rather than the one from the run that
+    // was just signed off.
     setAnswers({});
+    setValues(initialValues("PREFLIGHT"));
     setPhotos([]);
     setSquawkDrafts([]);
     setNotes("");
-    setFuel("");
-    setOil("");
-    setOpenSection(PREFLIGHT_CHECKLIST[0].id);
+    setResetKey((k) => k + 1);
     await refresh();
   }
 
@@ -191,6 +203,24 @@ export default function PreflightPage() {
   }
 
   const lastRun = recent?.find((r) => r.completedAt) ?? null;
+
+  // What the dipstick said last time somebody looked, shown under the oil box.
+  //
+  // Oil is the one consumable where the PREVIOUS reading is the useful part:
+  // it goes down slowly, so "6 quarts on Tuesday" tells you whether today's
+  // 5 is normal consumption or a leak. Fuel gets no equivalent hint — it
+  // changes every flight, so last week's number is noise.
+  //
+  // Deliberately a hint and not a prefill: the number in the box has to be one
+  // somebody read off the stick today.
+  const lastOilRun = recent?.find((r) => r.oilQuarts != null) ?? null;
+  const fieldHints = lastOilRun
+    ? {
+        "consumables.oil.qts": `Last recorded ${lastOilRun.oilQuarts} qts on ${formatDay(
+          lastOilRun.createdAt
+        )} by ${lastOilRun.user.name}`,
+      }
+    : undefined;
 
   return (
     <div className="space-y-4">
@@ -215,7 +245,7 @@ export default function PreflightPage() {
       />
 
       {/* Open squawks up top: knowing what's already wrong changes what you
-          look at on the walkaround. */}
+          look at on the walk. */}
       {openSquawks.length > 0 && (
         <Card className="space-y-2">
           <h2 className="text-sm font-semibold">Open squawks</h2>
@@ -228,8 +258,8 @@ export default function PreflightPage() {
           <ul className="space-y-1.5">
             {openSquawks.map((s) => (
               <li key={s.id} className="flex items-start gap-2 text-sm">
-                <Badge tone={SEVERITY_TONES[s.severity]}>
-                  {SEVERITY_LABELS[s.severity]}
+                <Badge tone={SQUAWK_STATUS_TONES[s.status]}>
+                  {SQUAWK_STATUS_SHORT[s.status]}
                 </Badge>
                 <span className="min-w-0">
                   <span className="font-medium">{s.title}</span>
@@ -243,179 +273,48 @@ export default function PreflightPage() {
         </Card>
       )}
 
-      {/* Sticky progress bar: it's the one number you want while working down
-          the airplane, and it stays put as you scroll. */}
-      <div className="sticky top-[var(--app-header-h)] z-10 -mx-4 bg-gray-50/95 px-4 py-2 backdrop-blur dark:bg-gray-900/95">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-medium">
-            {checked} of {TOTAL_ITEMS} checked
-          </span>
-          <span
-            className={
-              complete
-                ? "font-semibold text-green-600 dark:text-green-400"
-                : "text-gray-500 dark:text-gray-400"
-            }
-          >
-            {complete ? "Ready to sign off" : `${progress}%`}
-          </span>
-        </div>
-        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-          <div
-            className={`h-full rounded-full transition-all duration-300 ${
-              complete ? "bg-green-500" : "bg-indigo-600"
-            }`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
+      <CheckoutList
+        checkout={PREFLIGHT_CHECKOUT}
+        answers={answers}
+        onChange={setAnswers}
+        values={values}
+        onValuesChange={setValues}
+        hints={fieldHints}
+        resetKey={resetKey}
+      />
 
-      {/* The checklist. One section open at a time keeps the page short enough
-          to thumb through, and finishing a section auto-advances to the next. */}
-      <div className="space-y-3">
-        {PREFLIGHT_CHECKLIST.map((section, sectionIndex) => {
-          const done = countSectionChecked(section, answers);
-          const sectionComplete = done === section.items.length;
-          const expanded = openSection === section.id;
-
-          return (
-            <Card key={section.id} className="p-0">
-              <button
-                onClick={() => setOpenSection(expanded ? "" : section.id)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left"
-                aria-expanded={expanded}
-              >
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                    sectionComplete
-                      ? "bg-green-500 text-white"
-                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
-                  }`}
-                >
-                  {sectionComplete ? <Check /> : sectionIndex + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium">{section.title}</span>
-                  {section.subtitle && (
-                    <span className="block text-xs text-gray-500 dark:text-gray-400">
-                      {section.subtitle}
-                    </span>
-                  )}
-                </span>
-                <span className="shrink-0 text-sm tabular text-gray-500 dark:text-gray-400">
-                  {done}/{section.items.length}
-                </span>
-                <Chevron open={expanded} />
-              </button>
-
-              {expanded && (
-                <div className="border-t border-gray-100 dark:border-gray-700">
-                  <ul>
-                    {section.items.map((item) => {
-                      const on = Boolean(answers[item.id]);
-                      // The row's tick target and its (i) are SIBLINGS, not
-                      // nested: a button inside a button is invalid HTML and
-                      // React refuses to hydrate it. The tick target still
-                      // takes all the leftover width, so it stays a
-                      // thumb-sized target on a ramp.
-                      return (
-                        <li
-                          key={item.id}
-                          className="flex items-start gap-2 pr-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                        >
-                          <button
-                            onClick={() => toggle(item.id)}
-                            aria-pressed={on}
-                            className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left"
-                          >
-                            <span
-                              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-colors ${
-                                on
-                                  ? "border-green-500 bg-green-500 text-white"
-                                  : "border-gray-300 dark:border-gray-600"
-                              }`}
-                            >
-                              {on && <Check />}
-                            </span>
-                            <span className="min-w-0">
-                              <span
-                                className={`block text-sm ${
-                                  on
-                                    ? "text-gray-500 line-through dark:text-gray-500"
-                                    : "font-medium"
-                                }`}
-                              >
-                                {item.label}
-                              </span>
-                              {item.detail && (
-                                <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
-                                  {item.detail}
-                                </span>
-                              )}
-                            </span>
-                          </button>
-                          <span className="mt-4 shrink-0">
-                            <InfoTip label={item.label}>{item.why}</InfoTip>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-
-                  <div className="flex items-center justify-between gap-2 border-t border-gray-100 px-4 py-2 dark:border-gray-700">
-                    <button
-                      onClick={() => toggleSection(section.id, !sectionComplete)}
-                      className="text-xs font-medium text-gray-500 hover:underline dark:text-gray-400"
-                    >
-                      {sectionComplete ? "Clear this section" : "Check all in section"}
-                    </button>
-                    {sectionIndex < PREFLIGHT_CHECKLIST.length - 1 && (
-                      <button
-                        onClick={() =>
-                          setOpenSection(PREFLIGHT_CHECKLIST[sectionIndex + 1].id)
-                        }
-                        className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                      >
-                        Next: {PREFLIGHT_CHECKLIST[sectionIndex + 1].title} →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* What you found on the walkaround. */}
+      {/* Fuel and oil used to be re-typed here, under "What you found", after
+          already being ticked off on the consumables items. Two places to put
+          one number is how a reading gets transcribed wrong, so they're now
+          recorded on the items themselves and this card keeps only what has
+          nowhere else to live. */}
       <Card className="space-y-4">
-        <h2 className="text-sm font-semibold">What you found</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Fuel on board"
-            type="number"
-            inputMode="decimal"
-            step="0.5"
-            min="0"
-            value={fuel}
-            onChange={(e) => setFuel(e.target.value)}
-            hint={
-              selected.fuelCapacityGal
-                ? `gallons (${selected.fuelCapacityGal} usable)`
-                : "gallons"
-            }
-          />
-          <Input
-            label="Oil"
-            type="number"
-            inputMode="decimal"
-            step="0.5"
-            min="0"
-            value={oil}
-            onChange={(e) => setOil(e.target.value)}
-            hint="quarts on the dipstick"
-          />
-        </div>
+        <h2 className="text-sm font-semibold">Anything else</h2>
+        {fuelOil.fuelOnBoardGal != null || fuelOil.oilQuarts != null ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Recorded on the walk:{" "}
+            {fuelOil.fuelOnBoardGal != null && (
+              <span className="font-medium text-gray-700 dark:text-gray-200">
+                {fuelOil.fuelOnBoardGal} gal
+                {selected.fuelCapacityGal
+                  ? ` of ${selected.fuelCapacityGal}`
+                  : ""}
+              </span>
+            )}
+            {fuelOil.fuelOnBoardGal != null && fuelOil.oilQuarts != null && " · "}
+            {fuelOil.oilQuarts != null && (
+              <span className="font-medium text-gray-700 dark:text-gray-200">
+                {fuelOil.oilQuarts} qts oil
+              </span>
+            )}
+            .
+          </p>
+        ) : (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Fuel and oil are recorded on the Consumables items above — they feed
+            the Plane Status tab.
+          </p>
+        )}
         <Textarea
           label="Notes (optional)"
           value={notes}
@@ -429,18 +328,18 @@ export default function PreflightPage() {
         />
       </Card>
 
-      {/* Squawks raised during this walkaround, filed when you submit. */}
+      {/* Squawks raised during this walk, filed when you submit. */}
       <Card className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Squawks from this preflight</h2>
+          <h2 className="text-sm font-semibold">Squawks from this checkout</h2>
           <Button variant="secondary" size="sm" onClick={() => setSquawkModalOpen(true)}>
-            Report a squawk
+            Report
           </Button>
         </div>
         {squawkDrafts.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Nothing reported. Anything you find here gets filed against this
-            preflight when you submit.
+            checkout when you submit.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -449,9 +348,8 @@ export default function PreflightPage() {
                 key={i}
                 className="flex items-start gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700"
               >
-                <Badge tone={SEVERITY_TONES[draft.severity]}>
-                  {SEVERITY_LABELS[draft.severity]}
-                </Badge>
+                {/* A draft has no status yet — it becomes "New" on submit. */}
+                <Badge tone="amber">New</Badge>
                 <span className="min-w-0 flex-1">
                   <span className="font-medium">{draft.title}</span>
                   {draft.photos.length > 0 && (
@@ -475,11 +373,7 @@ export default function PreflightPage() {
         )}
       </Card>
 
-      {/* The last mnemonic of the rules — not a checklist item because it's
-          flown, not walked: you run it on every approach. */}
-      <GumpsCard />
-
-      {/* Submit. "Sign off" is gated on a complete checklist and says exactly
+      {/* Submit. "Sign off" is gated on a complete checkout and says exactly
           what's missing when it isn't — never a silently disabled button. */}
       <div className="space-y-2 pb-2">
         {error && (
@@ -505,16 +399,16 @@ export default function PreflightPage() {
             disabled={busy || !complete}
             className="w-full sm:w-auto"
           >
-            {busy ? <LoadingDots size="sm" /> : "Sign off preflight"}
+            {busy ? <LoadingDots size="sm" /> : "Sign off"}
           </Button>
           <Button
             size="lg"
             variant="secondary"
             onClick={() => submit(false)}
-            disabled={busy || checked === 0}
+            disabled={busy || !anyChecked}
             className="w-full sm:w-auto"
           >
-            Save progress
+            Save
           </Button>
         </div>
       </div>
@@ -525,44 +419,5 @@ export default function PreflightPage() {
         onAdd={(draft) => setSquawkDrafts((rows) => [...rows, draft])}
       />
     </div>
-  );
-}
-
-function Check() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
-      <path
-        d="M5 13l4 4L19 7"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        // Drawn rather than popped in — see the check-draw keyframe.
-        strokeDasharray="24"
-        strokeDashoffset="24"
-        className="animate-check-draw"
-      />
-    </svg>
-  );
-}
-
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      aria-hidden="true"
-      className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${
-        open ? "rotate-180" : ""
-      }`}
-    >
-      <path
-        d="M6 8l4 4 4-4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

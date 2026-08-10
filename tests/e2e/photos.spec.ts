@@ -32,7 +32,7 @@ test("a photo attached to a flight comes back on the log entry", async ({ page }
   });
   await expect(page.getByRole("img", { name: "hobbs.png" })).toBeVisible();
 
-  await page.getByRole("button", { name: "File this flight" }).click();
+  await page.getByRole("button", { name: "File" }).click();
   await expect(page.getByText(/Filed 1.2 hours/)).toBeVisible({ timeout: 60_000 });
 
   // Open the newest entry in the log and confirm the image actually loads

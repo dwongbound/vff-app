@@ -1,6 +1,6 @@
 // Photo upload. Multipart POST with:
 //   file     — the image itself
-//   subject  — "flight" | "squawk" | "preflight"
+//   subject  — "flight" | "squawk" | "checkout"
 //   subjectId— the row it documents (must already exist and be yours)
 //   caption  — optional
 //
@@ -11,15 +11,27 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getStorage, photoKey } from "@/lib/storage";
+import { getStorage, photoKey, storageStatus } from "@/lib/storage";
 import { serializePhoto } from "@/lib/serialize";
 import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES } from "@/lib/constants";
 
-type Subject = "flight" | "squawk" | "preflight";
+type Subject = "flight" | "squawk" | "checkout";
 
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
+  // The UI already hides the picker when this is the case (see
+  // PhotoSupportProvider), so reaching here means a stale tab or a direct
+  // call. 503 rather than the 500 that getStorage()'s throw would produce:
+  // nothing is broken, the feature is switched off.
+  const storage = storageStatus();
+  if (!storage.configured) {
+    return NextResponse.json(
+      { error: storage.reason ?? "Photo storage is unavailable." },
+      { status: 503 }
+    );
+  }
 
   const form = await req.formData().catch(() => null);
   if (!form) {
@@ -34,7 +46,7 @@ export async function POST(req: Request) {
   const subjectId = String(form.get("subjectId") ?? "");
   const caption = form.get("caption") ? String(form.get("caption")).trim() : null;
 
-  if (!["flight", "squawk", "preflight"].includes(subject) || !subjectId) {
+  if (!["flight", "squawk", "checkout"].includes(subject) || !subjectId) {
     return NextResponse.json(
       { error: "Say what this photo belongs to." },
       { status: 400 }
@@ -65,7 +77,7 @@ export async function POST(req: Request) {
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const key = photoKey(
-    subject === "flight" ? "flights" : subject === "squawk" ? "squawks" : "preflight",
+    subject === "flight" ? "flights" : subject === "squawk" ? "squawks" : "checkouts",
     subjectId,
     file.type
   );
@@ -81,7 +93,7 @@ export async function POST(req: Request) {
       uploadedById: user.id,
       flightId: subject === "flight" ? subjectId : null,
       squawkId: subject === "squawk" ? subjectId : null,
-      preflightId: subject === "preflight" ? subjectId : null,
+      checkoutId: subject === "checkout" ? subjectId : null,
     },
   });
 
@@ -104,7 +116,7 @@ async function ownerOf(subject: Subject, id: string): Promise<string | null> {
     });
     return row?.reportedById ?? null;
   }
-  const row = await prisma.preflightCheck.findUnique({
+  const row = await prisma.checkout.findUnique({
     where: { id },
     select: { userId: true },
   });

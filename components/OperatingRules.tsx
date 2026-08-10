@@ -5,15 +5,16 @@
 //   • MyLimitsCard — the verdict for YOU today ("solo, or do you need an
 //     instructor?") plus the minimums that go with it, on the preflight tab,
 //     where the decision is actually being made.
-//   • RulesReference — the whole table, collapsed by default, on the flight
-//     log tab, where it serves as the club's reference copy.
+//   • RulesModal — the whole table as a popover, opened from the landing
+//     currency card on the flight log's "Mine" view, where it serves as the
+//     club's reference copy.
 //
 // Every row carries an (i) explaining what the limit is protecting against;
 // the rules are only useful if people understand them.
-import { useState } from "react";
 import Badge from "./common/Badge";
 import Card from "./common/Card";
 import InfoTip from "./common/InfoTip";
+import Modal from "./common/Modal";
 import {
   CANCELLATION_POLICY,
   CHECKOUT_AIRPORTS,
@@ -83,7 +84,10 @@ export function MyLimitsCard({
             ))}
           </ul>
         )}
-        <p className="mt-1 text-xs">
+        {/* No size class: the night blocker is the same kind of statement as
+            the day blockers above it, so it takes the banner's own `text-sm`
+            rather than shrinking to a footnote. */}
+        <p className="mt-1">
           Night:{" "}
           {nightSolo
             ? "current for solo night flying."
@@ -91,7 +95,11 @@ export function MyLimitsCard({
         </p>
       </div>
 
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      {/* Prose, not metadata: four lines of running text explaining where the
+          numbers came from and what to do about them. `text-xs` is the app's
+          chip/label size — at paragraph length it reads as fine print, which
+          is the opposite of the point. */}
+      <p className="text-sm text-gray-500 dark:text-gray-400">
         From{" "}
         {totalTimeHours == null
           ? "no declared total time"
@@ -136,98 +144,98 @@ export function MyLimitsCard({
   );
 }
 
-/** The full three-column table, collapsed by default. */
-export function RulesReference() {
-  const [open, setOpen] = useState(false);
-
+/**
+ * The full three-column table, in a modal.
+ *
+ * It's a popover rather than a section of the flight log because the rules are
+ * something you go and look up — they answer a question you already have, and
+ * on the page they pushed the log itself below the fold. The flight log opens
+ * this from inside the currency card, which is exactly where the question
+ * ("am I allowed to fly today?") comes up.
+ */
+export function RulesModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   return (
-    <Card className="space-y-3">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 text-left"
-      >
-        <span>
-          <span className="block text-sm font-semibold">Operating rules</span>
-          <span className="block text-xs text-gray-500 dark:text-gray-400">
-            {RULES_ID} — as established by the VFF Safety Officer on {RULES_REVISION}
-          </span>
-        </span>
-        <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-          {open ? "Hide" : "Show"}
-        </span>
-      </button>
-
-      {open && (
-        <>
-          {/* Desktop: the table as printed. It scrolls inside its own box so a
-              narrow window never makes the whole page scroll sideways. */}
-          <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full min-w-[40rem] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-left dark:border-gray-700">
-                  <th className="py-2 pr-3 font-semibold">Rule</th>
-                  <th className="py-2 pr-3 font-semibold">Experienced</th>
-                  <th className="py-2 pr-3 font-semibold">Building time</th>
-                  <th className="py-2 font-semibold">With instructor</th>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Operating rules"
+      subtitle={`${RULES_ID} — as established by the VFF Safety Officer on ${RULES_REVISION}`}
+      size="full"
+    >
+      <div className="space-y-3">
+        {/* Desktop: the table as printed. It scrolls inside its own box so a
+            narrow window never makes the whole page scroll sideways. */}
+        <div className="hidden overflow-x-auto sm:block">
+          <table className="w-full min-w-[40rem] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-left dark:border-gray-700">
+                <th className="py-2 pr-3 font-semibold">Rule</th>
+                <th className="py-2 pr-3 font-semibold">Experienced</th>
+                <th className="py-2 pr-3 font-semibold">Building time</th>
+                <th className="py-2 font-semibold">With instructor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {RULE_ROWS.map((row) => (
+                <tr
+                  key={row.id}
+                  className="border-b border-gray-100 align-top dark:border-gray-700/60"
+                >
+                  <td className="py-2 pr-3">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      {row.label}
+                      <InfoTip label={row.label}>{row.why}</InfoTip>
+                    </span>
+                  </td>
+                  <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
+                    {row.experienced}
+                  </td>
+                  <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
+                    {row.building}
+                  </td>
+                  <td className="py-2 text-gray-700 dark:text-gray-300">
+                    {row.withInstructor}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {RULE_ROWS.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b border-gray-100 align-top dark:border-gray-700/60"
-                  >
-                    <td className="py-2 pr-3">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        {row.label}
-                        <InfoTip label={row.label}>{row.why}</InfoTip>
-                      </span>
-                    </td>
-                    <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
-                      {row.experienced}
-                    </td>
-                    <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
-                      {row.building}
-                    </td>
-                    <td className="py-2 text-gray-700 dark:text-gray-300">
-                      {row.withInstructor}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-          {/* Phone: the same rows stacked, because a four-column table at
-              390px is unreadable however you slice it. */}
-          <ul className="space-y-3 sm:hidden">
-            {RULE_ROWS.map((row) => (
-              <li key={row.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-                <div className="flex items-center gap-1.5 text-sm font-medium">
-                  {row.label}
-                  <InfoTip label={row.label}>{row.why}</InfoTip>
-                </div>
-                <dl className="mt-1.5 space-y-1 text-xs">
-                  <Row label="Experienced" value={row.experienced} />
-                  <Row label="Building time" value={row.building} />
-                  <Row label="With instructor" value={row.withInstructor} />
-                </dl>
-              </li>
-            ))}
-          </ul>
+        {/* Phone: the same rows stacked, because a four-column table at
+            390px is unreadable however you slice it. */}
+        <ul className="space-y-3 sm:hidden">
+          {RULE_ROWS.map((row) => (
+            <li key={row.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <div className="flex items-center gap-1.5 text-sm font-medium">
+                {row.label}
+                <InfoTip label={row.label}>{row.why}</InfoTip>
+              </div>
+              <dl className="mt-1.5 space-y-1 text-xs">
+                <Row label="Experienced" value={row.experienced} />
+                <Row label="Building time" value={row.building} />
+                <Row label="With instructor" value={row.withInstructor} />
+              </dl>
+            </li>
+          ))}
+        </ul>
 
-          <p className="text-xs text-gray-600 dark:text-gray-400">
-            <span className="font-semibold">Checkout required:</span>{" "}
-            {CHECKOUT_AIRPORTS.map((a) => `${a.name} (${a.id})`).join(" · ")}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            If the FAA&rsquo;s minimums or your own personal minimums are lower than
-            these, those win. {CANCELLATION_POLICY}
-          </p>
-        </>
-      )}
-    </Card>
+        <p className="text-xs text-gray-600 dark:text-gray-400">
+          <span className="font-semibold">Checkout required:</span>{" "}
+          {CHECKOUT_AIRPORTS.map((a) => `${a.name} (${a.id})`).join(" · ")}
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          If the FAA&rsquo;s minimums or your own personal minimums are lower than
+          these, those win. {CANCELLATION_POLICY}
+        </p>
+      </div>
+    </Modal>
   );
 }
 

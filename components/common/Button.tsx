@@ -16,11 +16,17 @@ const VARIANT_CLASSES: Record<Variant, string> = {
     "dark:text-gray-300 dark:hover:bg-gray-800",
 };
 
+// Vertical padding is deliberately one step tighter than the horizontal:
+// the type scale already runs 1px large (see tailwind.config.ts), and stock
+// paddings on top of that gave every button a slab of empty space above and
+// below its label.
 const SIZE_CLASSES: Record<Size, string> = {
-  sm: "px-2.5 py-1.5 text-xs",
-  md: "px-4 py-2 text-sm",
-  // Thumb-sized: the primary action at the bottom of a phone form.
-  lg: "px-5 py-3 text-base",
+  sm: "px-2.5 py-1 text-xs",
+  md: "px-4 py-1.5 text-sm",
+  // The primary action at the bottom of a form. Still the tallest of the
+  // three; the WIDTH is what makes it the easy target on a phone (these are
+  // `w-full` below `sm`), so the height doesn't have to carry that on its own.
+  lg: "px-5 py-2 text-base",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

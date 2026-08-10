@@ -3,6 +3,7 @@
 // user) and signs it out.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { capabilitiesFor, type Position } from "@/lib/positions";
 import { prisma } from "@/lib/prisma";
 import type { ApiMe } from "@/lib/types";
 
@@ -12,21 +13,39 @@ function toApi(u: {
   email: string | null;
   phone: string | null;
   isAdmin: boolean;
+  positions: string[];
+  clubMember: boolean;
   certificate: string | null;
   totalTimeHours: number | null;
   medicalExpiresOn: Date | null;
   flightReviewOn: Date | null;
+  tourSeenAt: Date | null;
 }): ApiMe {
+  const positions = u.positions as Position[];
   return {
     id: u.id,
     name: u.name,
     email: u.email,
     phone: u.phone,
     isAdmin: u.isAdmin,
+    positions,
+    clubMember: u.clubMember,
+    // Resolved here so the client never re-derives permissions: admins hold
+    // every capability, and that rule lives in exactly one place. Membership
+    // goes in alongside the offices because it grants capabilities too — an
+    // instructor-only account has no booking form and no statement.
+    capabilities: [
+      ...capabilitiesFor({
+        isAdmin: u.isAdmin,
+        positions,
+        clubMember: u.clubMember,
+      }),
+    ],
     certificate: u.certificate,
     totalTimeHours: u.totalTimeHours,
     medicalExpiresOn: u.medicalExpiresOn?.toISOString() ?? null,
     flightReviewOn: u.flightReviewOn?.toISOString() ?? null,
+    tourSeenAt: u.tourSeenAt?.toISOString() ?? null,
   };
 }
 
@@ -36,10 +55,13 @@ const SELECT = {
   email: true,
   phone: true,
   isAdmin: true,
+  positions: true,
+  clubMember: true,
   certificate: true,
   totalTimeHours: true,
   medicalExpiresOn: true,
   flightReviewOn: true,
+  tourSeenAt: true,
 } as const;
 
 export async function GET() {
@@ -82,6 +104,13 @@ export async function PATCH(req: Request) {
       data.totalTimeHours = hours;
     }
   }
+  // The tour is marked seen with a flag, not a timestamp: the client says
+  // "I've shown it" and the server decides when that was. Sending `false`
+  // clears it, which is what "show me the tour again" does.
+  if ("tourSeen" in body) {
+    data.tourSeenAt = body.tourSeen ? new Date() : null;
+  }
+
   // Date-only fields arrive as "YYYY-MM-DD" from <input type="date">.
   for (const field of ["medicalExpiresOn", "flightReviewOn"] as const) {
     if (!(field in body)) continue;

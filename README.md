@@ -1,16 +1,24 @@
 # VFF Flying Club
 
-Reserve the club's Cessna 172, run the preflight checklist, and file the
-flight log — on a phone at the tiedown or on a laptop at home.
+Reserve the club's Cessna 172, walk its checkouts, and file the flight log —
+on a phone at the tiedown or on a laptop at home.
 
-Four tabs, in the order a flight actually happens:
+The airplane's three laminated cards are in here as three **checkouts**, each
+signed off on its own, in the order a flight actually happens:
 
-| Tab              | What it's for                                                                 |
-| ---------------- | ----------------------------------------------------------------------------- |
-| **Preflight**    | I'M SAFE, the POH walkaround, and the 5 Ps — tappable, with squawks and photos |
-| **Post-flight**  | Tach/Hobbs in-out, landings, fuel, oil, put-away — one line of the club log   |
-| **Flight Log**   | Every flight flown, totals, landing currency, the squawk list and the rules   |
-| **Reservations** | Month calendar on desktop; upcoming list + a "+" button on phones             |
+| Tab              | What it's for                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| **Status**       | Overview (meters, fuel/oil, hours flown) and Squawks — the club's squawk sheet, read-only unless you're the Safety Officer |
+| **Preflight**    | The preflight card: I'M SAFE, homework, consumables, cockpit, and the walk around the airplane |
+| **Runway**       | The in-cockpit card: passengers, before start, pre-lube, start, runup, pre-takeoff, 5 Ps      |
+| **Post-flight**  | Tach/Hobbs in-out, landings, fuel, oil, and the turn-off checkout — one line of the club log  |
+| **Tools**        | Weight & balance for this airframe — its own empty weight already in it, checked at takeoff *and* on landing |
+| **Flight Log**   | Club view: the airplane's hours, everyone's flights, squawks. Mine: your totals and currency |
+| **Reservations** | Month calendar on desktop; upcoming list + a "+" button on phones                            |
+| **Members**      | The club roster and how to reach people; admins promote other admins here                    |
+
+Takeoff, climb, cruise and descent are deliberately NOT checkouts: nothing gets
+ticked in the air, so they're a read-only card at the foot of the Runway tab.
 
 Light and dark themes follow the OS by default. On phones the nav collapses to
 a floating bottom bar and you can swipe left/right between tabs.
@@ -18,7 +26,7 @@ a floating bottom bar and you can swipe left/right between tabs.
 The club's operating rules (**VFF-OR-A**) are built in rather than filed away.
 The preflight tab answers the question they exist to answer — *can you fly this
 today, solo or with an instructor?* — from your own flight log, then lists the
-minimums that come with that answer. Every checklist step has an (i) explaining
+minimums that come with that answer. Every checkout item has an (i) explaining
 what it catches and why. See "Operating rules" below.
 
 ## Stack
@@ -110,16 +118,21 @@ demand:
 
 1. Sign up. **The first account created becomes the club admin** (a fresh
    install has nobody to grant it).
-2. Change the airplane: the seed creates one from `SEED_TAIL_NUMBER`. Edit the
-   tail number, model, hourly rate, fuel capacity and home base — either in
-   `prisma/seed.ts` before seeding, or later via
-   `PATCH /api/aircraft/[id]` as an admin.
-3. Everything is keyed by aircraft, so adding a second airplane later is a
-   row, not a migration. With more than one, the navbar's tail-number chip
-   becomes a picker.
+2. Change the airplane: the seed creates one from `SEED_TAIL_NUMBER`. As an
+   admin, open the avatar menu → **Org settings** to edit the tail number,
+   model, year, hourly rate, fuel capacity and home base. Renaming keeps the
+   airplane's whole history, because everything hangs off its id.
+3. Add the rest of the fleet from the same screen. Everything is keyed by
+   aircraft, so a second airplane is a row, not a migration. With more than
+   one, the navbar's tail-number chip becomes a picker. Sold one? "Retire" it
+   — the history stays, the pickers drop it.
+4. Hand out admin from the **Members** tab. The club can never be left with
+   zero admins, so the last one can't be demoted until someone else is
+   promoted.
 
 Admins can also resolve squawks and edit or cancel anyone's booking; members
-own only their own rows.
+own only their own rows. Pilot paperwork (medical, flight review, total time)
+stays private to each member — the roster shows contact details only.
 
 ## Data model (`prisma/schema.prisma`)
 
@@ -132,12 +145,17 @@ own only their own rows.
 - **Flight** — the post-flight entry and one line of the log: tach/Hobbs in-out,
   landings, route, fuel, oil, put-away flags. Optionally closes out a
   Reservation (one flight per booking).
-- **Squawk** — anything wrong with the airplane: `NOTE` / `MONITOR` /
-  `GROUNDING`, `OPEN` until an admin signs it off. An open `GROUNDING` squawk
-  puts a red banner across the whole app.
-- **PreflightCheck** — one run of the checklist. Answers are a
-  `{ itemId: boolean }` JSON map against `lib/checklist.ts`, so editing the
-  checklist is a code change (bump `CHECKLIST_VERSION`), not a migration.
+- **Squawk** — anything wrong with the airplane, carrying the club's own status
+  vocabulary: `New`, `Reviewed — okay to fly`, `Reviewed — in work`,
+  `Reviewed — aircraft grounded`, `Closed`. Any member can file one from a
+  checkout (it lands as `New`); only the Safety Officer or an admin sets the
+  status. `Reviewed — aircraft grounded` puts a red banner across the whole app
+  and a "do not fly" card on Plane Status.
+- **Checkout** — one run of one of the airplane's cards, `kind` saying which
+  (`PREFLIGHT` or `RUNWAY`; the third, `TURNOFF`, is stored on the Flight it
+  belongs to). Answers are a `{ itemId: boolean }` JSON map against
+  `lib/checkouts.ts`, so editing a card is a code change (bump that checkout's
+  `version`), not a migration.
 - **Photo** — index row for one image. Bytes live in object storage; served
   through `/api/photos/[id]` behind the session check.
 

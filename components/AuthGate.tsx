@@ -16,7 +16,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import LoadingScreen from "@/components/common/LoadingScreen";
+import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 
 function isPublicPath(pathname: string): boolean {
@@ -31,6 +31,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const isPublic = isPublicPath(pathname);
   // Flips true once /api/me confirms the session's user still exists.
   const [verified, setVerified] = useState(false);
+
+  // Hold the SHARED splash rather than rendering one of our own. Two separate
+  // <LoadingScreen>s — ours and the provider's — meant the boot showed one
+  // splash, swapped it for an identical one (restarting the animation), and
+  // only then revealed the page.
+  const blocking = !isPublic && (!verified || status === "unauthenticated");
+  usePageLoading(blocking);
 
   useEffect(() => {
     if (isPublic || status !== "authenticated") return;
@@ -65,13 +72,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (isPublic) return <>{children}</>;
 
-  // Hold the splash until we're sure of a valid, logged-in user. Once verified
-  // we keep rendering through transient "loading" states — e.g. a session
-  // update() after a profile save — so the page doesn't remount and lose
-  // in-page state.
-  if (!verified || status === "unauthenticated") {
-    return <LoadingScreen />;
-  }
+  // Render nothing until we're sure of a valid, logged-in user — the shared
+  // overlay is already covering the screen (see `blocking` above). Once
+  // verified we keep rendering through transient "loading" states — e.g. a
+  // session update() after a profile save — so the page doesn't remount and
+  // lose in-page state.
+  if (blocking) return null;
 
   return <>{children}</>;
 }

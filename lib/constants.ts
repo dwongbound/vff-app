@@ -7,6 +7,20 @@ import type { BadgeTone } from "@/components/common/Badge";
 export const CLUB_NAME = "VFF Flying Club";
 export const CLUB_SHORT_NAME = "VFF";
 
+/**
+ * The club's home timezone — where the airplane physically is.
+ *
+ * The SERVER already runs in this zone (APP_TZ, copied onto TZ by
+ * instrumentation.ts), so anything rendered from a stored instant is in club
+ * time already. This constant is for the other direction: a clock reading
+ * being written DOWN in the browser, which would otherwise come out in
+ * whatever zone the member's phone happens to be set to. A time written on
+ * N8318B's card means field time at KBFI, not the time in the seat 30,000 ft
+ * above it, so those readings are stamped from here rather than from the
+ * device. See `clubTimeNow` in lib/dates.ts.
+ */
+export const CLUB_TIME_ZONE = "America/Los_Angeles";
+
 // What a member is doing with the airplane (Prisma enum ReservationPurpose).
 export const PURPOSE_LABELS = {
   LOCAL: "Local flight",
@@ -30,22 +44,10 @@ export const PURPOSE_TONES: Record<Purpose, BadgeTone> = {
   MAINTENANCE: "amber",
 };
 
-// Squawk severity (Prisma enum SquawkSeverity).
-export const SEVERITY_LABELS = {
-  NOTE: "Note",
-  MONITOR: "Monitor",
-  GROUNDING: "Grounding",
-} as const;
-
-export type Severity = keyof typeof SEVERITY_LABELS;
-
-export const SEVERITIES = Object.keys(SEVERITY_LABELS) as Severity[];
-
-export const SEVERITY_TONES: Record<Severity, BadgeTone> = {
-  NOTE: "gray",
-  MONITOR: "amber",
-  GROUNDING: "red",
-};
+// Squawk status labels/tones used to live here, next to the other enums. They
+// moved to lib/squawks.ts when severity and status collapsed into one value:
+// that file also has to answer "is this grounding / in work / still open", and
+// a label table split from the predicates that read it is how the two drift.
 
 // Longest single booking, and how far ahead members may book. Both are club
 // policy rather than physics — change them here.

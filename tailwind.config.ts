@@ -8,6 +8,55 @@ const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Body copy runs 1px larger than Tailwind's stock scale.
+      // ──────────────────────────────────────────────────────────────────
+      // This is deliberately done on the SCALE rather than on `body` or on
+      // `html`. The app writes its copy almost entirely in `text-sm` (~230
+      // uses) and `text-xs` (~120); barely anything renders at the unstyled
+      // default. Those utilities are rem values resolved against the ROOT
+      // element, so a font-size on `body` would not have moved them, and one
+      // on `html` would have dragged every rem-based PADDING, gap and width
+      // along with it — including the rail's `w-60` and `--app-header-h`,
+      // which are measurements the layout depends on. Changing the type scale
+      // alone moves type alone.
+      //
+      // Only the body-copy steps are touched. `lg` and up are headings, which
+      // were not the thing reading small; they keep their stock sizes. The
+      // line-heights are stock too — leading is what sets vertical rhythm, and
+      // re-cutting it would change page density well beyond "1px bigger".
+      fontSize: {
+        xs: ["0.8125rem", { lineHeight: "1rem" }], // 13px (was 12)
+        sm: ["0.9375rem", { lineHeight: "1.25rem" }], // 15px (was 14)
+        base: ["1.0625rem", { lineHeight: "1.5rem" }], // 17px (was 16)
+      },
+
+      // The two faces loaded in app/layout.tsx, which is also where the
+      // reasoning for each one lives. Headings are this same `sans` at a
+      // heavier weight, so there is no `display` family. Each stack keeps a
+      // system fallback for the frame before the webfont lands, and for anyone
+      // who blocks webfonts outright.
+      fontFamily: {
+        sans: [
+          "var(--font-app-sans)",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
+        mono: [
+          "var(--font-app-mono)",
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "Consolas",
+          "Liberation Mono",
+          "monospace",
+        ],
+      },
       colors: {
         // Brand accent. The app is written entirely in `indigo-*` utility
         // classes; we remap that whole palette to the club's Cessna orange so
@@ -63,10 +112,17 @@ const config: Config = {
         },
         // Draws a checkmark by animating the SVG stroke into view (the path
         // sets `stroke-dasharray/-dashoffset: 24` so it starts hidden). Used
-        // when a preflight item is ticked.
+        // when a checkout item is ticked.
         "check-draw": {
           "0%": { strokeDashoffset: "24" },
           "100%": { strokeDashoffset: "0" },
+        },
+        // A menu rising into place. Used by the phone's checkouts sheet,
+        // which mounts on tap and so can animate on entry alone (the desktop
+        // Dropdown transitions both ways instead — it has to fade back out).
+        "fade-in-up": {
+          "0%": { opacity: "0", transform: "translateY(4px) scale(0.98)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
         },
       },
       animation: {
@@ -77,6 +133,7 @@ const config: Config = {
         "pulse-name": "pulse-name 1.8s ease-in-out infinite",
         radiate: "radiate 2s ease-out infinite",
         "check-draw": "check-draw 0.4s ease-out forwards",
+        "fade-in-up": "fade-in-up 0.15s ease-out forwards",
       },
     },
   },

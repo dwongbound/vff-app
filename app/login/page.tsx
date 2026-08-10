@@ -9,6 +9,7 @@ import Card from "@/components/common/Card";
 import Input from "@/components/common/Input";
 import Logo from "@/components/Logo";
 import { CLUB_NAME } from "@/lib/constants";
+import { normalizeCode } from "@/lib/signupCodes";
 
 // useSearchParams() (used inside LoginForm to read ?callbackUrl) must sit
 // under a Suspense boundary, so the page export just wraps the form in one.
@@ -35,6 +36,9 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [password2, setPassword2] = useState("");
+  // The club's sign-up code. Normalised as it's typed so what you see is what
+  // gets compared — see lib/signupCodes.ts.
+  const [code, setCode] = useState("");
   // False until React has hydrated. The submit buttons stay disabled until
   // then: this is the one page reachable before the JS lands, and a click on an
   // un-hydrated form does a native GET submit that silently wipes what you
@@ -81,7 +85,7 @@ function LoginForm() {
     const res = await fetch("/api/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({ name, email, password, code }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -161,6 +165,19 @@ function LoginForm() {
           </form>
         ) : (
           <form onSubmit={onSignUp} className="space-y-4">
+            {/* First, not last: without one you can't join at all, and finding
+                that out after typing a password is the worst order to learn it
+                in. Not marked `required` in the markup because the very first
+                account at a brand-new club legitimately has no code to give —
+                the server is what decides (see app/api/signup). */}
+            <Input
+              label="Sign-up code"
+              value={code}
+              onChange={(e) => setCode(normalizeCode(e.target.value))}
+              className="font-mono"
+              autoComplete="off"
+              hint="From the club. Case and spaces don't matter."
+            />
             <Input
               label="Name"
               value={name}

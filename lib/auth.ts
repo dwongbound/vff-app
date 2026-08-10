@@ -6,6 +6,7 @@ import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { authCookies } from "./authCookies";
+import { can, type Capability } from "./positions";
 import { prisma } from "./prisma";
 
 // Google sign-in is optional: it's only registered when its OAuth credentials
@@ -140,7 +141,18 @@ export async function getSessionUser() {
   // Re-check the id so a "ghost" session is treated as logged out.
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, name: true, email: true, isAdmin: true },
+    // positions and clubMember come along for the ride so capability checks
+    // never need a second query — and, like isAdmin, are read fresh rather than
+    // trusted from the token, which could predate an office being handed over
+    // (or a visiting instructor joining the club).
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      isAdmin: true,
+      positions: true,
+      clubMember: true,
+    },
   });
   return user;
 }
@@ -154,4 +166,15 @@ export async function getAdminUser() {
   const user = await getSessionUser();
   if (!user?.isAdmin) return null;
   return user;
+}
+
+/**
+ * Guard for routes an OFFICE may perform — "the Finance Officer keeps the
+ * books". Admins pass every one of these (see lib/positions.ts), so this is
+ * the right guard even for things only an officer would normally do.
+ */
+export async function getCapableUser(capability: Capability) {
+  const user = await getSessionUser();
+  if (!user) return null;
+  return can(user, capability) ? user : null;
 }

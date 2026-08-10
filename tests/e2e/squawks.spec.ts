@@ -1,48 +1,181 @@
 // The squawk lifecycle, which is the app's one piece of genuinely safety-
-// relevant behaviour: a grounding squawk has to stop the whole club, and only
-// an admin sign-off may clear it.
-import { expect, test } from "@playwright/test";
+// relevant behaviour.
+//
+// The shape to protect: a member REPORTS, the Safety Officer RULES. Filing a
+// squawk can't ground the airplane by itself (that used to be a severity the
+// reporter picked); grounding is a status only `squawk:manage` can set, and it
+// has to stop the whole club until it's cleared.
+//
+// Two things every test here has to respect, both learned the hard way:
+//
+//   • Titles are prefixed "E2E " so they can't collide with the seeded squawk
+//     ("Right brake feels soft"), which `.first()` would otherwise match — and
+//     which the seed leaves at REVIEWED_IN_WORK, not New.
+//   • The seed is reset once per RUN, not per test, so anything that changes a
+//     squawk's status must put it back — otherwise a retry re-runs against an
+//     airplane the previous attempt left grounded, and so does every test after
+//     it. Each test also files its own uniquely-titled squawk rather than
+//     reusing a seeded one.
+//   • "Do not fly" appears TWICE on a grounded page — once in the Status
+//     layout's card and once in the navbar banner ("…Do not fly until it's
+//     signed off"). Assertions here name the role, not the bare text.
+import { expect, test, type Page } from "@playwright/test";
 import { gotoTab, signIn } from "./helpers";
 
-test.beforeEach(async ({ page }) => {
-  await signIn(page);
+/** A seeded member with no admin flag and no office. */
+const PLAIN_MEMBER = "alex@vffclub.test";
+
+/** The Status layout's dispatch card, as opposed to the navbar banner. */
+const doNotFlyCard = (page: Page) =>
+  page.getByRole("heading", { name: /Do not fly/ });
+const inMaintenanceCard = (page: Page) =>
+  page.getByRole("heading", { name: /In maintenance/ });
+/** The app-wide banner, which only the navbar renders. */
+const groundedBanner = (page: Page) => page.getByText(/is grounded:/);
+
+/** File a squawk from the preflight checkout, the way a member actually does. */
+async function fileSquawk(page: Page, title: string) {
+  await gotoTab(page, "/preflight", "Preflight");
+  await page.getByRole("button", { name: "Report" }).click();
+  await page.getByLabel("What's wrong?").fill(title);
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByRole("button", { name: "Check all" }).first().click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/Progress saved/)).toBeVisible({ timeout: 60_000 });
+}
+
+/**
+ * The Squawks-tab row for one squawk.
+ *
+ * Scoped to the named list on purpose: when the airplane is grounded, the
+ * Status LAYOUT also renders an <li> per grounded squawk in its "do not fly"
+ * card, and a bare `locator("li").first()` matches that one — which has no
+ * status picker, so every triage step silently times out.
+ */
+function rowFor(page: Page, title: string) {
+  return page
+    .getByRole("list", { name: "Squawks" })
+    .getByRole("listitem")
+    .filter({ hasText: title })
+    .first();
+}
+
+/**
+ * The status control on one row.
+ *
+ * It is a chip picker rather than a native <select> (the five statuses are a
+ * dispatch decision, and rendering "okay to fly" and "grounded" in identical
+ * grey buries that) — so it's a BUTTON that opens a listbox, not a combobox.
+ * Named "Status" followed by the current value, which is why this matches on
+ * the prefix: the whole point of the control is that the rest of the name
+ * changes.
+ */
+const statusPicker = (row: ReturnType<typeof rowFor>) =>
+  row.getByRole("button", { name: /^Status/ });
+
+/** `label` matches the option's visible chip text, e.g. /aircraft grounded/. */
+async function setStatus(page: Page, title: string, label: RegExp) {
+  await page.goto("/status/squawks");
+  const row = rowFor(page, title);
+  await expect(row).toBeVisible({ timeout: 60_000 });
+  await statusPicker(row).click();
+  // Scoped to this row: every open picker on the page renders its own listbox.
+  await row.getByRole("option", { name: label }).click();
+}
+
+test("a member files a squawk as New and cannot triage it", async ({ page }) => {
+  await signIn(page, PLAIN_MEMBER);
+  await fileSquawk(page, "E2E left tyre wearing unevenly");
+
+  await page.goto("/status/squawks");
+  const row = rowFor(page, "E2E left tyre wearing unevenly");
+  await expect(row).toBeVisible({ timeout: 60_000 });
+  // Filed as New, and this member gets no way to change that. A plain member's
+  // row has no status picker, so the badge is the only "New" in it.
+  await expect(row.getByText("New")).toBeVisible();
+  await expect(page.getByText(/Read-only/)).toBeVisible();
+  await expect(statusPicker(row)).toHaveCount(0);
 });
 
-test("a grounding squawk warns the whole club until an admin signs it off", async ({
-  page,
-}) => {
+test("the member's squawk form has no severity picker", async ({ page }) => {
+  await signIn(page, PLAIN_MEMBER);
   await gotoTab(page, "/preflight", "Preflight");
+  await page.getByRole("button", { name: "Report" }).click();
 
-  await page.getByRole("button", { name: "Report a squawk" }).click();
-  await page.getByLabel("What's wrong?").fill("Vacuum pump failed");
-  await page.getByLabel("Severity").selectOption("GROUNDING");
-  // The form spells out what grounding actually means before you commit to it.
-  await expect(page.getByText(/grounds the airplane for everyone/)).toBeVisible();
-  await page.getByRole("button", { name: "Add squawk" }).click();
+  await expect(page.getByLabel("Severity")).toHaveCount(0);
+  await expect(page.getByText(/files as/)).toBeVisible();
+});
 
-  await page.getByRole("button", { name: "Check all in section" }).first().click();
-  await page.getByRole("button", { name: "Save progress" }).click();
-  await expect(page.getByText(/Progress saved/)).toBeVisible({ timeout: 60_000 });
+test("Overview and Squawks are rail children of Plane Status", async ({ page }) => {
+  await signIn(page);
+  await gotoTab(page, "/status", "N8318B");
 
-  // The banner is app-wide, not page-local.
-  const banner = page.getByText(/is grounded:/);
-  await expect(banner).toBeVisible({ timeout: 60_000 });
-  await gotoTab(page, "/reservations", "Reservations");
-  await expect(page.getByText(/is grounded:/)).toBeVisible();
+  // Both live in the nav rail under Plane Status, like the checkouts — NOT as
+  // tabs drawn inside the page.
+  const rail = page.locator("aside");
+  await expect(rail.getByRole("link", { name: "Overview" })).toBeVisible();
+  await expect(rail.getByRole("link", { name: "Squawks" })).toBeVisible();
 
-  // Sign it off as the (seeded) admin.
-  await gotoTab(page, "/log", "Flight log");
-  const squawkRow = page
-    .locator("li")
-    .filter({ hasText: "Vacuum pump failed" })
-    .first();
-  await squawkRow.getByRole("button", { name: "Sign off" }).click();
-  await page.getByLabel("How was it fixed?").fill("New pump installed");
-  await page.getByRole("button", { name: "Confirm" }).click();
+  // Overview is the default child. Named by role — "Hours flown" also appears
+  // in the chart's screen-reader table caption.
+  await expect(page.getByRole("heading", { name: "Hours flown" })).toBeVisible();
 
-  // Cleared: the squawk drops off the open list and the banner goes with it.
-  await expect(
-    page.locator("li").filter({ hasText: "Vacuum pump failed" })
-  ).toHaveCount(0, { timeout: 60_000 });
-  await expect(page.getByText(/is grounded:/)).toBeHidden();
+  await rail.getByRole("link", { name: "Squawks" }).click();
+  await expect(page).toHaveURL(/\/status\/squawks/);
+  // The airplane header comes from the shared layout, so it survives the hop.
+  await expect(page.getByRole("heading", { name: "N8318B" })).toBeVisible();
+
+  await rail.getByRole("link", { name: "Overview" }).click();
+  await expect(page).toHaveURL(/\/status$/);
+  await expect(page.getByRole("heading", { name: "Hours flown" })).toBeVisible();
+});
+
+test("grounding a squawk stops the club until it is closed", async ({ page }) => {
+  // The seeded admin holds every capability, squawk:manage included.
+  await signIn(page);
+  const title = "E2E vacuum pump failed";
+  await fileSquawk(page, title);
+
+  // Filing alone must NOT ground the airplane — scoped to this squawk's own
+  // row rather than the global banner, so the assertion says what it means
+  // even if something else on the airplane is open. Read off the picker's
+  // accessible name ("Status New"), which is the current value: the chip in
+  // the row's header says the same thing, so matching bare text is ambiguous.
+  await page.goto("/status/squawks");
+  await expect(statusPicker(rowFor(page, title))).toHaveAccessibleName(
+    /^Status\s+New/,
+    { timeout: 60_000 }
+  );
+
+  try {
+    await setStatus(page, title, /aircraft grounded/);
+    await expect(doNotFlyCard(page)).toBeVisible({ timeout: 60_000 });
+
+    // The banner is app-wide, not page-local.
+    await gotoTab(page, "/reservations", "Reservations");
+    await expect(groundedBanner(page)).toBeVisible({ timeout: 60_000 });
+  } finally {
+    // Always put the airplane back, or every later test inherits a grounding.
+    await setStatus(page, title, /^Closed/);
+  }
+
+  await expect(doNotFlyCard(page)).toBeHidden({ timeout: 60_000 });
+  await expect(groundedBanner(page)).toBeHidden();
+});
+
+test("in work reads as maintenance, not as a grounding", async ({ page }) => {
+  await signIn(page);
+  const title = "E2E nose strut over extended";
+  await fileSquawk(page, title);
+
+  try {
+    await setStatus(page, title, /in work/);
+
+    await expect(inMaintenanceCard(page)).toBeVisible({ timeout: 60_000 });
+    // The distinction that matters: the shop has it, but it isn't grounded.
+    await expect(doNotFlyCard(page)).toBeHidden();
+    await expect(groundedBanner(page)).toBeHidden();
+  } finally {
+    await setStatus(page, title, /^Closed/);
+  }
 });

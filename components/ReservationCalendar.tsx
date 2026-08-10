@@ -29,7 +29,9 @@ export default function ReservationCalendar({
   month: Date;
   onMonthChange: (next: Date) => void;
   onSelect: (reservation: ApiReservation) => void;
-  onCreateOnDay: (date: Date) => void;
+  /** Omitted for a viewer who may not book — the per-day "+" disappears
+      with it, rather than being offered and then refused. */
+  onCreateOnDay?: (date: Date) => void;
 }) {
   const today = new Date();
   const startOfToday = new Date(
@@ -151,7 +153,7 @@ export default function ReservationCalendar({
             >
               {/* Faintly visible "+" so booking a specific day is discoverable;
                   it fills in solid on hover. Current/future days only. */}
-              {!muted && (
+              {!muted && onCreateOnDay && (
                 <button
                   onClick={() => onCreateOnDay(date)}
                   aria-label={`Book the airplane on ${date.toLocaleDateString()}`}

@@ -9,6 +9,7 @@ import {
   totalLandings,
   totalTachHours,
   validateMeters,
+  monthlyTachHours,
 } from "@/lib/hours";
 
 describe("tachHours / hobbsHours", () => {
@@ -103,5 +104,62 @@ describe("cost", () => {
   it("formats for humans", () => {
     expect(formatCents(33_000)).toBe("$330.00");
     expect(formatHours(2)).toBe("2.0");
+  });
+});
+
+// The Plane Status utilisation chart. Buckets are LOCAL calendar months and
+// empty ones are kept — a quiet month is the most interesting thing the chart
+// has to say, and dropping it would redraw a gap as continuous flying.
+describe("monthlyTachHours", () => {
+  const at = (iso: string, hours: number) => ({
+    flownOn: iso,
+    tachStart: 100,
+    tachEnd: 100 + hours,
+  });
+  // Mid-month so no timezone offset can push the fixture into a neighbour.
+  const now = new Date(2026, 7, 15); // 15 Aug 2026
+
+  it("returns one bucket per month, oldest first, including the current one", () => {
+    const months = monthlyTachHours([], 6, now);
+    expect(months).toHaveLength(6);
+    expect(months.map((m) => m.month.getMonth())).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(months[5].label).toBe(
+      new Date(2026, 7, 1).toLocaleDateString(undefined, { month: "short" })
+    );
+  });
+
+  it("keeps empty months as zeroes rather than skipping them", () => {
+    const months = monthlyTachHours([at("2026-08-10T12:00:00", 2)], 3, now);
+    expect(months.map((m) => m.hours)).toEqual([0, 0, 2]);
+  });
+
+  it("sums every flight that lands in the same bucket", () => {
+    const months = monthlyTachHours(
+      [at("2026-08-02T12:00:00", 1.5), at("2026-08-20T12:00:00", 2.25)],
+      2,
+      now
+    );
+    expect(months[1].hours).toBe(3.8); // rounded to one decimal
+  });
+
+  it("ignores flights outside the window instead of folding them into an edge", () => {
+    const months = monthlyTachHours(
+      [at("2020-01-01T12:00:00", 99), at("2030-01-01T12:00:00", 99)],
+      3,
+      now
+    );
+    expect(months.every((m) => m.hours === 0)).toBe(true);
+  });
+
+  it("survives a flight with no or an unparseable date", () => {
+    const months = monthlyTachHours(
+      [
+        { tachStart: 1, tachEnd: 2 },
+        { flownOn: "not-a-date", tachStart: 1, tachEnd: 2 },
+      ],
+      2,
+      now
+    );
+    expect(months.every((m) => m.hours === 0)).toBe(true);
   });
 });

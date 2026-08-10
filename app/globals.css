@@ -27,17 +27,61 @@
     color-scheme: dark;
   }
 
-  /* Phones navigate between tabs with a horizontal swipe (see SwipePager).
-     Clip any horizontal page overflow and disable horizontal overscroll so a
-     swipe can't drag the whole page — and with it the sticky navbar —
-     sideways. `clip` (not `hidden`) doesn't turn the body into a scroll
-     container, so the viewport still scrolls vertically and `position: sticky`
-     keeps working. */
+  /* The app shell scrolls its CONTENT, not the document.
+     ────────────────────────────────────────────────────────────────────────
+     The document used to be the scroller, which made the chrome's stillness a
+     lie: `position: sticky` sticks to the scroll container, not to the screen,
+     so rubber-banding past the end of a page moved the container and the top
+     bar drifted along with it.
+
+     Killing the bounce (`overscroll-behavior: none`) would fix the drift by
+     removing a piece of platform behaviour people expect, so instead the
+     chrome LEAVES the scrolling context: body is a full-height flex column
+     that never scrolls, the header is a static row in it, and the rail and
+     bottom pill are `fixed`. Nothing in that set can move, because none of it
+     is in a scroller. The content column below is the only scroller, and it
+     keeps its bounce (see `.app-scroll`).
+
+     `overflow-x: clip` stays for the horizontal case — a tab swipe
+     (SwipePager) must not be able to drag the page sideways. `clip` rather
+     than `hidden` so this doesn't itself become a scroll container. */
   html {
+    height: 100%;
+    /* The DOCUMENT must not be scrollable at all. `clip` rather than `hidden`
+       because `hidden` still leaves a box that can be scrolled
+       PROGRAMMATICALLY: `scrollIntoView()` (CheckoutList opening a section, a
+       modal focusing itself) walks every ancestor scroller it can find, so any
+       overflow that reached the document was scrolled — which slid the whole
+       app up under the top bar and left an equal band of dead space at the
+       bottom. `clip` isn't a scroll container, so there is nothing to move. */
+    overflow: clip;
     overscroll-behavior-x: none;
   }
   body {
     overflow-x: clip;
+  }
+
+  /* The one scroller. `overscroll-behavior: contain` keeps the bounce INSIDE
+     this box: you get the rubber band, but it can't chain out to the document
+     and take the chrome with it. Height comes from the flex column rather than
+     `calc(100dvh - var(--app-header-h))` so it stays correct while the header
+     is growing or shrinking a banner — the var is measured after paint, and a
+     height that depends on it lags by a frame. */
+  .app-scroll {
+    /* Positioned so it is the containing block for its own absolutely
+       positioned descendants. Left static, the nearest containing block is the
+       viewport itself, and an `absolute` node deep inside a page is then
+       clipped by neither this box nor <body> — it lands in the DOCUMENT's
+       scrollable overflow, thousands of pixels down. Tailwind's `sr-only`
+       (which is `position: absolute`) on PhotoUploader's file input is the one
+       that did it: an invisible 1px input at the foot of the preflight page
+       gave the document ~2900px to scroll, and the first `scrollIntoView` took
+       it. */
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   /* Meter readings, tail numbers, and tach times are compared column-to-column

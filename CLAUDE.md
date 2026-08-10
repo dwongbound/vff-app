@@ -14,9 +14,18 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 
 - Dev (docker): `docker compose --profile dev up` → `http://localhost:3000`
 - Dev (host): `npm run dev` (loads `env/dev.env`)
-- Unit: `npm run test:unit` · E2E: `npm run test:e2e` (needs `db-test` up)
+- Unit: `npm run test:unit` · E2E: `npm run test:e2e` (needs `db-test` up).
+  Three e2e projects, one per layout: `desktop` (1280), `ipad` (834 — the
+  narrowest width that still gets the rail, so the tightest content column) and
+  `iphone` (402 — bottom pill + the narrow page branches). `tour.spec.ts` runs
+  in all three; everything else is scoped by `testMatch`/`testIgnore`.
+  One project: `npx playwright test --project=ipad`.
 - Everything in containers: `docker compose --profile test up --abort-on-container-exit`
-- `npm run typecheck` · `db:push` · `db:seed` · `db:studio`
+- `npm run typecheck` · `db:push` · `db:seed` · `db:studio` ·
+  `db:migrate -- --name <change>` (writes `prisma/migrations/`, which is what
+  production applies — see the schema-change gotcha).
+- Image: `docker build --build-arg COMMIT_SHA=$(git rev-parse HEAD) -t vff-app .`
+  CI builds and pushes the same image to `ghcr.io/<owner>/vff-app` on green main.
 - Env: templates in `env.example/`, real values in gitignored `env/{dev,test,prod}.env`.
 - No Node on the host? Run any of these through
   `docker run --rm -e DATABASE_URL=… -v "$PWD":/app -w /app node:24 sh -c "…"`.
@@ -24,41 +33,171 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 ## Data model (`prisma/schema.prisma`)
 
 - **User** — email doubles as username; `isAdmin` is club-wide (first account
-  created gets it, see `app/api/signup`). Pilot paperwork (`certificate`,
-  `medicalExpiresOn`, `flightReviewOn`) is informational.
+  created gets it, see `app/api/signup`; after that admins promote each other
+  from the Members tab). Pilot paperwork (`certificate`, `medicalExpiresOn`,
+  `flightReviewOn`) is informational and stays private to the member — the
+  roster API never selects it. `clubMember` is the OTHER half of "what is this
+  person to the club": it says they FLY here, as opposed to only teaching here.
+  Independent of the INSTRUCTOR position on purpose — a club CFI who also rents
+  the airplane is both, a visiting instructor is only the office — and it's
+  what gates booking and the Finances tab (`reservation:book` /
+  `finance:read-own` in `lib/positions.ts`). Admin-only, from the same Members
+  tab; defaults true, which is what every pre-instructor account was.
 - **Aircraft** — tail number, model, `hourlyRateCents`, `fuelCapacityGal`,
   `homeBase`, plus `lastTach`/`lastHobbs` advanced by each filed flight.
   Everything else is keyed by aircraft, so a second airplane is a row.
+  Weight & balance splits in two: `wbProfile` names a profile in
+  `lib/weightBalance.ts` (the TYPE's stations + CG envelope, code because the
+  airframe's design doesn't change), while `emptyWeightLbs` /
+  `emptyMomentLbIn` / `weighedOn` are THIS airframe's basis off its latest
+  signed W&B revision — which changes with every radio swap, so it's columns.
+  Either half missing ⇒ the tool declines rather than assuming an airplane.
 - **Reservation** — `startsAt`/`endsAt`, `purpose`, `status`. Overlap enforced
   in the API via `lib/reservations.ts`; cancel = `CANCELED`, never deleted.
+  `instructorId` is the CFI a lesson is booked with — only ever set when
+  `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
+  rather than leaving a stale name on a booking that changed.
 - **Flight** — tach/Hobbs in-out, landings, route, fuel/oil, `tiedDown`,
   `cabinClean`. `reservationId` is `@unique` (one filed flight per booking).
-- **Squawk** — severity `NOTE|MONITOR|GROUNDING`, status `OPEN|RESOLVED`.
-  Open GROUNDING ⇒ app-wide red banner (Navbar). Admin-only sign-off.
-- **PreflightCheck** — `answers` JSON `{ itemId: true }` against
-  `lib/checklist.ts` + `checklistVersion` (v2 = I'M SAFE + 5 Ps sections);
-  `completedAt` = signed off.
+  `turnoffAnswers` + `turnoffCheckoutVersion` hold the TURN-OFF checkout
+  (`TURNOFF_CHECKOUT`), and `tiedDown`/`cabinClean` are DERIVED from it in the
+  API (`derivePutAway`) whenever it's been answered — they mean "confirmed",
+  not "a toggle nobody moved".
+- **Servicing** — fuel or oil put IN, with no flight attached. The post-flight
+  form still records what went in after a flight (on `Flight`); this is the
+  before-you-fly / nobody-flew-today case, which previously had nowhere to go,
+  so it went unrecorded. `paidPersonally` is the club sheet's "Fuel Purchase
+  Personal Card" column, and it's the only thing that decides whether a
+  FUEL_CREDIT is written (`servicingCredit` → `syncServicingCharges`). Never
+  touches the tach: no flight happened.
+- **Squawk** — ONE status enum, the club's own sheet vocabulary:
+  `NEW | REVIEWED_OK_TO_FLY | REVIEWED_IN_WORK | REVIEWED_GROUNDED | CLOSED`.
+  There is deliberately no separate `severity`: "reviewed, aircraft grounded"
+  is triage state and dispatch impact at once, and holding it as two columns
+  gave the club two sources of truth for "can it fly". Members FILE squawks
+  from the checkouts (always lands at `NEW`, status is not readable off the
+  POST body); everything else — status, wording, closing — needs
+  `squawk:manage`. `REVIEWED_GROUNDED` ⇒ app-wide red banner (Navbar) + the
+  Status tab's "do not fly" card; `REVIEWED_IN_WORK` ⇒ an amber "in
+  maintenance" card that is explicitly NOT a grounding.
+- **Checkout** — one run of ONE of the airplane's cards. `kind` is
+  `PREFLIGHT | RUNWAY` (the third, TURNOFF, lives on Flight — it belongs to
+  that flight, not to a standalone row). `answers` JSON `{ itemId: true }`
+  against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 6,
+  continuing the old checklist's v3; TURNOFF at 2; RUNWAY starts at 1);
+  `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
   `withInstructor` (selects the third column of the operating rules);
   **User** carries self-declared `totalTimeHours`.
+- **Flight**'s instructor endorsement — `instructorId` (who is to sign),
+  `signedById`/`signedAt` (who did, and when), `editedAt` (when the entry's
+  CONTENT last changed). Copied off the booking when a flight is filed against
+  a TRAINING reservation, settable by hand for a lesson never booked in the
+  app. `editedAt` exists rather than reusing `updatedAt` because signing is
+  itself a write — see the gotcha.
+- **SignupCode** — the club's front door. `code` (stored normalised),
+  `kind` (`MEMBER | INSTRUCTOR`), `active`, `uses`/`lastUsedAt`. Reusable;
+  retired by clearing `active`, and DELETE is refused once it has let anyone in
+  so the record of how they joined survives.
 - **Photo** — storage `key` + metadata; `flightId` / `squawkId` / `preflightId`.
+- **Position** (enum on `User.positions`) — club offices. Powers live in
+  `lib/positions.ts`, never inline in a route. `INSTRUCTOR` (CFI) is in here
+  too: not an elected office, but handed out by an admin from the same roster
+  screen and carrying a capability (`flight:sign`).
+- **RecurringCharge** — the RULE for a standing monthly charge (dues). Editing
+  it never restates months already billed.
+- **Charge** — one statement line, positive = owed, negative = credit. `period`
+  is stored ("YYYY-MM") rather than derived, so correcting a date can't silently
+  move money between settled months. Two unique indexes make the derived kinds
+  idempotent — `(memberId, recurringChargeId, period)` and `(flightId, kind)` —
+  and rely on Postgres treating NULLs as distinct, which leaves hand-entered
+  lines free to repeat.
 
 ## Pages (`app/*/page.tsx`)
 
-`login` · `preflight` · `postflight` · `log` · `reservations` · `profile`.
-`layout.tsx` = pre-hydration theme script + nav + swipe pager;
-`loading.tsx` = the airplane splash; `providers.tsx` = session/loading/aircraft/me.
+`login` · `status` (+ `status/squawks`) · `preflight` · `runway` ·
+`postflight` · `servicing` (Checkouts › Add Fuel) · `tools/weight-balance` ·
+`log` · `reservations` · `members` ·
+`finances` · `profile` ·
+`settings` (org settings, admin-only, reached from the avatar menu — the fleet,
+then the sign-up code lists).
+An instructor-only account gets Plane Status, the checkouts, Tools and the
+flight log, a READ-ONLY reservations calendar (no New, no per-day "+", every
+booking opens the read-only view the modal already had for somebody else's),
+and no Finances at all.
+`tools/` is a nav GROUP with one entry today — planning arithmetic isn't only
+W&B, and promoting a leaf to a group later moves a link people have learned.
+Weight & Balance stores nothing: a W&B is true of one load on one day, so the
+page is pure calculator over the aircraft's stored basis.
+`status/layout.tsx` owns the tail-number header, the dispatch banner
+(grounded ▸ in-maintenance, in that priority) and the Overview/Squawks sub-tab
+bar — all three are true of the AIRPLANE rather than of a view, so both child
+tabs get them. Sub-tabs rather than rail entries: the rail lists places you go
+during a flying day, and Navbar's `isActive` uses `startsWith`, so
+`/status/squawks` keeps the Status entry lit for free. `preflight` and `runway` are the two before-the-
+flight checkouts — separate pages with separate sign-offs, because they're
+walked at different times and an interrupted member must never re-tick the
+airplane. The turn-off checkout is a card on `postflight`.
+`layout.tsx` = pre-hydration theme script + `AppShell`; `AppShell` = top bar +
+nav rail + content column + swipe pager, and is a CLIENT component only because
+the column reserves the rail's width (`md:pl-60`) and `/login` — which has no
+rail — must not. `providers.tsx` = session/loading/aircraft/me. There is NO
+`app/loading.tsx`: a route-level splash is a second `LoadingScreen` stacked on
+the provider's overlay, and the swap restarts the animation. `LoadingProvider`
+owns the only splash in the app.
 `/` redirects to `/reservations` (next.config.js).
 
 ## API (`app/api/**/route.ts`)
 
-- Auth: `auth/[...nextauth]`, `signup` (first account ⇒ admin), `me` (GET/PATCH).
-- `aircraft` (GET all + open squawks) · `aircraft/[id]` (PATCH, admin).
-- `reservations` (GET window, POST) · `reservations/[id]` (PATCH, DELETE=cancel).
-- `flights` (GET, POST — also advances the aircraft's meters) · `flights/[id]`.
-- `preflight` (GET recent, POST; `complete:true` requires every item ticked).
-- `squawks` (GET, POST) · `squawks/[id]` (PATCH; status change = admin only).
-- `photos` (POST multipart) · `photos/[id]` (GET streams bytes, DELETE).
+- Auth: `auth/[...nextauth]`, `signup`, `me` (GET/PATCH). Signup needs one of
+  the club's codes; the code's LIST decides the account (member vs CFI), so an
+  applicant never picks. The ONE exception is the very first account at a fresh
+  install — nobody could have issued a code yet — and that one becomes admin.
+- `signup-codes` (GET/POST, admin) · `signup-codes/[id]` (PATCH to retire /
+  relabel, DELETE only while `uses` is 0). The code STRING is deliberately not
+  editable: somebody is holding a slip of paper with it on.
+- `checkouts` (GET `?kind=PREFLIGHT|RUNWAY`, POST; `complete:true` requires
+  every REQUIRED item ticked — optional sections/items excluded). An
+  unrecognised `kind` is a 400, never a silent "show me everything".
+- `members` (GET roster, any member) · `members/[id]` (PATCH `isAdmin`,
+  `positions` and/or `clubMember`, admin; 409 if it would leave the club with
+  no admin, and 409 on un-membering an admin. There is no matching "last
+  Finance Officer" rule — admins can already do the job).
+- `aircraft` (GET all + open squawks, POST admin) · `aircraft/[id]` (PATCH,
+  admin — includes renaming the tail number and the W&B basis; an unknown
+  `wbProfile` is a 400, since a stored typo reads later as "this airplane has
+  no W&B data" and looks like a bug in the tool. ONE exception: `hourlyRateCents`
+  is also writable with `finance:manage`, since the rate is the club's price
+  rather than a fact about the airframe. An officer sending any other field
+  gets a 403 instead of a silent partial write).
+- `finances` (needs `finance:read-own`, so an instructor-only account gets a
+  403 rather than an empty month. GET one month's statements — your own, or
+  everyone's with `&all=1` and `finance:read-all`. Reading a month is what materialises its
+  dues, idempotently, which is why the club needs no cron).
+- `finances/charges` (POST one-off, `finance:manage`) · `finances/charges/[id]`
+  (PATCH to void/restore/amend; DELETE only for hand-entered lines).
+- `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
+  refuses once it has billed anyone; deactivate instead).
+- `reservations` (GET window, POST — needs `reservation:book`, and resolves the
+  TRAINING instructor) · `reservations/[id]` (PATCH, DELETE=cancel). The
+  instructor is re-resolved on every PATCH against the purpose the booking will
+  HAVE, not the one it had.
+- `flights` (GET `?instructing=1` for the lessons you're the CFI on, POST —
+  also advances the aircraft's meters; both routes read `turnoffAnswers` and
+  re-derive the put-away flags) · `flights/[id]` (PATCH stamps `editedAt`) ·
+  `flights/[id]/sign` (POST/DELETE — the instructor's endorsement, its own
+  route so a signature can never be confused with an edit).
+- `squawks` (GET `?status=open|closed|all|<STATUS>`, POST — POST ignores any
+  status in the body) · `squawks/[id]` (PATCH; the WHOLE route needs
+  `squawk:manage`, wording included, because the description is what the next
+  pilot reads to decide whether to fly).
+- `servicing` (GET window, POST — one fill-up, no flight; refuses a row that
+  records nothing at all, since "something happened but not what" is worse
+  than no row).
+- `photos` (POST multipart) · `photos/[id]` (GET streams bytes, DELETE). Both
+  503 with the reason when `storageStatus()` says photos aren't configured,
+  rather than 500ing out of `getStorage()`'s throw — nothing is broken, the
+  feature is off.
 
 ## lib (pure logic, unit-tested where noted)
 
@@ -66,35 +205,333 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   legal), `findConflict`, `validateReservation`, `upcoming`/`past`. ✅tested
 - `hours.ts` — tach/Hobbs math, `validateMeters` (catches the mis-read meter),
   totals, cost, formatting. ✅tested
-- `checklist.ts` — I'M SAFE + the 172 walkaround + 5 Ps, every item with a
-  `why` for the (i) popover; `parseAnswers`/`isComplete`. ✅tested
+- `checkouts.ts` — the three checkouts, transcribed item-for-item off
+  N8318B's two laminated cards, every item with a `why` for the (i) popover.
+  `PREFLIGHT_CHECKOUT` = I'M SAFE + homework + consumables + cockpit + the walk
+  (left wing → nose → right wing → fuselage/empennage) + the club's closing
+  360 (`walkaround` — step back from it, the only section with no list, for
+  the whole-airplane problems you can't see with your nose against a bracket)
+  + standard briefing;
+  `RUNWAY_CHECKOUT` = passengers → before start → pre-lube → start → runup →
+  pre-takeoff + 5 Ps; `TURNOFF_CHECKOUT` = after landing / shutdown / outside
+  parking, answered on the post-flight form. Every helper takes a
+  `CheckoutKind`: `parseAnswers`, `countChecked`, `isComplete`, `missingItems`,
+  `totalItems`; plus `derivePutAway`. A SECTION may be `optional` (the
+  cold-start pre-lube) and so may an ITEM (the card's IFR-only VOR/GPS line):
+  stored when ticked, never counted toward sign-off. Items the club adds to the
+  cards are flagged `club: true` and render a "club" chip. Three are whole
+  SECTIONS (I'M SAFE, the 5 Ps, the closing walkaround) and three are single
+  lines inside a card's own section (the open-squawks review, the tach/Hobbs
+  reading, the cabin clean-out); a test asserts nothing else creeps in. Two
+  more rules about FIELDS: a `defaultNow` time field opens at the club's
+  current clock via `initialValues` (a default, never a stamp — and it does NOT
+  tick its item, because opening a page confirms nothing), and the fuel dip is
+  recorded per WING, with `deriveFuelOil` summing the two into the
+  `fuelOnBoardGal` column. ✅tested
+- `inflightReference.ts` — the card's takeoff/climb/cruise/descent phases and
+  the KBFI frequency block, as read-only data. Deliberately NOT checkout items:
+  nothing ticked in the air, nothing blocking a sign-off. Airspeeds are MPH.
+  Rendered at the foot of the RUNWAY page (it's the next thing you read).
+- `weightBalance.ts` — the loading stations and CG envelope as data, plus the
+  sum. Arms are RECOVERED from the POH's own worked example (p.38) rather than
+  guessed: oil −20, front seats 36, fuel 48, rear seats 70, baggage 95, each
+  dividing out to a round station, which is the check that they were read
+  right. `computeWeightBalance` (lines + totals + CG + what's wrong with it),
+  `stationHeadroom` ("how much more fits here", against gross / either CG
+  limit / the station's placard — the question people ask after "am I legal"),
+  `withStationEmptied` for the landing check (tanks at 48 in are aft of the
+  loaded CG, so every flight drifts FORWARD as it burns), `envelopePolygon`.
+  The forward CG limit is modelled as its strictest, gross-weight value at all
+  weights, so the tool can only ever be conservative about a light nose-heavy
+  load. Oil defaults to 0 because a modern basic empty weight already includes
+  it and re-entering it double-counts 15 lb at the nose. ✅tested
 - `operatingRules.ts` — VFF-OR-A as data: `pilotTier`, `ruleFor`,
   `landingCurrency`, `hoursInLastYear`, the mnemonics. ✅tested
+- `members.ts` — `MEMBER_SELECT` (roster columns; deliberately no paperwork)
+  and `adminChangeError`, whose one rule is "never demote the last admin". ✅tested
+- `signupCodes.ts` — the front door as rules: `normalizeCode` (upper, space-free
+  — a code gets read down a phone), `signupCodeError`, `accountFromCodeKind`
+  (the ONE place a code's list maps to what the account is),
+  `signupCodeRequired` (the fresh-install exception) and `redemptionError`,
+  which gives an unknown and a retired code the SAME message so a stranger who
+  guesses a real one isn't told they guessed right. ✅tested
+- `flightSignature.ts` — what an instructor's endorsement means:
+  `signatureState` (`NOT_APPLICABLE | AWAITING | SIGNED | SIGNED_THEN_EDITED`),
+  `isAwaitingSignatureFrom`, `signatureError`/`unsignError`. Accepts a flight
+  in either spelling (`instructorId` on a row, `instructor` on the wire) so one
+  rule set serves the route and the pages. The narrow rule is the point: the
+  instructor NAMED on the entry signs it and nobody else — not another CFI, not
+  an admin. That is the single deliberate exception to "admins can do
+  anything", because a signature anyone could apply isn't a signature. ✅tested
+- `instructors.ts` — the db half of the above: `resolveInstructor` /
+  `resolveBookingInstructor`, which refuse a member who isn't a CFI rather than
+  silently dropping the name. In `lib/` because three routes need it and a
+  `route.ts` may only export Next's own handlers.
+- `squawks.ts` — the status vocabulary and, more importantly, what each value
+  MEANS: `isOpen` (everything but CLOSED — note `REVIEWED_OK_TO_FLY` is
+  reviewed, not fixed, so it stays on the list), `isGrounding`,
+  `isInMaintenance`, `isAwaitingReview`, plus `SQUAWK_TRIAGE_ORDER`. That last
+  one exists because Postgres sorts an enum in DECLARATION order, which would
+  bury the grounded squawks at the bottom of every list. Nothing outside this
+  file may switch on a status string. ✅tested
+- `positions.ts` — club offices and what each may do. The ONLY place an office
+  maps to a capability; routes ask `can(user, "finance:manage")`, never "is
+  this person the Finance Officer". **Admins hold every capability implicitly**,
+  so the club is never blocked by one member being away. FINANCE_OFFICER holds
+  `finance:read-all` + `finance:manage`; SAFETY_OFFICER holds
+  `squawk:manage`; INSTRUCTOR holds `flight:sign`. MEMBERSHIP (rather than any
+  office) carries `reservation:book` + `finance:read-own`, which is what an
+  instructor-only account lacks — `Principal.clubMember` is optional and absent
+  means TRUE, so every caller predating instructor accounts still behaves.
+  `isInstructor()` is the one place a position is tested DIRECTLY, and the
+  exception proves the rule: "who are the club's CFIs" is a roster question, and
+  `can(user, "flight:sign")` would put every admin in the instructor picker.
+  Adding a power is: name the capability, list it under an office, check it with
+  `can()`. ✅tested
+- `finance.ts` — the books as arithmetic: periods ("YYYY-MM", local month),
+  `totals` (credits are stored NEGATIVE so a balance is one addition),
+  `flightCharge`/`fuelCredit`, `ruleAppliesTo`/`membersBilledBy`,
+  money parsing/formatting. ✅tested
+- `ledger.ts` — the db half. `syncFlightCharges` rebuilds a flight's two derived
+  lines on every file/correct (skipping any an officer has voided);
+  `ensureRecurringCharges` materialises a month's dues, idempotent via the
+  unique index, never for a future month.
+- `aircraft.ts` — `normalizeTailNumber` (upper-case, space-free),
+  `tailNumberError`, `modelError`. ✅tested
 - `dates.ts` — formatting, `toLocalInputValue`, `calendarMonthsFrom`.
 - `constants.ts` — club name, purposes/severities + tones, policy limits.
 - `auth.ts` — `authOptions`, `getSessionUser()`, `getAdminUser()` (re-reads db).
 - `serialize.ts` — row → wire shapes; `types.ts` — the `Api*` interfaces.
-- `storage/` — `index.ts` (driver choice + `photoKey`), `local.ts`, `s3.ts`
-  (SigV4 by hand, no AWS SDK).
+- `storage/` — `index.ts` (driver choice + `photoKey` + `storageStatus`),
+  `local.ts`, `s3.ts` (SigV4 by hand, no AWS SDK). `storageStatus(env)` is pure
+  and is the SINGLE source of truth for "can this deployment do photos": local
+  (the default) always can, s3 can once its three vars are set, and
+  `STORAGE_DRIVER=none` switches it off. `getStorage()` is built on it, which
+  is what stops the UI's "(no image support)" and the upload route's refusal
+  from ever disagreeing. ✅tested
 - `api.ts` — `fetchJson`/`fetchJsonArray`/`sendJson` client helpers.
 - `theme.ts` (light/dark/system) · `navDirection.ts` (swipe slide direction).
 
 ## Components
 
-Feature: `Navbar` (top strip + phone bottom bar), `SwipePager`/`SwipeProvider`
+The flight log's Club/Mine switch changes what the page is about, not just the
+rows: Club = the airplane (hours this month, club totals, everyone's flights,
+squawks); Mine = your flying (your totals + landing currency, with the
+operating rules as a popover opened from that currency card). For an
+instructor-only account that second tab is **Teaching** instead: they have no
+flying of their own here, so it lists the lessons they're named on and leads
+with what's awaiting their signature. A CFI who is ALSO a member keeps the
+ordinary Mine — they have flying to look at.
+
+Feature: `AppShell` (the frame: top bar + rail + content column), `Navbar` (a
+full-width top bar — club name at the left, then airplane chip /
+replay-the-tour / settings gear / profile menu along the right — with a fixed
+LEFT-hand rail hanging BELOW it from `md` up, holding only the vertical tabs
+with Checkouts expanding inline; below `md`, the rail is replaced by the
+floating bottom pill), `SwipePager`/`SwipeProvider`
 (phone tab swipe), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
 sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
-(phone), `ReservationModal`, `FlightDetailModal`, `SquawkPanel`,
-`SquawkDraftModal`, `PhotoUploader`, `Logo`, `OperatingRules`
-(`MyLimitsCard` on preflight / `RulesReference` on the log / `GumpsCard`).
-Primitives in `components/common/`: `Badge Banner Button Card DateTimeField
-Dropdown InfoTip Input Modal Select Textarea LoadingDots LoadingScreen`.
-Prefer extending these. `DateTimeField` = native picker on touch, themed
-popover on desktop; `InfoTip` = the (i) marker (hover opens, click pins).
+(phone), `ReservationModal`, `FlightDetailModal`, `FlightEntryModal` (add a flight to
+the log by hand — the flight that never got filed at the time, so it asks for
+no turn-off checkout: those ticks mean "I confirmed this at the airplane" and
+there is no honest way to answer them a fortnight later), `CheckoutList` (the collapsible
+section renderer shared by the preflight and runway pages — one section open at
+a time, sticky progress bar, "next section" affordance, and opening a section
+scrolls it to the top of the column so it can't expand below the fold. Two
+optional props: `hints` puts a muted note under a FIELD — the preflight page
+uses it for "last recorded 6 qts on Tue by Alex Rivera" under the oil box, a hint and
+never a prefill — and `derived` marks an ITEM the app answers for itself), `TurnoffCheckout`
+(post-flight turn-off ticks — flat, no collapsing, because you're working down
+a list you've just done rather than navigating one), `InflightReference`
+(collapsed card at the foot of the runway page), `WeightBalanceChart` (the CG
+envelope as inline SVG — plotted against CG in INCHES rather than the POH's
+moment axis so the limits can be checked against the printed numbers by eye,
+with takeoff and landing both marked and the axes stretching to contain a load
+that falls outside), `SquawkPanel`,
+`SquawkDraftModal`, `SignupCodesPanel` (org settings' two code lists, side by
+side because which list a code is on is the only thing about it that matters
+when you read it out), `PhotoUploader`, `Logo`, `GuidedTour` (first-run walkthrough
+that SPOTLIGHTS live nav controls — each step names `data-tour` keys, the nav
+stamps them on both the rail and the pill via `tourKey`, and the tour takes
+whichever copy is on screen and measures it; a step whose keys match nothing
+visible falls back to a centred card), `OperatingRules`
+(`MyLimitsCard` on preflight / `RulesModal` off the log's currency card /
+`GumpsCard`).
+Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
+DateTimeField Dropdown InfoTip Input Modal Select Textarea LoadingDots
+LoadingScreen`. Prefer extending these. `DateTimeField` = native picker on
+touch, themed popover on desktop; `InfoTip` = the (i) marker (hover opens,
+click pins); `ChipSelect` = a select whose options are COLOURED CHIPS, for the
+small vocabularies where the colour is half the meaning (the squawk status
+picker). Native `<select>` is still right for everything else — reach for this
+only when the options carry tones. Not built on `Dropdown`, which opens on
+hover: brushing past a control that changes a stored value shouldn't open it.
 
 ## Gotchas
 
+- **A schema change now needs a migration.** Dev still uses `db push` (fast,
+  no migration written), but the production container runs
+  `prisma migrate deploy` on boot, so prod's schema is whatever
+  `prisma/migrations/` says — push-only changes reach dev and never reach prod,
+  and the symptom is a deploy that boots clean then 500s on the one query
+  touching the unmigrated column. Run `npm run db:migrate -- --name <change>`
+  and commit the result. CI's `migrations` job replays the directory into a
+  shadow database and diffs it against `schema.prisma`, so drift fails the
+  build rather than the deploy.
+- The Dockerfile is multi-stage and ships Next's `output: "standalone"` bundle
+  (~1.5GB → ~420MB, 140MB compressed) because the image is now PULLED by the
+  server rather than built there. Three things about it are load-bearing:
+  `.next/static` is not part of Next's trace and needs its own COPY; the
+  Prisma CLI is installed on its own under `/prisma-cli` (it's a
+  devDependency, so the standalone bundle has none of it); and
+  `prisma.config.ts` has to sit BESIDE that CLI, because it does
+  `import { env } from "prisma/config"` and Node resolves that from the config
+  file's own directory — left in `/app` every boot dies with "Cannot find
+  module 'prisma/config'".
+- `npm ci` and `next build` both need `DATABASE_URL` set even though neither
+  opens a connection: `postinstall` runs `prisma generate`, which loads
+  `prisma.config.ts`, which resolves `env("DATABASE_URL")` eagerly. The
+  Dockerfile and CI both pass a placeholder. The REAL url is runtime-only —
+  baking one into the image would be a bug.
+- `.dockerignore` excludes `.git`, so `next.config.js` can't read the commit
+  sha for the login screen's build stamp inside a container. It's handed in as
+  the `COMMIT_SHA` build arg (CI passes `github.sha`); unset just renders the
+  stamp bare.
+- **Stay on TypeScript 6.** TS 7 (the Go port) does not expose the compiler API
+  Next 16 needs, so `next dev`/`next build` die with "TypeScript 7.x does not
+  provide the compiler API required by Next.js". `tsc --noEmit` passes on its
+  own, so `npm run typecheck` will NOT catch this — only a real build does.
+- `.gitignore` patterns without a leading slash match at every depth: a bare
+  `storage/` (for local photo uploads) also swallowed `lib/storage/`, so the
+  module was never committed and CI failed with "Cannot find module
+  './storage'". It's `/storage/` for exactly that reason.
+- `postcss` and `sharp` are pinned through `overrides` in package.json: Next
+  depends on versions with open advisories, and `npm audit fix` "solves" it by
+  proposing a downgrade to Next 9. `next/image` is unused here (photos stream
+  through `/api/photos/[id]`), so the sharp override costs nothing.
+- `InfoTip` closes when its marker actually MOVES, not on any scroll event.
+  Scroll events keep arriving for a frame or two after scrolling stops, so the
+  old "hide on any scroll" closed the bubble the instant it opened whenever
+  opening it had itself caused a scroll — a tap on a half-off-screen (i), and
+  every Playwright `click()`, which scrolls into view first.
+- The e2e suite runs against `next dev`, whose dev overlay renders a floating
+  `<nextjs-portal>` indicator that eats pointer events over its corner of the
+  viewport — right on top of the phone bottom tab bar, so every mobile tab tap
+  fails with "`<nextjs-portal>` … intercepts pointer events". `next.config.js`
+  sets `devIndicators: false` when `E2E=1`, which the `e2e:server` script sets.
+- Only Next's own exports (GET, POST, `dynamic`, …) may leave a `route.ts`;
+  a shared const like `MEMBER_SELECT` has to live in `lib/`, or the generated
+  route types fail the build.
+- "Checkout" means two unrelated things in this codebase and both are correct
+  aviation English: `lib/checkouts.ts` is a walkthrough of one of the
+  airplane's cards, while `CHECKOUT_AIRPORTS` in `lib/operatingRules.ts` is a
+  pilot being signed off to fly into Catalina or Big Bear. Don't merge them.
+- **`Flight.editedAt` is not `updatedAt`, and the difference is the whole
+  feature.** An instructor's signature is only worth something if it names a
+  version, so the flight log compares `signedAt` against when the entry was
+  last CORRECTED. Signing is itself a write, so Prisma's `updatedAt` lands a
+  hair after `signedAt` on every signed flight — using it would report
+  "signed, then edited" for all of them, forever. `editedAt` is stamped only by
+  PATCH /api/flights/[id] (the fields a reader would call the log entry); the
+  sign route deliberately touches neither it nor the pilot's own columns. A
+  unit test pins the same-instant case.
+- An edit after a signature does NOT clear it. The endorsement was really
+  given; it just no longer covers what's on screen, and the log says so
+  (`SIGNED_THEN_EDITED`) rather than quietly erasing it.
+- **Requiring a sign-up code has to exempt the first account**, or a fresh
+  install is a club nobody can get into: there is no admin yet, so there is
+  nobody who could have issued a code. `signupCodeRequired(memberCount)` is
+  that rule, and it's why the seed also creates one code per list — a seeded
+  club has members, so it would otherwise be closed.
+- Adding a value to the `Position` enum is the SAFE kind of enum change (append
+  only — Postgres sorts an enum by declaration order, and renumbering the
+  existing values is the destructive case the squawk-status gotcha describes).
+  It still needs a written migration like anything else.
+- `capabilitiesFor` now reads `Principal.clubMember`, which is OPTIONAL and
+  absent-means-true. That's deliberate compatibility — every account predating
+  instructor accounts is a flying member — but it means a caller that simply
+  forgets to select the column gets the permissive answer. `getSessionUser()`
+  and `/api/me` both select it.
+- The nav is filtered per viewer (`navFor` in Navbar), and the flattened route
+  list the SWIPE PAGER walks is derived from the filtered nav — so a hidden tab
+  is hidden from the gesture too. While `me` is still loading the full nav is
+  shown: a tab that appears a beat late is a flicker, but one that's briefly
+  there and then vanishes reads as a bug.
+- The squawk status picker is a `ChipSelect`, not a `<select>` — so e2e drives
+  it as a BUTTON that opens a listbox (`getByRole("button", { name: /^Status/ })`
+  then `getByRole("option", …)`), never `selectOption`. Its accessible name is
+  "Status" followed by the current value, which is why specs match on the
+  prefix.
+- Scope page-content assertions in e2e to `getByRole("main")`. The rail, the
+  bottom pill and GuidedTour's spotlight all render their own copies of nav
+  controls, so a bare `getByRole("button", { name: "New" })` is a strict-mode
+  violation on a good day and a false pass on a bad one. GuidedTour is also why
+  a spec that SIGNS UP a new account has to `dismissTour` exactly like
+  `signIn` does — a brand-new account has `tourSeenAt: null`.
+- Renaming a checkout ITEM ID is a history rewrite, not a refactor: rows store
+  the ids, and `parseAnswers` silently drops any it doesn't recognise, so a
+  rename turns old runs into blank ones. Reusing an id for the SAME physical
+  check reworded is fine (bump the checkout's `version`); reusing one for a
+  DIFFERENT check is what must never happen.
+- The checkout rename (`preflight_checks` → `checkouts`, `checklistVersion` →
+  `checkoutVersion`, `Flight.secureAnswers` → `turnoffAnswers`,
+  `preflightId` → `checkoutId`) went through `db push`, which for a rename is a
+  DROP + ADD. Any database predating it needs `db:push` + `db:seed`, and the
+  app container restarted afterwards — see the next gotcha for why.
+- **Changing an enum's VALUES needs a hand-written migration, and `db push`
+  can't do it at all.** Both the generated migration and `db push` emit
+  `ALTER COLUMN status TYPE X_new USING (status::text::X_new)`, which aborts
+  with `invalid input value for enum` the moment ONE existing row holds a value
+  the new enum lacks — and `--accept-data-loss` does not help, because this is
+  an invalid cast rather than data loss. Write the `USING` clause yourself with
+  a `CASE` that maps every old value (see
+  `20260807000000_squawk_status_vocabulary`, which maps
+  severity/status → the single squawk status and deliberately sends
+  `GROUNDING` to `REVIEWED_GROUNDED` first so a grounded airplane can't quietly
+  come back on the line). Then apply the SQL to your dev db by hand — dev uses
+  `db push`, which never reads `prisma/migrations/`.
+- Prod applies `prisma/migrations/` via `migrate deploy` at boot (Dockerfile
+  CMD) while dev uses `db push`, so a schema change with no migration builds,
+  tests and runs locally and then simply never reaches production. The CI
+  `migrations` job is what catches it: `prisma migrate diff --from-migrations
+  … --to-schema … --exit-code` must say "No difference detected".
+- `prisma db push` REFUSES a destructive change without `--accept-data-loss`,
+  and the dev container runs it on boot — so before that flag was added to the
+  dev profile, any renamed column made `vff-app-vff-app-dev-1` exit(1) and
+  boot-loop with "You are about to drop the `x` table, which is not empty".
+  Both the dev and test profiles now pass it; `db:push` run by hand from the
+  host still doesn't, which is the right default for a database you care about.
+  Production never uses push at all — it goes through `db:migrate:deploy:prod`.
+- **`prisma generate` does not reach a running `next dev`.** After a schema
+  change, the dev server keeps serving the client it imported at boot, and every
+  query touching a new column dies with "Unknown field `x` for select statement
+  on model `User`" — a 500 that looks like an auth bug, because `/api/me`
+  failing is what signs you out. `db push` + `generate` is not enough; restart
+  the app container.
+- `LoadingProvider` owns the ONLY splash. On the FIRST boot (and on /login) it
+  takes the whole window at z-50, above the navbar — there is nothing behind it
+  worth seeing, and chrome framing an empty hole reads as a half-drawn app.
+  Every later load is a navigation between pages you can already see, so it
+  covers only the CONTENT COLUMN rather than the window — `top: var(--app-header-h)` + `md:left-60`,
+  the same two measurements the rail uses, with `/login` excepted the way
+  AppShell excepts it. `LoadingScreen` is therefore `absolute inset-0` and
+  fills whatever box it's given; centred in the window it sits 7.5rem left of
+  the space it covers. Two more rules keep it from flashing:
+  reports are ref-counted (during a route change the incoming page registers
+  before the outgoing one unregisters, so a plain boolean blinks off between
+  them), and `usePageLoading` reports in a LAYOUT effect — a normal effect gives
+  the page one painted frame of its empty state before the overlay covers it.
+  `AuthGate` reports through the same hook instead of rendering its own screen.
+- The nav rail's `w-60` and `AppShell`'s `md:pl-60` are one measurement in two
+  places — change one and pages run under the rail. The breakpoint is `md`
+  (768px = the narrowest iPad), not the `sm` most of the app uses: tablets get
+  the desktop layout, only phones fall back to the bottom pill.
+- `--app-header-h` is load-bearing in THREE places now: the reservation
+  calendar's height, preflight's sticky section header, and the rail's own
+  `top`. The rail hangs below the top bar rather than beside it, so it offsets
+  itself by the same live measurement — which is why a banner appearing pushes
+  the rail down in step with the page instead of leaving a seam.
 - The app is written entirely in `indigo-*` classes; `tailwind.config.ts`
   remaps that palette to the club's Cessna orange. Don't add literal oranges.
 - `Button` sets `inline-flex`; adding a `hidden sm:inline-flex` class to it is
@@ -109,10 +546,52 @@ popover on desktop; `InfoTip` = the (i) marker (hover opens, click pins).
   `File[]`; the page calls `uploadPhotos()` with the new id).
 - The Playwright image tag in `docker-compose.yml` must match the pinned
   `@playwright/test` version.
+- Two e2e traps specific to `CheckoutList`. A SECTION header's accessible name
+  starts with its number badge and ends with its count ("3 Consumables … 0/6"),
+  so `{ name: /^Consumables/ }` matches nothing and a bare `"Consumables"`
+  also matches the "Next: Consumables →" affordance — target headers with
+  `/Consumables.*\d+\/\d+$/`. An ITEM row is the opposite: anchor it with `^`,
+  or the `(i)` beside it ("Why: <label>") matches too.
+- `await locator.isVisible()` is a ONE-SHOT check with no auto-wait, so using
+  it to decide whether to click something that appears after a React re-render
+  silently skips it. That's how a spec walking the preflight card quietly
+  missed the 15-item cockpit section and failed 30 seconds later on a sign-off
+  button that stayed disabled. Use `await expect(x).toBeVisible()` and then
+  click. Better still, don't drive another page's whole UI to set up a
+  precondition — `page.request.post` shares the browser's cookies, so a
+  signed-off checkout is one API call (see `runway.spec.ts`).
 - `getByLabel` matches substrings: "Landings" also hits "Night landings", and
   "Start" hits "Open calendar for Start". Specs use `{ exact: true }`.
 - CI lives in `.github/workflows/ci.yml` and materialises `env/test.env`
   itself, since the e2e harness loads that file rather than process env.
+- `prisma/seed.ts`'s `FLIGHT_LOG` is REAL data — N8318B's log transcribed from
+  the club's Google Sheet on 8 Aug 2026. Two things in it look like typos and
+  are not: the tach doesn't chain at 1489 → 1489.98 or 1499.42 → 1499.49, and
+  one row has no date (it's placed by its tach, and says so in its notes).
+  Don't "fix" them — a gap in the log is exactly what the app is for. Landings,
+  Hobbs, routes and oil are absent from the sheet and are therefore absent
+  here; `lastHobbs` is null for the same reason.
+- **The seeded ROSTER, by contrast, is fiction, and has to stay that way.** The
+  sheet's PIC column names real club members, and demo data has no business
+  carrying their names, emails or phone numbers into every dev database and CI
+  log — so `MEMBERS` is eight invented people (555-01xx numbers, the block
+  reserved for fiction) and the real log rows are attributed to them. The seed
+  also DELETES the old real-named accounts (`RETIRED_DEMO_EMAILS`), which
+  cascades their demo history away so the guarded blocks rebuild it under the
+  invented roster. Everything around `FLIGHT_LOG` — `EARLIER_FLIGHTS` (the year
+  before the sheet, chaining exactly into its opening 1488.0),
+  `RECENT_FLIGHTS`, the squawks, checkouts, servicing and bookings — is
+  invented too, and exists so every tab has something to show.
+- The seed deliberately leaves NO squawk at `REVIEWED_GROUNDED`: that value
+  stops the whole club with an app-wide banner and a "do not fly" card, and a
+  demo database that opens with the airplane down teaches the wrong first
+  lesson. It also leaves the admin's `totalTimeHours` null, which is what puts
+  them in the tighter "building time" column of the operating rules —
+  `operating-rules.spec.ts` asserts exactly that.
+- Every seeded member has `tourSeenAt: null`, so `GuidedTour` opens for all of
+  them — and its scrim swallows clicks. `signIn` in `tests/e2e/helpers.ts`
+  calls `dismissTour` for exactly that reason; without it a spec fails on
+  "intercepts pointer events" somewhere unrelated to what it was testing.
 - Killing a `docker compose --profile test run` leaves the container up and a
   stale Next dev lock inside the `test-next` volume, so every later run dies
   with "Another next dev server is already running". Clean up with

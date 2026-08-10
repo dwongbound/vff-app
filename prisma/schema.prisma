@@ -1,14 +1,16 @@
 // VFF flying club data model.
 //
 // The core loop, in the order a member touches it:
-//   Reservation    — book the airplane for a block of time.
-//   PreflightCheck — walk the checklist before you fly (answers stored as JSON;
-//                    the checklist itself is business logic, see lib/checklist.ts).
-//   Flight         — the post-flight entry: tach/Hobbs in-out, fuel, oil,
-//                    landings. Every row is one line of the shared flight log.
-//   Squawk         — anything wrong with the airplane, open until signed off.
-//   Photo          — attaches to any of the above (meter shots, damage, receipts).
-//                    Bytes live in object storage; this table is the index.
+//   Reservation — book the airplane for a block of time.
+//   Checkout    — one signed-off pass over the airplane's card before you fly
+//                 (answers stored as JSON; the cards themselves are business
+//                 logic, see lib/checkouts.ts).
+//   Flight      — the post-flight entry: tach/Hobbs in-out, fuel, oil,
+//                 landings, and the turn-off checkout. Every row is one line of
+//                 the shared flight log.
+//   Squawk      — anything wrong with the airplane, open until signed off.
+//   Photo       — attaches to any of the above (meter shots, damage, receipts).
+//                 Bytes live in object storage; this table is the index.
 
 generator client {
   // Prisma 7: the Rust-free "prisma-client" generator with a required output.
@@ -21,20 +23,40 @@ datasource db {
   provider = "postgresql"
 }
 
-// How badly a squawk affects dispatch.
-//   NOTE      — worth writing down (a burned-out map light).
-//   MONITOR   — airworthy but watch it (a slightly weak brake).
-//   GROUNDING — the airplane does not fly until it's signed off. The
-//               reservation + preflight pages show a red grounded banner.
-enum SquawkSeverity {
-  NOTE
-  MONITOR
-  GROUNDING
+// Where a squawk is in the Safety Officer's workflow, AND what it means for
+// dispatch. Deliberately ONE enum rather than the severity/status pair this
+// used to be: "reviewed, aircraft grounded" is both at once, and holding it as
+// two columns gives the club two sources of truth for "can it fly" that are
+// guaranteed to drift apart. The club's squawk sheet has exactly one Status
+// column, and this is it.
+//
+//   NEW                — filed by a member, not yet triaged. Says nothing about
+//                        airworthiness, because nobody qualified has looked yet.
+//   REVIEWED_OK_TO_FLY — looked at; fly it. (A pilot door that pops open.)
+//   REVIEWED_IN_WORK   — looked at, being fixed. The airplane is in maintenance;
+//                        flyable unless someone says otherwise.
+//   REVIEWED_GROUNDED  — the airplane does not fly. Drives the app-wide red
+//                        banner and the Plane Status "do not fly" card.
+//   CLOSED             — done with; drops off the working list.
+//
+// Only NEW is reachable by an ordinary member (filing one from a checkout);
+// every other value needs `squawk:manage`. See lib/squawks.ts for the
+// labels, tones, and which of these count as open / grounding.
+enum SquawkStatus {
+  NEW
+  REVIEWED_OK_TO_FLY
+  REVIEWED_IN_WORK
+  REVIEWED_GROUNDED
+  CLOSED
 }
 
-enum SquawkStatus {
-  OPEN
-  RESOLVED
+// Which of the airplane's cards a Checkout row is a run of. Only the two
+// before-the-flight cards get their own row — the third, TURNOFF, is answered
+// on the post-flight form and stored on the Flight itself, because it belongs
+// to that flight rather than standing alone. See lib/checkouts.ts.
+enum CheckoutKind {
+  PREFLIGHT // homework, consumables, cockpit, the walkaround
+  RUNWAY // passengers, start, runup, pre-takeoff
 }
 
 enum ReservationStatus {
@@ -52,6 +74,47 @@ enum ReservationPurpose {
   MAINTENANCE // shop / annual — blocks the airplane, not a member flight
 }
 
+// Club offices. Assigned by admins from the Members tab; what each one is
+// ALLOWED to do lives in lib/positions.ts, never inline in a route. Admins hold
+// every capability implicitly, so this grants powers rather than gating them.
+//
+// INSTRUCTOR is the odd one out and deliberately still lives here: a CFI is not
+// an elected office, but it IS "a thing the club has decided you may do", it is
+// handed out by an admin from the same roster screen as the rest, and it grants
+// a capability (signing a training flight). Giving it a parallel flag of its own
+// would mean two places to look for "what may this person do".
+//
+// Appended rather than slotted in alphabetically: Postgres sorts an enum by
+// DECLARATION order, and renumbering the existing values is the destructive
+// enum change described in CLAUDE.md.
+enum Position {
+  PRESIDENT
+  VICE_PRESIDENT
+  SECRETARY
+  FINANCE_OFFICER // keeps the books: dues, charges, the hourly rate
+  SAFETY_OFFICER
+  MAINTENANCE_OFFICER
+  INSTRUCTOR // CFI: signs training flights, bookable as the instructor
+}
+
+// Which list a sign-up code came off. The code a person types when they create
+// an account decides what KIND of account they get, which is why this is a
+// property of the code rather than something the applicant chooses.
+enum SignupCodeKind {
+  MEMBER // a flying member of the club
+  INSTRUCTOR // a CFI who teaches here without being a member
+}
+
+// What kind of ledger line a Charge is. Only ONE_OFF is typed in by hand; the
+// rest are derived and kept in step with their source (a filed flight, or a
+// recurring rule for that month).
+enum ChargeKind {
+  DUES // materialised from a RecurringCharge for one month
+  FLIGHT // tach hours x the aircraft's hourly rate
+  FUEL_CREDIT // gas the member paid for, refunded (stored negative)
+  ONE_OFF // anything the Finance Officer adds by hand
+}
+
 model User {
   id           String  @id @default(cuid())
   // Email doubles as the username you sign in with.
@@ -65,12 +128,38 @@ model User {
   // anyone's reservation. Everyone else only touches their own rows.
   isAdmin Boolean @default(false)
 
+  // Club offices this member holds. A position carries specific powers (the
+  // Finance Officer keeps the books); admins implicitly have all of them, so
+  // `isAdmin` is a superset rather than a parallel track. See lib/positions.ts,
+  // which is the only place that maps an office to what it may do.
+  positions Position[]
+
+  // Does this person FLY here, or only teach here?
+  //
+  // Independent of `positions` on purpose, because the two answer different
+  // questions. INSTRUCTOR says "this person may sign a training flight"; this
+  // says "this person books the airplane and gets a statement". A club CFI who
+  // also rents the airplane on Sundays is both; a visiting instructor is only
+  // the first, and billing them dues or offering them the booking form would be
+  // wrong. Defaults true — everyone who existed before instructor accounts did
+  // is a flying member, and so is anyone who signs up with a MEMBER code.
+  //
+  // Only an admin can change it (PATCH /api/members/[id]), which is the whole
+  // reason it isn't inferred from the sign-up code at read time: the code says
+  // how the account STARTED, this says what it is now.
+  clubMember Boolean @default(true)
+
   // Pilot paperwork, surfaced on the profile page and used for the
   // "your medical expires soon" reminder. All optional — a student who hasn't
   // soloed yet has none of it.
   certificate      String? // e.g. "Private Pilot ASEL", "Student"
   medicalExpiresOn DateTime?
   flightReviewOn   DateTime? // last flight review (BFR); currency = +24 calendar months
+
+  // When this member finished (or skipped) the guided tour. Stored on the USER
+  // rather than in localStorage so "I've seen it" follows the person to their
+  // phone, and so clearing a browser doesn't restart the tour for everyone.
+  tourSeenAt DateTime?
 
   // Total time from the member's own logbook, which the club can't see. Half
   // of the operating rules' experience gate (VFF-OR-A: over 200 h total AND
@@ -80,10 +169,24 @@ model User {
 
   reservations    Reservation[]
   flights         Flight[]
-  preflightChecks PreflightCheck[]
-  squawksReported Squawk[]         @relation("SquawkReporter")
-  squawksResolved Squawk[]         @relation("SquawkResolver")
+  checkouts       Checkout[]
+  servicing       Servicing[]
+  squawksReported Squawk[]   @relation("SquawkReporter")
+  squawksResolved Squawk[]   @relation("SquawkResolver")
   photos          Photo[]
+
+  // The instructing side of the same two rows. Named relations because a User
+  // can be BOTH the pilot and (on somebody else's booking) the instructor, and
+  // Prisma needs to be told which foreign key it's looking at.
+  reservationsInstructing Reservation[] @relation("ReservationInstructor")
+  flightsInstructing      Flight[]      @relation("FlightInstructor")
+  flightsSigned           Flight[]      @relation("FlightSignedBy")
+  signupCodesCreated      SignupCode[]  @relation("SignupCodeAuthor")
+
+  charges                 Charge[]          @relation("ChargeMember")
+  chargesRaised           Charge[]          @relation("ChargeAuthor")
+  recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
+  recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -95,28 +198,47 @@ model User {
 // aircraft so adding a second one is a row, not a migration.
 model Aircraft {
   id         String @id @default(cuid())
-  tailNumber String @unique // "N172VF"
-  model      String // "Cessna 172S Skyhawk"
+  tailNumber String @unique // "N8318B"
+  model      String // "Cessna 172"
   year       Int?
 
-  // Rates in whole cents to avoid float drift. Wet = fuel included.
+  // Rates in whole cents to avoid float drift. Billed per tach hour, and the
+  // Finance Officer can change it (see lib/positions.ts) — it's the club's
+  // price, not a fleet fact.
   hourlyRateCents Int?
-  fuelCapacityGal Float? // usable fuel — 53.0 on an S-model 172
-  homeBase        String? // airport identifier, e.g. "KRHV"
+  fuelCapacityGal Float? // usable fuel, from the airplane's POH
+  homeBase        String? // airport identifier, e.g. "KBFI"
 
   // Live meter readings, advanced by each filed flight so the next pilot's
   // post-flight form can prefill "start" without hunting for the last entry.
   lastTach  Float?
   lastHobbs Float?
 
+  // Weight & balance. The airplane's STATIONS — where the seats, tanks and
+  // baggage floor are, and where the CG may sit — are a fact about the type
+  // and live in lib/weightBalance.ts; `wbProfile` is the id of the one that
+  // applies, so a second airframe of another type can't be loaded against a
+  // 172's arms (no profile ⇒ the tool declines rather than guesses).
+  //
+  // The empty weight and moment are a fact about THIS airframe and change
+  // every time an A&P signs a Weight/Balance & Equipment List Revision — a
+  // radio out, an oil cooler in — so they're columns rather than code.
+  // `weighedOn` is the date of that revision, shown next to the result: a
+  // basis with no date is how a superseded one goes unnoticed for years.
+  wbProfile       String?
+  emptyWeightLbs  Float?
+  emptyMomentLbIn Float?
+  weighedOn       DateTime?
+
   // Retired airplanes stay for their history but stop showing up in pickers.
   active Boolean @default(true)
   notes  String?
 
-  reservations    Reservation[]
-  flights         Flight[]
-  preflightChecks PreflightCheck[]
-  squawks         Squawk[]
+  reservations Reservation[]
+  flights      Flight[]
+  checkouts    Checkout[]
+  squawks      Squawk[]
+  servicing    Servicing[]
 
   createdAt DateTime @default(now())
 
@@ -139,6 +261,18 @@ model Reservation {
 
   purpose ReservationPurpose @default(LOCAL)
   notes   String?
+
+  // The CFI this lesson is booked with. Only meaningful when `purpose` is
+  // TRAINING, and the API nulls it out for every other purpose rather than
+  // keeping a stale instructor on a booking that got changed to a local
+  // flight. Null on a TRAINING booking is legal too — plenty of members book
+  // the airplane before they've fixed which instructor is free.
+  //
+  // SetNull rather than Cascade: a booking whose instructor left the club is
+  // still a booking, and deleting the schedule with the person would be a much
+  // worse outcome than an unnamed lesson.
+  instructor   User?   @relation("ReservationInstructor", fields: [instructorId], references: [id], onDelete: SetNull)
+  instructorId String?
 
   // Canceled rows are kept (not deleted) so the calendar history stays honest;
   // they're filtered out of conflict checks and the default list view.
@@ -192,6 +326,37 @@ model Flight {
   // operating rules — the club's personal minimums don't apply to that flight.
   withInstructor Boolean @default(false)
 
+  // WHICH instructor, and their signature on this log entry.
+  //
+  // `withInstructor` above is the pilot's own assertion, used by the operating
+  // rules; these three are the instructor's side of it. Copied from the
+  // booking when a flight is filed against a TRAINING reservation, and settable
+  // by hand for a lesson that was never booked in the app.
+  //
+  // `signedById` is kept alongside `instructorId` rather than inferred from it
+  // because they answer different questions — who was expected to sign, and who
+  // actually did. `signedAt` is the date of the signature, which is only
+  // meaningful next to `updatedAt` below: a log entry edited AFTER it was
+  // signed is one the instructor put their name to a different version of, and
+  // the flight log says so.
+  instructor   User?   @relation("FlightInstructor", fields: [instructorId], references: [id], onDelete: SetNull)
+  instructorId String?
+  signedBy     User?   @relation("FlightSignedBy", fields: [signedById], references: [id], onDelete: SetNull)
+  signedById   String?
+  signedAt     DateTime?
+
+  // When the CONTENT of this entry was last corrected. Null = never touched
+  // since it was filed.
+  //
+  // Deliberately not `updatedAt` below, which is what it looks like it should
+  // be and is wrong for the one job this column exists to do. Signing the entry
+  // is itself a write, so `updatedAt` lands a hair AFTER `signedAt` on every
+  // signed flight and "was this edited after it was signed?" would be true for
+  // all of them forever. This column is bumped only by the fields a reader
+  // would call the log entry — meters, landings, route, fuel, notes — so the
+  // comparison against `signedAt` means exactly what it says.
+  editedAt DateTime?
+
   // Route as filed by the pilot, e.g. "KRHV → KWVI → KRHV".
   departure String?
   arrival   String?
@@ -204,24 +369,131 @@ model Flight {
   oilAddedQts   Float?
 
   // Did the airplane get put away properly? Nags in the flight log when false.
-  tiedDown  Boolean @default(true)
+  // Derived from `turnoffAnswers` when the pilot works the turn-off checkout
+  // (see lib/checkouts.ts `derivePutAway`), so these mean "confirmed", not
+  // "a toggle nobody moved".
+  tiedDown   Boolean @default(true)
   cabinClean Boolean @default(true)
+
+  // The turn-off checkout — after landing / shutdown / outside parking —
+  // answered on the post-flight form. Same { itemId: true } shape as
+  // Checkout.answers and versioned for the same reason. Null when the pilot
+  // filed the flight without answering it.
+  turnoffCheckoutVersion Int?
+  turnoffAnswers         Json?
+  // Readings recorded on the turn-off items (the tach, the flight timer).
+  turnoffValues          Json?
 
   notes String?
 
   squawks Squawk[]
   photos  Photo[]
 
+  // The hours charge and the fuel credit this flight produced. Rebuilt when the
+  // flight is corrected, and cascade-deleted with it.
+  charges Charge[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([aircraftId, flownOn])
   @@index([userId, flownOn])
+  // "What am I owed a signature on?" — the instructor's whole view of the log.
+  @@index([instructorId, signedAt])
   @@map("flights")
 }
 
-// Something wrong with the airplane. Raised from the preflight checklist
-// (a failed item) or the post-flight form, and cleared by an admin.
+// A code somebody types to create an account.
+//
+// The club is a private one: an open sign-up form on a public URL means anyone
+// who finds it is in the members list, reading the schedule and everyone's
+// phone numbers. A code is the smallest thing that fixes that without the club
+// having to run an invite system with email delivery behind it.
+//
+// The code also decides WHAT KIND of account gets created — the club hands
+// prospective members one code and visiting instructors another — which is why
+// `kind` lives on the code rather than being a choice on the sign-up form.
+// An applicant picking their own account type would be the whole point missed.
+//
+// Codes are reusable by design (a club hands the same one to a season's worth
+// of new members) and are retired by clearing `active` rather than deleted, so
+// the trail of which code let somebody in survives.
+model SignupCode {
+  id String @id @default(cuid())
+
+  // Stored upper-case and space-free (lib/signupCodes.ts `normalizeCode`), so
+  // "vff-2026" and "VFF-2026" are the same code and the uniqueness constraint
+  // means what it looks like it means.
+  code String         @unique
+  kind SignupCodeKind @default(MEMBER)
+
+  // What this code is for, in the admin's own words ("2026 intake",
+  // "Cascade Flight Training"). Never shown to the applicant.
+  label String?
+
+  active Boolean @default(true)
+
+  // Usage trail. Not a limit — nothing refuses a code for being popular — but
+  // an admin deciding whether to retire one wants to know if it's still in use.
+  uses       Int       @default(0)
+  lastUsedAt DateTime?
+
+  createdBy   User?   @relation("SignupCodeAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("signup_codes")
+}
+
+// Fuel or oil put INTO the airplane, on its own.
+//
+// The post-flight form already records servicing that happened after a flight
+// (Flight.fuelAddedGal / fuelCostCents / oilAddedQts), because that's the
+// common case: you land, you fill it for the next person. But fuel goes in
+// before a flight too — you arrive to a half-full airplane, or you top it on
+// the way back from somewhere — and none of that has a flight to hang off.
+// Making a pilot invent a flight to record a fill-up is how fill-ups stop
+// being recorded.
+//
+// So this is the same fact with no flight attached. `paidPersonally` is the
+// club's own "Fuel Purchase Personal Card" column: fuel bought on the club's
+// card is simply the club buying fuel, while fuel bought on the member's is a
+// debt the club owes them — and only the second produces a credit.
+model Servicing {
+  id String @id @default(cuid())
+
+  aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  aircraftId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  servicedAt DateTime
+
+  fuelAddedGal  Float?
+  fuelCostCents Int?
+  oilAddedQts   Float?
+
+  // Whose card it went on. Defaults to the member's, which is the case that
+  // needs paying back — the safer default is the one that can't quietly
+  // swallow money somebody is owed.
+  paidPersonally Boolean @default(true)
+
+  notes String?
+
+  // The fuel credit this produced, rebuilt whenever it's corrected.
+  charges Charge[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([aircraftId, servicedAt])
+  @@map("servicing")
+}
+
+// Something wrong with the airplane. Raised from a checkout (a failed item)
+// or the post-flight form, and cleared by an admin.
 model Squawk {
   id String @id @default(cuid())
 
@@ -231,16 +503,16 @@ model Squawk {
   reportedBy   User   @relation("SquawkReporter", fields: [reportedById], references: [id], onDelete: Cascade)
   reportedById String
 
-  // Where it was noticed, if it came out of a specific flight/preflight.
-  flight     Flight?         @relation(fields: [flightId], references: [id], onDelete: SetNull)
+  // Where it was noticed, if it came out of a specific flight or checkout.
+  flight     Flight?   @relation(fields: [flightId], references: [id], onDelete: SetNull)
   flightId   String?
-  preflight  PreflightCheck? @relation(fields: [preflightId], references: [id], onDelete: SetNull)
-  preflightId String?
+  checkout   Checkout? @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
+  checkoutId String?
 
   title       String
   description String?
-  severity    SquawkSeverity @default(NOTE)
-  status      SquawkStatus   @default(OPEN)
+  // Everything a member files starts here; triage is the officer's job.
+  status SquawkStatus @default(NEW)
 
   // Sign-off trail.
   resolvedBy   User?     @relation("SquawkResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
@@ -258,10 +530,15 @@ model Squawk {
   @@map("squawks")
 }
 
-// One run of the preflight checklist. `answers` is a { itemId: boolean } map
-// against the checklist in lib/checklist.ts — keeping it JSON means editing the
-// checklist is a code change, not a migration, and old runs stay readable.
-model PreflightCheck {
+// One run of one of the airplane's cards. `answers` is a { itemId: boolean }
+// map against the checkout in lib/checkouts.ts — keeping it JSON means editing
+// a card is a code change, not a migration, and old runs stay readable.
+//
+// `kind` says WHICH card, so the preflight and the runway checkouts are two
+// rows rather than one long list with a single sign-off: they're walked at
+// different times, in different places, and a member who was interrupted
+// between them should not have to re-tick the airplane.
+model Checkout {
   id String @id @default(cuid())
 
   aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
@@ -269,12 +546,22 @@ model PreflightCheck {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId     String
 
-  // Version of the checklist that was answered, so a future edit to
-  // lib/checklist.ts can't silently rewrite history.
-  checklistVersion Int  @default(1)
-  answers          Json // { "cabin.mags": true, "exterior.tires": false, ... }
+  kind CheckoutKind
 
-  // Fuel/oil found on the walkaround (before any servicing).
+  // Version of that card which was answered, so a future edit to
+  // lib/checkouts.ts can't silently rewrite history. Versions are per-kind.
+  checkoutVersion Int  @default(1)
+  answers         Json // { "cockpit.mags": true, "left.pitot": true, ... }
+
+  // Readings recorded ON the items — { "consumables.dip.gal": 34.5, ... }.
+  // Separate from `answers` so the boolean map stays purely what sign-off
+  // counts; see lib/checkouts.ts `Values`.
+  values Json?
+
+  // Fuel/oil found on the walkaround, before any servicing. PREFLIGHT only.
+  // DERIVED from `values` by the API (lib/checkouts `deriveFuelOil`) rather
+  // than posted separately — the pilot records them on the consumables items.
+  // Kept as real columns because Plane Status queries them directly.
   fuelOnBoardGal Float?
   oilQuarts      Float?
 
@@ -287,9 +574,11 @@ model PreflightCheck {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([aircraftId, createdAt])
+  // "The last few runs of this card on this airplane" is the one query the
+  // pages make, so `kind` sits inside the index rather than filtering after it.
+  @@index([aircraftId, kind, createdAt])
   @@index([userId, createdAt])
-  @@map("preflight_checks")
+  @@map("checkouts")
 }
 
 // Index row for one uploaded image. The bytes live in object storage under
@@ -308,17 +597,100 @@ model Photo {
   uploadedById String
 
   // Exactly one of these is set in practice — the subject the photo documents.
-  flight      Flight?         @relation(fields: [flightId], references: [id], onDelete: Cascade)
-  flightId    String?
-  squawk      Squawk?         @relation(fields: [squawkId], references: [id], onDelete: Cascade)
-  squawkId    String?
-  preflight   PreflightCheck? @relation(fields: [preflightId], references: [id], onDelete: Cascade)
-  preflightId String?
+  flight     Flight?   @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  flightId   String?
+  squawk     Squawk?   @relation(fields: [squawkId], references: [id], onDelete: Cascade)
+  squawkId   String?
+  checkout   Checkout? @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  checkoutId String?
 
   createdAt DateTime @default(now())
 
   @@index([flightId])
   @@index([squawkId])
-  @@index([preflightId])
+  @@index([checkoutId])
   @@map("photos")
+}
+
+// A standing charge that repeats every month — club dues, a hangar share.
+// This is the RULE; the monthly lines it produces are Charge rows of kind DUES,
+// materialised idempotently by lib/finance.ts when a statement is read.
+model RecurringCharge {
+  id String @id @default(cuid())
+
+  label       String // "Monthly membership"
+  amountCents Int
+
+  // Null means every member. Set it to bill one person only.
+  member   User?   @relation("RecurringChargeMember", fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String?
+
+  // First and last month the rule applies to, as local dates. `endsOn` null =
+  // open-ended. Stopping a rule is `active = false`, which keeps the lines it
+  // already produced rather than rewriting history.
+  startsOn DateTime
+  endsOn   DateTime?
+  active   Boolean   @default(true)
+
+  createdBy   User   @relation("RecurringChargeAuthor", fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+
+  charges Charge[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("recurring_charges")
+}
+
+// One line on a member's statement. Positive cents = the member owes it;
+// negative = a credit in their favour (fuel they paid for out of pocket).
+model Charge {
+  id String @id @default(cuid())
+
+  member   User   @relation("ChargeMember", fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String
+
+  kind        ChargeKind
+  amountCents Int
+  description String
+
+  // The statement this line belongs to, as "YYYY-MM" in the club's timezone.
+  // Stored rather than derived so a correction to `incurredOn` can't silently
+  // move money between two months that were already settled.
+  period     String
+  incurredOn DateTime
+
+  // Source rows for the derived kinds. A flight's charge and its fuel credit
+  // are rebuilt whenever the flight is corrected, and deleted with it.
+  flight            Flight?          @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  flightId          String?
+  recurringCharge   RecurringCharge? @relation(fields: [recurringChargeId], references: [id], onDelete: SetNull)
+  recurringChargeId String?
+  // A fuel credit from a standalone fill-up rather than from a filed flight.
+  servicing         Servicing?       @relation(fields: [servicingId], references: [id], onDelete: Cascade)
+  servicingId       String?
+
+  // Officer corrections. A voided line stays on the statement, struck through,
+  // so the trail of what was charged and unwound is intact.
+  voided     Boolean @default(false)
+  voidReason String?
+
+  createdBy   User?   @relation("ChargeAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Idempotency. Postgres treats NULLs as distinct, so these constrain only the
+  // derived kinds and leave hand-entered lines free to repeat:
+  //   • one dues line per member, per rule, per month
+  //   • one FLIGHT charge and one FUEL_CREDIT per flight
+  @@unique([memberId, recurringChargeId, period])
+  @@unique([flightId, kind])
+  //   • one FUEL_CREDIT per standalone fill-up
+  @@unique([servicingId, kind])
+  @@index([memberId, period])
+  @@index([period])
+  @@map("charges")
 }

@@ -18,7 +18,7 @@ lib/generated/
 env/
 
 # uploaded photos when STORAGE_DRIVER=local
-storage/
+/storage/
 
 # local env overrides
 .env

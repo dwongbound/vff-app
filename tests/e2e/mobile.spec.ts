@@ -13,9 +13,9 @@ test("phones get the bottom tab bar, not the desktop strip", async ({ page }) =>
   // Short labels in the floating pill.
   await expect(page.getByRole("link", { name: "Reserve" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Log" })).toBeVisible();
-  // The desktop-only "Book the airplane" button is hidden at this width.
+  // The desktop-only "New" button is hidden at this width.
   await expect(
-    page.getByRole("button", { name: "Book the airplane", exact: true })
+    page.getByRole("button", { name: "New", exact: true })
   ).toBeHidden();
 });
 
@@ -46,6 +46,10 @@ test("phones keep the native date picker instead of the custom popover", async (
 });
 
 test("tabs are reachable from the bottom bar", async ({ page }) => {
+  // The three checkouts share one tab in the pill — there isn't room for
+  // seven — so Preflight is a tap INTO that group, not a tab of its own.
+  // Tapping the group opens a sheet above the bar.
+  await page.getByRole("button", { name: "Checks" }).click();
   await page.getByRole("link", { name: "Preflight" }).click();
   await expect(
     page.getByRole("heading", { name: "Preflight", exact: true })
@@ -57,4 +61,30 @@ test("tabs are reachable from the bottom bar", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Flight log" })).toBeVisible({
     timeout: 60_000,
   });
+
+  // Tools is a group too, and its sheet has to open at phone width even though
+  // it holds a single entry — the pill is the only way to it down here.
+  await page.getByRole("button", { name: "Tools" }).click();
+  await page.getByRole("link", { name: "Weight & Balance" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Weight & Balance", exact: true })
+  ).toBeVisible({ timeout: 60_000 });
+});
+
+test("weight & balance stacks into one column on a phone", async ({ page }) => {
+  await page.goto("/tools/weight-balance");
+  await expect(
+    page.getByRole("heading", { name: "Weight & Balance", exact: true })
+  ).toBeVisible({ timeout: 60_000 });
+
+  // The two-column layout collapses below `lg`, so the form and the verdict
+  // are both in the same column — and nothing may push the page sideways. The
+  // envelope chart is the risk: it's a fixed-viewBox SVG.
+  const overflows = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+  );
+  expect(overflows).toBe(false);
+
+  await page.getByLabel("Pilot", { exact: true }).fill("170");
+  await expect(page.getByText("Within limits", { exact: true })).toBeVisible();
 });

@@ -1,0 +1,102 @@
+# Dependency updates.
+#
+# Everything targets `dev` rather than `main`: dependency bumps land there,
+# get exercised, and reach main through whatever merge you'd do anyway — so a
+# bad bump can never be the thing sitting on the branch that builds the
+# production image (see the `publish` job in workflows/ci.yml).
+#
+# CI runs on every push, and Dependabot's branches live in THIS repo, so each
+# of these PRs gets the full gauntlet — typecheck, unit, e2e on all three
+# viewports, and the migrations-match-schema check — before you look at it.
+#
+# Note for anyone adding an ecosystem here: this repo has three pins that exist
+# for reasons a version bump will happily undo. They're all called out below.
+version: 2
+
+updates:
+  # ── npm ────────────────────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    # One PR for the noise, individual PRs for the things that actually break.
+    groups:
+      # Dev tooling moves constantly and almost never breaks the app. Batching
+      # it is the difference between five PRs a week and one.
+      dev-tooling:
+        dependency-type: "development"
+        patterns: ["*"]
+        exclude-patterns:
+          # …except the three below, which are NOT safe to batch: each needs a
+          # human to look at one specific thing. Excluded here so they arrive
+          # as their own PRs with their own CI run.
+          - "typescript"
+          - "@playwright/test"
+          - "prisma"
+      # The framework and its React peers only ever move together; a Next bump
+      # in isolation from react-dom is a lockfile that doesn't resolve.
+      next-react:
+        patterns: ["next", "react", "react-dom", "@types/react", "@types/react-dom"]
+      prisma:
+        patterns: ["prisma", "@prisma/*"]
+
+    ignore:
+      # STAY ON TYPESCRIPT 6. TS 7 is the Go port and does not expose the
+      # compiler API Next 16 needs — `next dev` and `next build` die with
+      # "TypeScript 7.x does not provide the compiler API required by Next.js".
+      # The trap is that `tsc --noEmit` passes on its own, so `npm run
+      # typecheck` goes green and only the build catches it. CI does build, but
+      # there's no reason to spend a run rediscovering a known incompatibility.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
+      # `overrides` in package.json pins postcss and sharp ABOVE what Next
+      # depends on, to dodge advisories in Next's own tree. Dependabot doesn't
+      # reason about overrides, so a PR here is either a no-op or it fights the
+      # pin. Bump the override by hand when Next itself moves.
+      - dependency-name: "postcss"
+      - dependency-name: "sharp"
+
+  # ── GitHub Actions ─────────────────────────────────────────────────────
+  # The workflow pins actions by major (`actions/checkout@v7`), so this only
+  # opens a PR when a new major lands — which is exactly when you want to read
+  # the changelog rather than have it merged for you.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    labels: ["dependencies", "github-actions"]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # ── Docker ─────────────────────────────────────────────────────────────
+  # The runtime base image in Dockerfile. Node is ALSO pinned in three other
+  # places that Dependabot cannot see — .nvmrc, .node-version, and
+  # `node-version:` in workflows/ci.yml — so a major bump here needs those
+  # moved in the same PR or CI is testing a different runtime than production.
+  - package-ecosystem: "docker"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "monthly"
+    labels: ["dependencies", "docker"]
+# NOT configured, deliberately: docker-compose.yml.
+#
+# It hardcodes `mcr.microsoft.com/playwright:v1.62.1-noble`, which MUST match
+# the exact-pinned "@playwright/test": "1.62.1" in package.json. Those two live
+# in different ecosystems, so nothing can bump them atomically — Dependabot
+# would move one and leave the other, and the e2e suite would fail on a version
+# skew that reads like a broken test. `@playwright/test` is excluded from the
+# dev-tooling group above so it arrives alone; when you take it, edit the
+# compose image tag in the same commit.

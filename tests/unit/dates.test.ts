@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   calendarMonthsFrom,
+  clubDateKey,
+  clubTimeNow,
   formatClock,
   formatDuration,
   fromDateInputValue,
@@ -90,5 +92,42 @@ describe("calendarMonthsFrom", () => {
 
   it("returns null without a base date", () => {
     expect(calendarMonthsFrom(null, 24)).toBeNull();
+  });
+});
+
+// The one helper that names the club's timezone outright, because it produces
+// a reading that gets WRITTEN DOWN on the airplane's card rather than one that
+// gets displayed. See lib/dates.ts.
+describe("clubTimeNow", () => {
+  it("gives the clock at the field, 24-hour, ready for a time input", () => {
+    // 20:30 UTC in August is 13:30 at KBFI (PDT, UTC-7).
+    expect(clubTimeNow(new Date("2026-08-08T20:30:00Z"))).toBe("13:30");
+  });
+
+  it("follows the club's daylight saving, not the machine's", () => {
+    // Same UTC clock in January is 12:30 (PST, UTC-8).
+    expect(clubTimeNow(new Date("2026-01-15T20:30:00Z"))).toBe("12:30");
+  });
+
+  // `hour12: false` renders midnight as "24:00" in some locales, which
+  // <input type="time"> rejects outright. h23 is what makes it "00:00".
+  it("writes midnight as 00:00", () => {
+    expect(clubTimeNow(new Date("2026-08-09T07:00:00Z"))).toBe("00:00");
+  });
+});
+
+// "Was the airplane walked today?" is a question about KBFI. It gates the
+// runway sign-off, so it must not depend on where the pilot's phone thinks
+// it is.
+describe("clubDateKey", () => {
+  it("gives the flying day at the field, not in UTC", () => {
+    // 03:00 UTC on the 9th is still the evening of the 8th at KBFI.
+    expect(clubDateKey("2026-08-09T03:00:00Z")).toBe("2026-08-08");
+    expect(clubDateKey("2026-08-09T16:00:00Z")).toBe("2026-08-09");
+  });
+
+  it("sorts and compares as a plain string", () => {
+    expect(clubDateKey("2026-01-02T20:00:00Z")).toBe("2026-01-02");
+    expect(clubDateKey("2026-08-08T20:00:00Z") === clubDateKey("2026-08-08T21:00:00Z")).toBe(true);
   });
 });

@@ -26,25 +26,40 @@ export default defineConfig({
     baseURL: "http://localhost:3100",
     trace: "retain-on-failure",
   },
-  // Projects by layout. `mobile.spec.ts` is the phone-width pass over the app's
-  // responsive branches (bottom tab bar, the reservation list that replaces the
-  // month grid, the "+" FAB); every other spec is written against the desktop
-  // layout. testMatch/testIgnore keep each project to its own half.
+  // Three projects, one per shape the app takes:
+  //
+  //   desktop (1280) — nav rail, month grid, top bar; the roomy case
+  //   ipad (834)     — the SAME desktop layout, at the narrowest width that
+  //                    gets it. The rail costs a fixed 15rem, so this is where
+  //                    the content column is thinnest and a page is likeliest
+  //                    to overflow or run under the rail.
+  //   iphone (402)   — below `md`: the bottom pill replaces the rail, and the
+  //                    pages switch to their narrow forms (reservation list
+  //                    instead of the grid, the "+" FAB, native date pickers)
+  //
+  // Each project runs the specs written for its shape: `mobile.spec.ts` covers
+  // the narrow branches, `ipad.spec.ts` covers the desktop layout under
+  // pressure, and everything else assumes a comfortable desktop.
+  //
+  // `tour.spec.ts` is the exception — it runs in ALL THREE. The guided tour
+  // measures live nav elements to place its highlight, so it's the one feature
+  // whose correctness is a function of the layout, and a desktop-only check
+  // would pass while the phone highlight pointed at nothing.
   projects: [
     {
-      name: "chromium",
+      name: "desktop",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /mobile\.spec\.ts/,
+      testIgnore: /(mobile|ipad)\.spec\.ts/,
     },
     {
-      name: "mobile-ios",
+      name: "ipad",
+      use: { ...devices["iPad Pro 11"] },
+      testMatch: /(ipad|tour)\.spec\.ts/,
+    },
+    {
+      name: "iphone",
       use: { ...devices["iPhone 16 Pro"] },
-      testMatch: /mobile\.spec\.ts/,
-    },
-    {
-      name: "mobile-android",
-      use: { ...devices["Galaxy S24"] },
-      testMatch: /mobile\.spec\.ts/,
+      testMatch: /(mobile|tour)\.spec\.ts/,
     },
   ],
   webServer: {

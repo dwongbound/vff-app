@@ -6,7 +6,7 @@
 // makes adding a second airplane a data change instead of a rewrite. The
 // choice is persisted so it survives a reload.
 //
-// It also carries the grounded state: any OPEN squawk with GROUNDING severity
+// It also carries the grounded state: any squawk at REVIEWED_GROUNDED
 // puts a red banner across the app (see Navbar).
 import { useSession } from "next-auth/react";
 import {

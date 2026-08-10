@@ -10,12 +10,15 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeReservation } from "@/lib/serialize";
 import { findConflict, validateReservation } from "@/lib/reservations";
+import { resolveBookingInstructor, resolutionFailed } from "@/lib/instructors";
+import { can } from "@/lib/positions";
 import { PURPOSE_LABELS, type Purpose } from "@/lib/constants";
 import { formatTimeRange } from "@/lib/dates";
 
 const INCLUDE = {
   aircraft: { select: { id: true, tailNumber: true } },
   user: { select: { id: true, name: true, email: true } },
+  instructor: { select: { id: true, name: true, email: true } },
   flight: { select: { id: true } },
 } as const;
 
@@ -59,6 +62,19 @@ export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
+  // An instructor-only account reads the schedule but doesn't take the
+  // airplane out — see `reservation:book` in lib/positions.ts. The calendar
+  // hides its own booking controls for these accounts; this is the control.
+  if (!can(user, "reservation:book")) {
+    return NextResponse.json(
+      {
+        error:
+          "Your account teaches here rather than flying here, so it can't book the airplane. An admin can make you a flying member from the Members tab.",
+      },
+      { status: 403 }
+    );
+  }
+
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
@@ -67,6 +83,11 @@ export async function POST(req: Request) {
   const endsAt = new Date(String(body.endsAt ?? ""));
   const purpose = parsePurpose(body.purpose);
   const notes = body.notes ? String(body.notes).trim() : null;
+
+  const instructor = await resolveBookingInstructor(purpose, body.instructorId);
+  if (resolutionFailed(instructor)) {
+    return NextResponse.json({ error: instructor.error }, { status: 400 });
+  }
 
   const aircraft = await prisma.aircraft.findUnique({
     where: { id: aircraftId },
@@ -111,7 +132,15 @@ export async function POST(req: Request) {
   }
 
   const created = await prisma.reservation.create({
-    data: { aircraftId, userId: user.id, startsAt, endsAt, purpose, notes },
+    data: {
+      aircraftId,
+      userId: user.id,
+      startsAt,
+      endsAt,
+      purpose,
+      notes,
+      instructorId: instructor.instructorId,
+    },
     include: INCLUDE,
   });
 

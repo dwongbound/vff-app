@@ -97,6 +97,59 @@ export function totalTachHours(flights: FlightLike[]): number {
   return round1(flights.reduce((sum, f) => sum + tachHours(f), 0));
 }
 
+/** One month of flying, for the Plane Status utilisation chart. */
+export interface MonthlyHours {
+  /** First of the month, local — the bucket's identity and its sort key. */
+  month: Date;
+  /** "Aug", for the axis. */
+  label: string;
+  hours: number;
+}
+
+/**
+ * Tach hours per calendar month, oldest first, for the last `months` months
+ * INCLUDING the current one.
+ *
+ * Empty months are returned as zeroes rather than skipped: a gap in the club's
+ * flying is the most interesting thing this chart can show, and dropping the
+ * bucket would silently redraw a quiet winter as a continuous run of activity.
+ *
+ * Buckets are local calendar months (the club's timezone, see instrumentation)
+ * so a late-evening flight lands in the day the pilot flew it.
+ */
+export function monthlyTachHours(
+  flights: FlightLike[],
+  months: number,
+  now: Date = new Date()
+): MonthlyHours[] {
+  const buckets: MonthlyHours[] = [];
+  const index = new Map<string, MonthlyHours>();
+
+  for (let i = months - 1; i >= 0; i--) {
+    const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const bucket: MonthlyHours = {
+      month,
+      label: month.toLocaleDateString(undefined, { month: "short" }),
+      hours: 0,
+    };
+    buckets.push(bucket);
+    index.set(`${month.getFullYear()}-${month.getMonth()}`, bucket);
+  }
+
+  for (const flight of flights) {
+    if (!flight.flownOn) continue;
+    const d = new Date(flight.flownOn);
+    if (Number.isNaN(d.getTime())) continue;
+    const bucket = index.get(`${d.getFullYear()}-${d.getMonth()}`);
+    // Flights older than the window (or dated into the future) simply have no
+    // bucket — that's the window doing its job, not an error.
+    if (bucket) bucket.hours += tachHours(flight);
+  }
+
+  for (const bucket of buckets) bucket.hours = round1(bucket.hours);
+  return buckets;
+}
+
 export function totalLandings(flights: FlightLike[]): number {
   return flights.reduce((sum, f) => sum + (f.landings ?? 0), 0);
 }

@@ -6,6 +6,7 @@
 // only the content does.
 import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { scrollAppToTop } from "@/lib/appScroll";
 import { consumeNavDirection } from "@/lib/navDirection";
 import { useSwipe } from "./SwipeProvider";
 
@@ -131,8 +132,9 @@ export default function SwipePager({ children }: { children: React.ReactNode }) 
       if (commit) {
         // Align both pages at the top first: the incoming route always mounts
         // scrolled to the top, so without this the slide picks up a vertical
-        // jump when you swipe from a scrolled position.
-        window.scrollTo(0, 0);
+        // jump when you swipe from a scrolled position. The content column is
+        // what scrolls now, not the window (see lib/appScroll.ts).
+        scrollAppToTop();
         setPreviewIndex(neighbor);
         el.style.transition = `transform ${OUT_MS}ms ease-out`;
         el.style.transform = `translateX(${dir > 0 ? -w : w}px)`;

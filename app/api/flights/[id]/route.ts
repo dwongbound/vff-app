@@ -7,10 +7,20 @@ import { prisma } from "@/lib/prisma";
 import { purgePhotosFor } from "@/lib/photos";
 import { serializeFlight } from "@/lib/serialize";
 import { validateMeters } from "@/lib/hours";
+import {
+  TURNOFF_CHECKOUT,
+  derivePutAway,
+  parseAnswers,
+  parseValues,
+} from "@/lib/checkouts";
+import { syncFlightCharges } from "@/lib/ledger";
+import { resolveInstructor, resolutionFailed } from "@/lib/instructors";
 
 const INCLUDE = {
   aircraft: { select: { id: true, tailNumber: true } },
   pilot: { select: { id: true, name: true, email: true } },
+  instructor: { select: { id: true, name: true, email: true } },
+  signedBy: { select: { id: true, name: true, email: true } },
   photos: true,
   squawks: {
     include: {
@@ -88,6 +98,15 @@ export async function PATCH(
   for (const field of ["tiedDown", "cabinClean", "withInstructor"] as const) {
     if (typeof body[field] === "boolean") data[field] = body[field];
   }
+  // Re-answering the turn-off checkout re-derives the put-away flags, so the
+  // two can't drift apart (see the POST route for the same rule).
+  if ("turnoffAnswers" in body) {
+    const turnoffAnswers = parseAnswers("TURNOFF", body.turnoffAnswers);
+  const turnoffValues = parseValues("TURNOFF", body.turnoffValues);
+    data.turnoffAnswers = turnoffAnswers;
+    data.turnoffCheckoutVersion = TURNOFF_CHECKOUT.version;
+    Object.assign(data, derivePutAway(turnoffAnswers));
+  }
   if (body.flownOn) {
     const flownOn = new Date(String(body.flownOn));
     if (Number.isNaN(flownOn.getTime())) {
@@ -95,12 +114,53 @@ export async function PATCH(
     }
     data.flownOn = flownOn;
   }
+  // Changing WHO is to sign this entry is a correction like any other, and is
+  // available for the same reason the rest of this route is: a lesson filed
+  // with the wrong instructor (or none) otherwise has no way back.
+  if ("instructorId" in body) {
+    const instructor = await resolveInstructor(body.instructorId);
+    if (resolutionFailed(instructor)) {
+      return NextResponse.json({ error: instructor.error }, { status: 400 });
+    }
+    data.instructorId = instructor.instructorId;
+  }
+
+  // Stamp the content edit. This is what "last edited" reads, and what a
+  // signature is compared against — see the column's comment in the schema for
+  // why Prisma's own `updatedAt` can't do this job.
+  //
+  // Every branch above writes a field a reader would call the log entry, so
+  // reaching here at all means the entry changed. The signature is deliberately
+  // NOT cleared: an instructor's endorsement isn't withdrawn by somebody else's
+  // edit, it just stops covering what's on screen, and the flight log says so
+  // rather than quietly erasing a signature that was really given.
+  data.editedAt = new Date();
 
   const updated = await prisma.flight.update({
     where: { id },
     data,
     include: INCLUDE,
   });
+
+  // A corrected tach reading or fuel receipt changes what this flight cost, so
+  // its ledger lines are rebuilt from the flight as it now stands. Note this
+  // re-prices at the airplane's CURRENT rate — correcting an old flight after
+  // a rate change bills it at the new one.
+  const aircraft = await prisma.aircraft.findUnique({
+    where: { id: updated.aircraftId },
+    select: { tailNumber: true, hourlyRateCents: true },
+  });
+  if (aircraft) {
+    await syncFlightCharges({
+      id: updated.id,
+      userId: updated.userId,
+      tachStart: updated.tachStart,
+      tachEnd: updated.tachEnd,
+      flownOn: updated.flownOn,
+      fuelCostCents: updated.fuelCostCents,
+      aircraft,
+    });
+  }
 
   return NextResponse.json(serializeFlight(updated, user.id));
 }

@@ -20,6 +20,27 @@ export async function fetchJsonArray<T>(
 }
 
 /**
+ * Fetch a URL that returns a single JSON object. Null on any failure, so a
+ * page can tell "not loaded yet" from "loaded and empty" — which is what
+ * drives the shared loading splash (see usePageLoading).
+ */
+export async function fetchJsonObject<T>(
+  url: string,
+  init?: RequestInit
+): Promise<T | null> {
+  try {
+    const res = await fetch(url, init);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && typeof data === "object" && !Array.isArray(data)
+      ? (data as T)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * POST/PATCH JSON and return `{ ok, data, error }` — the shape every form in
  * the app wants (show the server's message on failure, the row on success).
  */

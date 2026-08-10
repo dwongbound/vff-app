@@ -1,6 +1,6 @@
 // The club's operating rules (VFF-OR-A) where a member meets them: the
 // solo-or-instructor verdict on the preflight tab, the (i) explanations on
-// every checklist step, and the full reference table on the flight log.
+// every checkout item, and the full reference table on the flight log.
 import { expect, test } from "@playwright/test";
 import { gotoTab, signIn } from "./helpers";
 
@@ -40,7 +40,7 @@ test("three landings today clears the member for solo", async ({ page }) => {
   const tachStart = await page.getByLabel("Tach start").inputValue();
   await page.getByLabel("Tach end").fill((Number(tachStart) + 0.9).toFixed(1));
   await page.getByLabel("Landings", { exact: true }).fill("3");
-  await page.getByRole("button", { name: "File this flight" }).click();
+  await page.getByRole("button", { name: "File" }).click();
   await expect(page.getByText(/Filed 0.9 hours/)).toBeVisible({ timeout: 60_000 });
 
   await gotoTab(page, "/preflight", "Preflight");
@@ -53,6 +53,8 @@ test("three landings today clears the member for solo", async ({ page }) => {
 
 test("the flight log states the same verdict next to the counts", async ({ page }) => {
   await gotoTab(page, "/log", "Flight log");
+  // Currency is a "Mine" question — the club view is about the airplane.
+  await page.getByRole("button", { name: "Mine", exact: true }).click();
 
   await expect(page.getByText("Your landing currency")).toBeVisible();
   await expect(page.getByText(/Day: \d+\/3 landings/)).toBeVisible();
@@ -64,7 +66,7 @@ test("the flight log states the same verdict next to the counts", async ({ page 
   ).toBeVisible();
 });
 
-test("every checklist step can explain itself", async ({ page }) => {
+test("every checkout item can explain itself", async ({ page }) => {
   await gotoTab(page, "/preflight", "Preflight");
 
   // I'M SAFE is the first section, open by default.
@@ -84,12 +86,22 @@ test("every checklist step can explain itself", async ({ page }) => {
   await expect(page.getByRole("tooltip")).toBeHidden();
 });
 
-test("the flight log carries the full rules table", async ({ page }) => {
+test("the flight log keeps the rules behind the currency card, on Mine", async ({
+  page,
+}) => {
   await gotoTab(page, "/log", "Flight log");
 
-  // The reference table is collapsed until asked for.
+  // The club view is about the airplane: no personal currency, and no way in
+  // to the rules from here.
+  await expect(page.getByText("Your landing currency")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Operating rules" })).toBeHidden();
+
+  await page.getByRole("button", { name: "Mine", exact: true }).click();
+  await expect(page.getByText("Your landing currency")).toBeVisible();
+
+  // The table itself is a popover, opened from inside that card.
   await expect(page.getByText("Maximum offshore distance")).toBeHidden();
-  await page.getByRole("button", { name: /Operating rules/ }).click();
+  await page.getByRole("button", { name: "Operating rules" }).click();
   await expect(page.getByText("Maximum offshore distance").first()).toBeVisible();
   await expect(page.getByText(/10 sm \(unless on a flight plan/).first()).toBeVisible();
 });

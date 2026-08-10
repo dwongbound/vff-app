@@ -8,12 +8,14 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeReservation } from "@/lib/serialize";
 import { findConflict, validateReservation } from "@/lib/reservations";
+import { resolveBookingInstructor, resolutionFailed } from "@/lib/instructors";
 import { PURPOSE_LABELS, type Purpose } from "@/lib/constants";
 import { formatTimeRange } from "@/lib/dates";
 
 const INCLUDE = {
   aircraft: { select: { id: true, tailNumber: true } },
   user: { select: { id: true, name: true, email: true } },
+  instructor: { select: { id: true, name: true, email: true } },
   flight: { select: { id: true } },
 } as const;
 
@@ -80,6 +82,22 @@ export async function PATCH(
     data.purpose = body.purpose as Purpose;
   }
   if ("notes" in body) data.notes = body.notes ? String(body.notes).trim() : null;
+
+  // The instructor is resolved against the purpose this booking will HAVE
+  // after the edit, not the one it had before — otherwise changing a local
+  // flight into a lesson in the same save silently drops the CFI the member
+  // just picked. Re-resolved on every PATCH rather than only when
+  // `instructorId` is present, because a purpose change alone has to be able
+  // to clear a stale one.
+  const nextPurpose = (data.purpose as Purpose | undefined) ?? (existing.purpose as Purpose);
+  const instructor = await resolveBookingInstructor(
+    nextPurpose,
+    "instructorId" in body ? body.instructorId : existing.instructorId
+  );
+  if (resolutionFailed(instructor)) {
+    return NextResponse.json({ error: instructor.error }, { status: 400 });
+  }
+  data.instructorId = instructor.instructorId;
   if (body.status === "CONFIRMED" || body.status === "CANCELED") {
     data.status = body.status;
   }

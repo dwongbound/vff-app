@@ -8,11 +8,24 @@ import { SessionProvider } from "next-auth/react";
 import { ReactNode } from "react";
 import AircraftProvider from "@/components/AircraftProvider";
 import AuthGate from "@/components/AuthGate";
+import GuidedTour from "@/components/GuidedTour";
 import LoadingProvider from "@/components/LoadingProvider";
 import MeProvider from "@/components/MeProvider";
+import {
+  PhotoSupportProvider,
+  type PhotoSupport,
+} from "@/components/PhotoSupportProvider";
 
-export default function Providers({ children }: { children: ReactNode }) {
+export default function Providers({
+  children,
+  photos,
+}: {
+  children: ReactNode;
+  /** Decided on the server from the env — see app/layout.tsx. */
+  photos: PhotoSupport;
+}) {
   return (
+    <PhotoSupportProvider value={photos}>
     <SessionProvider>
       <LoadingProvider>
         <AircraftProvider>
@@ -20,10 +33,16 @@ export default function Providers({ children }: { children: ReactNode }) {
               shared profile, so the profile page reads it instead of
               refetching. */}
           <MeProvider>
-            <AuthGate>{children}</AuthGate>
+            <AuthGate>
+              {children}
+              {/* Inside AuthGate so it can't appear over the login page or
+                  before we know who the member is. */}
+              <GuidedTour />
+            </AuthGate>
           </MeProvider>
         </AircraftProvider>
       </LoadingProvider>
     </SessionProvider>
+    </PhotoSupportProvider>
   );
 }

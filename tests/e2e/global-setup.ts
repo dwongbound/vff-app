@@ -11,7 +11,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default function globalSetup() {
   // Load env/test.env so prisma talks to the test db (port 5433).
-  dotenv.config({ path: path.resolve(__dirname, "../../env/test.env") });
+  // `quiet` suppresses the banner dotenv 17 prints on every load.
+  dotenv.config({
+    path: path.resolve(__dirname, "../../env/test.env"),
+    quiet: true,
+  });
 
   const opts = { stdio: "inherit" as const, env: process.env };
   // Prisma 7 dropped `--skip-generate` from `db push`; the client is already

@@ -16,11 +16,12 @@ import LoadingDots from "@/components/common/LoadingDots";
 import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
+import TurnoffCheckout from "@/components/TurnoffCheckout";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
-import { SEVERITY_LABELS, SEVERITY_TONES } from "@/lib/constants";
+import { initialValues, type Answers, type Values } from "@/lib/checkouts";
 import { formatDay, formatTimeRange, toDateInputValue } from "@/lib/dates";
 import {
   flightCostCents,
@@ -52,8 +53,16 @@ export default function PostflightPage() {
   const [fuelAdded, setFuelAdded] = useState("");
   const [fuelCost, setFuelCost] = useState("");
   const [oilAdded, setOilAdded] = useState("");
-  const [tiedDown, setTiedDown] = useState(true);
-  const [cabinClean, setCabinClean] = useState(true);
+  // The turn-off checkout replaces the old "tied down"/"cabin clean" toggles:
+  // the API derives both flags from these answers, so the log records what the
+  // pilot confirmed rather than a default nobody moved.
+  const [turnoffAnswers, setTurnoffAnswers] = useState<Answers>({});
+  // "Flight timer — stop" opens at the club's current clock, since this page
+  // is filled in with the airplane just shut down. Overridable, like every
+  // other reading on a card (see `initialValues`).
+  const [turnoffValues, setTurnoffValues] = useState<Values>(() =>
+    initialValues("TURNOFF")
+  );
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [squawkDrafts, setSquawkDrafts] = useState<SquawkDraft[]>([]);
@@ -99,6 +108,16 @@ export default function PostflightPage() {
       current === "" && lastHobbs != null ? String(lastHobbs) : current
     );
   }, [lastTach, lastHobbs]);
+
+  // The tach the pilot just wrote down on the shutdown item IS the tach end.
+  // Prefill it rather than asking twice — only while the field is untouched,
+  // so a correction here always wins.
+  const recordedTach = turnoffValues["shutdown.tach.hours"];
+  useEffect(() => {
+    if (typeof recordedTach === "number") {
+      setTachEnd((current) => (current === "" ? String(recordedTach) : current));
+    }
+  }, [recordedTach]);
 
   // Hobbs counts as recorded only when BOTH readings are there. The start is
   // prefilled from the airplane, so without this a pilot who simply doesn't use
@@ -151,8 +170,8 @@ export default function PostflightPage() {
       fuelAddedGal: fuelAdded === "" ? null : Number(fuelAdded),
       fuelCostDollars: fuelCost === "" ? null : Number(fuelCost),
       oilAddedQts: oilAdded === "" ? null : Number(oilAdded),
-      tiedDown,
-      cabinClean,
+      turnoffAnswers,
+      turnoffValues,
       notes: notes.trim() || null,
     });
 
@@ -170,7 +189,6 @@ export default function PostflightPage() {
         flightId,
         title: draft.title,
         description: draft.description || null,
-        severity: draft.severity,
       });
       if (squawk.ok && squawk.data && draft.photos.length) {
         await uploadPhotos(draft.photos, "squawk", squawk.data.id);
@@ -198,6 +216,8 @@ export default function PostflightPage() {
     setFuelAdded("");
     setFuelCost("");
     setOilAdded("");
+    setTurnoffAnswers({});
+    setTurnoffValues(initialValues("TURNOFF"));
     setNotes("");
     setPhotos([]);
     setSquawkDrafts([]);
@@ -231,6 +251,21 @@ export default function PostflightPage() {
           {selected.lastTach != null && ` · last tach ${selected.lastTach.toFixed(1)}`}
         </p>
       </header>
+
+      {/* The turn-off checkout comes FIRST: it's the back of the airplane's
+          card and you work it standing at the tail, and its shutdown section is
+          where you read the tach off the panel. Recording it here is what
+          prefills the meters below, so the form follows what you actually did
+          rather than making you jump back up the page. */}
+      <Card className="space-y-4">
+        <h2 className="text-sm font-semibold">Turn-off checkout</h2>
+        <TurnoffCheckout
+          answers={turnoffAnswers}
+          onChange={setTurnoffAnswers}
+          values={turnoffValues}
+          onValuesChange={setTurnoffValues}
+        />
+      </Card>
 
       {/* Meters first — you're reading them off the panel right now. */}
       <Card className="space-y-4">
@@ -352,14 +387,14 @@ export default function PostflightPage() {
             label="From"
             value={departure}
             onChange={(e) => setDeparture(e.target.value)}
-            placeholder="KRHV"
+            placeholder="KBFI"
             className="uppercase"
           />
           <Input
             label="To"
             value={arrival}
             onChange={(e) => setArrival(e.target.value)}
-            placeholder="KRHV"
+            placeholder="KBFI"
             className="uppercase"
           />
         </div>
@@ -367,7 +402,7 @@ export default function PostflightPage() {
           label="Route (optional)"
           value={route}
           onChange={(e) => setRoute(e.target.value)}
-          placeholder="KRHV → KWVI → practice area → KRHV"
+          placeholder="KBFI → KWVI → practice area → KBFI"
         />
         {/* Which column of the club's operating rules covered this flight —
             an instructor on board supersedes the personal minimums. */}
@@ -380,7 +415,7 @@ export default function PostflightPage() {
 
       {/* What you put back into the airplane. */}
       <Card className="space-y-4">
-        <h2 className="text-sm font-semibold">Servicing &amp; put-away</h2>
+        <h2 className="text-sm font-semibold">Servicing</h2>
         <div className="grid grid-cols-3 gap-3">
           <Input
             label="Fuel added"
@@ -414,19 +449,6 @@ export default function PostflightPage() {
           />
         </div>
 
-        <div className="space-y-2">
-          <Toggle
-            checked={tiedDown}
-            onChange={setTiedDown}
-            label="Tied down and chocked"
-          />
-          <Toggle
-            checked={cabinClean}
-            onChange={setCabinClean}
-            label="Cabin cleaned out, trash removed"
-          />
-        </div>
-
         <Textarea
           label="Notes (optional)"
           value={notes}
@@ -440,12 +462,13 @@ export default function PostflightPage() {
         />
       </Card>
 
+
       {/* Squawks found on this flight. */}
       <Card className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Anything wrong with the airplane?</h2>
           <Button variant="secondary" size="sm" onClick={() => setSquawkModalOpen(true)}>
-            Report a squawk
+            Report
           </Button>
         </div>
         {squawkDrafts.length === 0 ? (
@@ -459,9 +482,8 @@ export default function PostflightPage() {
                 key={i}
                 className="flex items-start gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700"
               >
-                <Badge tone={SEVERITY_TONES[draft.severity]}>
-                  {SEVERITY_LABELS[draft.severity]}
-                </Badge>
+                {/* A draft has no status yet — it becomes "New" on submit. */}
+                <Badge tone="amber">New</Badge>
                 <span className="min-w-0 flex-1 font-medium">{draft.title}</span>
                 <button
                   onClick={() =>
@@ -495,7 +517,7 @@ export default function PostflightPage() {
           disabled={busy || !bothTach || Boolean(meterError)}
           className="w-full sm:w-auto"
         >
-          {busy ? <LoadingDots size="sm" /> : "File this flight"}
+          {busy ? <LoadingDots size="sm" /> : "File"}
         </Button>
       </div>
 

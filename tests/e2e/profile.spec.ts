@@ -19,7 +19,7 @@ test("saving a profile persists and updates the currency badges", async ({ page 
   await expect(page.getByText(/Current through/)).toBeVisible();
   await expect(page.getByText("Flight review current")).toBeVisible();
 
-  await page.getByRole("button", { name: "Save profile" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Saved.")).toBeVisible({ timeout: 60_000 });
 
   // Survives a reload — i.e. it really went to the database.

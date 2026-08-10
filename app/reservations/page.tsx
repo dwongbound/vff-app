@@ -75,16 +75,35 @@ export default function ReservationsPage() {
     refresh();
   }, [refresh]);
 
+  // An instructor-only account reads this page and nothing more: no "New", no
+  // "+", and every booking opens in the read-only view the modal already has
+  // for somebody else's. The API refuses a POST from them regardless.
+  const canBook = Boolean(me?.capabilities.includes("reservation:book"));
+
+  /**
+   * The bookings that are "yours".
+   *
+   * For a member that's the ones they made. For an instructor who doesn't fly
+   * here it's the ones they're TEACHING — they have no bookings of their own,
+   * so the filter would otherwise be a button that always shows an empty
+   * calendar, and "when do my students have the airplane" is the only reason
+   * they opened this page.
+   */
+  const isMine = useCallback(
+    (r: ApiReservation) => (canBook ? r.mine : r.instructor?.id === me?.id),
+    [canBook, me?.id]
+  );
+
   const visible = useMemo(() => {
     const rows = reservations ?? [];
-    return filter === "mine" ? rows.filter((r) => r.mine) : rows;
-  }, [reservations, filter]);
+    return filter === "mine" ? rows.filter(isMine) : rows;
+  }, [reservations, filter, isMine]);
 
   const upcomingRows = useMemo(() => upcoming(visible), [visible]);
   // The one booking the member most likely opened the app for.
   const myNext = useMemo(
-    () => upcoming((reservations ?? []).filter((r) => r.mine))[0] ?? null,
-    [reservations]
+    () => upcoming((reservations ?? []).filter(isMine))[0] ?? null,
+    [reservations, isMine]
   );
 
   function openNew(date?: Date | null) {
@@ -139,7 +158,7 @@ export default function ReservationsPage() {
                     : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                 }`}
               >
-                {value === "all" ? "Everyone" : "Mine"}
+                {value === "all" ? "Everyone" : canBook ? "Mine" : "Teaching"}
               </button>
             ))}
           </div>
@@ -147,9 +166,11 @@ export default function ReservationsPage() {
               wrapper (not a `hidden` class on the Button) does the hiding:
               Button already sets `inline-flex`, and two display utilities on
               one element are a coin flip decided by stylesheet order. */}
-          <div className="hidden sm:block">
-            <Button onClick={() => openNew()}>Book the airplane</Button>
-          </div>
+          {canBook && (
+            <div className="hidden sm:block">
+              <Button onClick={() => openNew()}>New</Button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -157,7 +178,9 @@ export default function ReservationsPage() {
           that made you open the app. */}
       {myNext && (
         <Card className="flex flex-wrap items-center gap-x-4 gap-y-1 border-indigo-200 dark:border-indigo-800">
-          <Badge tone="indigo">Your next flight</Badge>
+          <Badge tone="indigo">
+            {canBook ? "Your next flight" : "Your next lesson"}
+          </Badge>
           <span className="text-sm font-medium">
             {formatDay(myNext.startsAt)} · {formatTimeRange(myNext.startsAt, myNext.endsAt)}
           </span>
@@ -185,7 +208,7 @@ export default function ReservationsPage() {
           month={month}
           onMonthChange={setMonth}
           onSelect={openExisting}
-          onCreateOnDay={(date) => openNew(date)}
+          onCreateOnDay={canBook ? (date) => openNew(date) : undefined}
         />
       </div>
 
@@ -196,13 +219,15 @@ export default function ReservationsPage() {
 
       {/* Phone "+" button, floating clear of the bottom tab bar and the iOS
           home indicator. */}
-      <button
-        onClick={() => openNew()}
-        aria-label="New reservation"
-        className="fixed right-5 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-3xl leading-none text-white shadow-lg transition active:scale-95 sm:hidden"
-      >
-        <span className="-mt-0.5">+</span>
-      </button>
+      {canBook && (
+        <button
+          onClick={() => openNew()}
+          aria-label="New reservation"
+          className="fixed right-5 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-3xl leading-none text-white shadow-lg transition active:scale-95 sm:hidden"
+        >
+          <span className="-mt-0.5">+</span>
+        </button>
+      )}
 
       <ReservationModal
         open={modalOpen}
@@ -211,7 +236,9 @@ export default function ReservationsPage() {
         tailNumber={selected.tailNumber}
         reservation={openReservation}
         initialDate={createDate}
-        canManage={openReservation ? canManage(openReservation) : true}
+        canManage={
+          canBook && (openReservation ? canManage(openReservation) : true)
+        }
         onSaved={refresh}
       />
     </div>
