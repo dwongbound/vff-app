@@ -1237,9 +1237,6 @@ export const CHECKOUTS: Record<CheckoutKind, Checkout> = {
   TURNOFF: TURNOFF_CHECKOUT,
 };
 
-/** The two checkouts a member signs off before flying, in the order they're run. */
-export const PREFLIGHT_KINDS: CheckoutKind[] = ["PREFLIGHT", "RUNWAY"];
-
 /** Narrow an arbitrary string (a query param, a db column) to a checkout kind. */
 export function isCheckoutKind(value: unknown): value is CheckoutKind {
   return value === "PREFLIGHT" || value === "RUNWAY" || value === "TURNOFF";

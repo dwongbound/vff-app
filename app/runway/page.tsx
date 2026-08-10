@@ -18,6 +18,7 @@ import Card from "@/components/common/Card";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
 import CheckoutList from "@/components/CheckoutList";
+import ResumedRun from "@/components/ResumedRun";
 import InflightReference from "@/components/InflightReference";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { GumpsCard } from "@/components/OperatingRules";
@@ -60,6 +61,12 @@ export default function RunwayPage() {
   const [squawkModalOpen, setSquawkModalOpen] = useState(false);
   const [recent, setRecent] = useState<ApiCheckout[] | null>(null);
   const [preflights, setPreflights] = useState<ApiCheckout[]>([]);
+  // The unfinished run this card was seeded from, if any. Its presence is also
+  // what decides whether saving PATCHes that row or POSTs a new one, so one
+  // run stays one row however often it's put down.
+  const [resumed, setResumed] = useState<{ id: string; savedAt: string } | null>(
+    null
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -84,6 +91,33 @@ export default function RunwayPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Pick up a run this member started and never signed off.
+  //
+  // Deliberately NOT part of `refresh()`, which runs again after every save:
+  // re-seeding there would overwrite whatever has been ticked since. This runs
+  // once per airplane, which is the only moment the saved copy is newer than
+  // what's on screen.
+  useEffect(() => {
+    if (!aircraftId) return;
+    let cancelled = false;
+    fetchJsonArray<ApiCheckout>(
+      `/api/checkouts?aircraftId=${aircraftId}&kind=RUNWAY&mine=1&open=1&limit=1`
+    ).then((rows) => {
+      const run = rows[0];
+      if (cancelled || !run) return;
+      setResumed({ id: run.id, savedAt: run.updatedAt });
+      setAnswers(run.answers);
+      // Saved values win, but anything the run never recorded keeps its
+      // default — otherwise resuming a card saved before a field existed
+      // would leave that field blank rather than at its opening value.
+      setValues((defaults) => ({ ...defaults, ...run.values }));
+      setNotes(run.notes ?? "");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftId]);
 
   // Computed up here rather than beside the row it draws, because the effect
   // below has to run on every render — including the "no airplane yet" one
@@ -110,20 +144,55 @@ export default function RunwayPage() {
   const anyChecked = Object.keys(answers).length > 0;
   const remaining = useMemo(() => missingItems("RUNWAY", answers), [answers]);
 
+  /** Throw the resumed run away and start the card clean. */
+  async function startOver() {
+    if (!resumed) return;
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    const result = await sendJson(`/api/checkouts/${resumed.id}`, "DELETE");
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error ?? "Could not discard the saved checkout.");
+      return;
+    }
+    setResumed(null);
+    // `start.preflight` is the app's own answer rather than a tick of the
+    // pilot's, so a cleared card keeps it — the effect above would put it back
+    // anyway, and seeding it here avoids a frame where the row looks unticked.
+    setAnswers(preflightDone ? { "start.preflight": true } : {});
+    setValues(initialValues("RUNWAY"));
+    setSquawkDrafts([]);
+    setNotes("");
+    setResetKey((k) => k + 1);
+    await refresh();
+  }
+
   async function submit(signOff: boolean) {
     if (!selected) return;
     setError(null);
     setSaved(null);
     setBusy(true);
 
-    const result = await sendJson<ApiCheckout>("/api/checkouts", "POST", {
-      aircraftId: selected.id,
-      kind: "RUNWAY",
+    const payload = {
       answers,
       values,
       notes: notes.trim() || null,
       complete: signOff,
-    });
+    };
+
+    // Resuming updates the row we were seeded from; a fresh card creates one.
+    const result = resumed
+      ? await sendJson<ApiCheckout>(
+          `/api/checkouts/${resumed.id}`,
+          "PATCH",
+          payload
+        )
+      : await sendJson<ApiCheckout>("/api/checkouts", "POST", {
+          aircraftId: selected.id,
+          kind: "RUNWAY",
+          ...payload,
+        });
 
     if (!result.ok || !result.data) {
       setBusy(false);
@@ -154,11 +223,22 @@ export default function RunwayPage() {
       notifyAircraftChanged();
     }
 
-    setAnswers(preflightDone ? { "start.preflight": true } : {});
-    setValues(initialValues("RUNWAY"));
+    // Filed now, so drop the local copies — keeping them would re-file the
+    // same squawks on the next save.
     setSquawkDrafts([]);
-    setNotes("");
-    setResetKey((k) => k + 1);
+
+    if (signOff) {
+      setResumed(null);
+      setAnswers(preflightDone ? { "start.preflight": true } : {});
+      setValues(initialValues("RUNWAY"));
+      setNotes("");
+      setResetKey((k) => k + 1);
+    } else {
+      // Saved, not finished: leave the ticks on screen and remember which row
+      // they belong to, so the next save lands on the same one.
+      setResumed({ id: result.data.id, savedAt: result.data.updatedAt });
+    }
+
     await refresh();
   }
 
@@ -166,11 +246,7 @@ export default function RunwayPage() {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — seed one with{" "}
-          <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-700">
-            npm run db:seed
-          </code>
-          .
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );
@@ -218,6 +294,14 @@ export default function RunwayPage() {
           )}
         </p>
       </header>
+
+      {resumed && (
+        <ResumedRun
+          savedAt={resumed.savedAt}
+          onStartOver={startOver}
+          busy={busy}
+        />
+      )}
 
       {/* The card's own first before-start item is "Preflight — complete", so
           answer it here rather than making the member remember. Not a gate:

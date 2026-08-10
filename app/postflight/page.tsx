@@ -31,7 +31,7 @@ import {
   tachHours,
   validateMeters,
 } from "@/lib/hours";
-import type { ApiFlight, ApiReservation, ApiSquawk } from "@/lib/types";
+import type { ApiFlight, ApiMember, ApiReservation, ApiSquawk } from "@/lib/types";
 
 export default function PostflightPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -71,6 +71,11 @@ export default function PostflightPage() {
   // My bookings that haven't been closed out yet — the flight you just made is
   // almost always one of them.
   const [openBookings, setOpenBookings] = useState<ApiReservation[] | null>(null);
+  // The CFI on board, for a lesson that wasn't booked in the app. A booked
+  // lesson already names one and the server copies it across — see
+  // `bookedInstructor` below, which is why this picker hides in that case.
+  const [instructorId, setInstructorId] = useState("");
+  const [instructors, setInstructors] = useState<ApiMember[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -94,6 +99,24 @@ export default function PostflightPage() {
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
+
+  // The roster, only once somebody says they flew with an instructor. Most
+  // flights aren't lessons, and this page otherwise never needs it.
+  useEffect(() => {
+    if (!withInstructor || instructors !== null) return;
+    let live = true;
+    fetchJsonArray<ApiMember>("/api/members").then((rows) => {
+      if (live) setInstructors(rows.filter((m) => m.positions.includes("INSTRUCTOR")));
+    });
+    return () => {
+      live = false;
+    };
+  }, [withInstructor, instructors]);
+
+  /** The CFI the chosen booking already names, if any. */
+  const bookedInstructor =
+    (openBookings ?? []).find((r) => r.id === reservationId)?.instructor?.name ??
+    null;
 
   // Prefill the "start" meters from where the airplane was left. The pilot
   // still confirms them against the panel — they're editable, and a mismatch
@@ -164,6 +187,10 @@ export default function PostflightPage() {
       landings: Number(landings || 1),
       nightLandings: Number(nightLandings || 0),
       withInstructor,
+      // Only alongside the assertion it belongs to, and only when the booking
+      // hasn't already answered it (the server resolves that one itself).
+      instructorId:
+        withInstructor && !bookedInstructor && instructorId ? instructorId : null,
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
@@ -210,6 +237,7 @@ export default function PostflightPage() {
     setLandings("1");
     setNightLandings("0");
     setWithInstructor(false);
+    setInstructorId("");
     setDeparture("");
     setArrival("");
     setRoute("");
@@ -232,11 +260,7 @@ export default function PostflightPage() {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — seed one with{" "}
-          <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-700">
-            npm run db:seed
-          </code>
-          .
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );
@@ -404,13 +428,43 @@ export default function PostflightPage() {
           onChange={(e) => setRoute(e.target.value)}
           placeholder="KBFI → KWVI → practice area → KBFI"
         />
-        {/* Which column of the club's operating rules covered this flight —
-            an instructor on board supersedes the personal minimums. */}
         <Toggle
           checked={withInstructor}
           onChange={setWithInstructor}
           label="Flown with an approved flight instructor"
         />
+        {/* Who it was. Only once the box is ticked, and only when the booking
+            hasn't already answered it: filing against a TRAINING reservation
+            carries the CFI across on the server, and asking again would invite
+            two different answers to the same question. Naming them is what
+            puts this entry in their Teaching list to sign. */}
+        {withInstructor && !bookedInstructor && (
+          <div>
+            <Select
+              label="Instructor (optional)"
+              value={instructorId}
+              onChange={(e) => setInstructorId(e.target.value)}
+            >
+              <option value="">Not recorded</option>
+              {(instructors ?? []).map((cfi) => (
+                <option key={cfi.id} value={cfi.id}>
+                  {cfi.name}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {instructors && instructors.length === 0
+                ? "No CFIs on the roster yet — an admin adds the Flight Instructor role from the Members tab."
+                : "They can sign off this entry afterwards."}
+            </p>
+          </div>
+        )}
+        {withInstructor && bookedInstructor && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Booked with {bookedInstructor} — they&rsquo;ll be recorded as the
+            instructor on this entry.
+          </p>
+        )}
       </Card>
 
       {/* What you put back into the airplane. */}

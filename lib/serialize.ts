@@ -7,11 +7,14 @@
 // generated client: that keeps this file compiling before `prisma generate`
 // has ever run, and documents precisely which columns each route must select.
 import { parseAnswers, parseValues, type CheckoutKind } from "./checkouts";
+import type { MaintenanceCategory } from "./maintenance";
 import type {
   ApiAircraft,
   ApiCharge,
   ApiCheckout,
   ApiFlight,
+  ApiFlightSummary,
+  ApiMaintenanceItem,
   ApiMember,
   ApiPhoto,
   ApiRecurringCharge,
@@ -114,6 +117,8 @@ interface ChargeRow {
   recurringChargeId: string | null;
   voided: boolean;
   voidReason: string | null;
+  paidAt: Date | null;
+  paidBy?: UserRow | null;
   createdAt: Date;
 }
 
@@ -130,6 +135,8 @@ export function serializeCharge(c: ChargeRow, viewerId: string): ApiCharge {
     recurringChargeId: c.recurringChargeId,
     voided: c.voided,
     voidReason: c.voidReason,
+    paidAt: c.paidAt?.toISOString() ?? null,
+    paidBy: c.paidBy ? serializeUser(c.paidBy) : null,
     createdAt: c.createdAt.toISOString(),
     mine: c.memberId === viewerId,
   };
@@ -188,6 +195,50 @@ interface AircraftRow {
   emptyMomentLbIn: number | null;
   weighedOn: Date | null;
   squawks?: { id: string; title: string; status: string }[];
+  maintenance?: MaintenanceItemRow[];
+}
+
+interface MaintenanceItemRow {
+  id: string;
+  aircraftId: string;
+  label: string;
+  category: string;
+  requiredByReg: boolean;
+  reference: string | null;
+  intervalHours: number | null;
+  intervalMonths: number | null;
+  lastDoneTach: number | null;
+  lastDoneOn: Date | null;
+  notes: string | null;
+  active: boolean;
+  updatedAt: Date;
+}
+
+/**
+ * One row of the maintenance sheet, exactly as stored.
+ *
+ * Nothing derived crosses the wire — no hours remaining, no due date, no
+ * state. Those are functions of the airplane's CURRENT tach and the reader's
+ * clock (lib/maintenance.ts), so serialising them would freeze a countdown at
+ * the moment the response was built and leave a page open overnight reporting
+ * yesterday's answer.
+ */
+export function serializeMaintenanceItem(m: MaintenanceItemRow): ApiMaintenanceItem {
+  return {
+    id: m.id,
+    aircraftId: m.aircraftId,
+    label: m.label,
+    category: m.category as MaintenanceCategory,
+    requiredByReg: m.requiredByReg,
+    reference: m.reference,
+    intervalHours: m.intervalHours,
+    intervalMonths: m.intervalMonths,
+    lastDoneTach: m.lastDoneTach,
+    lastDoneOn: m.lastDoneOn?.toISOString() ?? null,
+    notes: m.notes,
+    active: m.active,
+    updatedAt: m.updatedAt.toISOString(),
+  };
 }
 
 export function serializeAircraft(a: AircraftRow): ApiAircraft {
@@ -221,6 +272,11 @@ export function serializeAircraft(a: AircraftRow): ApiAircraft {
       .map(summary),
     openSquawkCount: open.length,
     newSquawkCount: open.filter((s) => s.status === "NEW").length,
+    // Absent (a route that didn't include them) reads as an empty sheet rather
+    // than an error — the same shape a club that hasn't typed one in yet has.
+    maintenance: (a.maintenance ?? [])
+      .filter((m) => m.active)
+      .map(serializeMaintenanceItem),
   };
 }
 
@@ -315,8 +371,6 @@ interface FlightRow {
   turnoffAnswers: unknown;
   turnoffValues: unknown;
   notes: string | null;
-  photos?: PhotoRow[];
-  squawks?: SquawkRow[];
   instructor?: UserRow | null;
   signedBy?: UserRow | null;
   signedAt: Date | null;
@@ -324,7 +378,15 @@ interface FlightRow {
   createdAt: Date;
 }
 
-export function serializeFlight(f: FlightRow, viewerId: string): ApiFlight {
+/**
+ * The scalar half of a log entry — everything both the list and the detail
+ * view need. Split out so the two serializers below can't drift: a field added
+ * here appears in both, which is the failure the split would otherwise invite.
+ */
+function serializeFlightFields(
+  f: FlightRow,
+  viewerId: string
+): Omit<ApiFlightSummary, "photoCount" | "openSquawkCount"> {
   return {
     id: f.id,
     aircraft: { id: f.aircraft.id, tailNumber: f.aircraft.tailNumber },
@@ -350,14 +412,47 @@ export function serializeFlight(f: FlightRow, viewerId: string): ApiFlight {
     turnoffValues: parseValues("TURNOFF", f.turnoffValues),
     turnoffCheckoutVersion: f.turnoffCheckoutVersion,
     notes: f.notes,
-    photos: (f.photos ?? []).map(serializePhoto),
-    squawks: (f.squawks ?? []).map(serializeSquawk),
     instructor: f.instructor ? serializeUser(f.instructor) : null,
     signedBy: f.signedBy ? serializeUser(f.signedBy) : null,
     signedAt: f.signedAt?.toISOString() ?? null,
     editedAt: f.editedAt?.toISOString() ?? null,
     createdAt: f.createdAt.toISOString(),
     mine: f.userId === viewerId,
+  };
+}
+
+/**
+ * A list row: the scalars plus the two counts the log draws badges from.
+ *
+ * The counts are computed by the database (`_count`), so a page showing 300
+ * flights never pulls the photo and squawk rows themselves.
+ */
+export function serializeFlightSummary(
+  f: FlightRow & { _count: { photos: number; squawks: number } },
+  viewerId: string
+): ApiFlightSummary {
+  return {
+    ...serializeFlightFields(f, viewerId),
+    photoCount: f._count.photos,
+    // The route counts only the OPEN ones (see its `_count` filter), which is
+    // the only squawk question a log row asks.
+    openSquawkCount: f._count.squawks,
+  };
+}
+
+/** One flight with its photos and squawks — the detail endpoint. */
+export function serializeFlight(
+  f: FlightRow & { photos?: PhotoRow[]; squawks?: SquawkRow[] },
+  viewerId: string
+): ApiFlight {
+  const photos = (f.photos ?? []).map(serializePhoto);
+  const squawks = (f.squawks ?? []).map(serializeSquawk);
+  return {
+    ...serializeFlightFields(f, viewerId),
+    photoCount: photos.length,
+    openSquawkCount: squawks.filter((s) => isOpen(s.status)).length,
+    photos,
+    squawks,
   };
 }
 
@@ -408,6 +503,7 @@ interface CheckoutRow {
   completedAt: Date | null;
   photos?: PhotoRow[];
   createdAt: Date;
+  updatedAt: Date;
 }
 
 /**
@@ -431,5 +527,6 @@ export function serializeCheckout(c: CheckoutRow): ApiCheckout {
     completedAt: c.completedAt?.toISOString() ?? null,
     photos: (c.photos ?? []).map(serializePhoto),
     createdAt: c.createdAt.toISOString(),
+    updatedAt: c.updatedAt.toISOString(),
   };
 }

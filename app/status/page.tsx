@@ -28,6 +28,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Card from "@/components/common/Card";
+import MaintenanceGauges from "@/components/status/MaintenanceGauges";
 import Meter from "@/components/status/Meter";
 import UtilisationChart from "@/components/status/UtilisationChart";
 import { useAircraft } from "@/components/AircraftProvider";
@@ -39,8 +40,14 @@ import {
   SQUAWK_STATUS_TONES,
 } from "@/lib/squawks";
 import { formatDay, formatTimeRange } from "@/lib/dates";
+import { formatRemaining, maintenanceDue, nextDue } from "@/lib/maintenance";
 import { formatHours, monthlyTachHours, tachHours } from "@/lib/hours";
-import type { ApiCheckout, ApiFlight, ApiReservation, ApiSquawk } from "@/lib/types";
+import type {
+  ApiCheckout,
+  ApiFlightSummary,
+  ApiReservation,
+  ApiSquawk,
+} from "@/lib/types";
 
 /** How much history the utilisation chart shows. Half a year fits a phone. */
 const UTILISATION_MONTHS = 6;
@@ -61,7 +68,7 @@ export default function StatusPage() {
   const aircraftId = selected?.id ?? null;
 
   const [preflights, setPreflights] = useState<ApiCheckout[] | null>(null);
-  const [flights, setFlights] = useState<ApiFlight[] | null>(null);
+  const [flights, setFlights] = useState<ApiFlightSummary[] | null>(null);
   const [bookings, setBookings] = useState<ApiReservation[] | null>(null);
   const [squawks, setSquawks] = useState<ApiSquawk[] | null>(null);
 
@@ -80,7 +87,7 @@ export default function StatusPage() {
       // Enough history for the utilisation chart, not just the last flight —
       // the club flies a few hundred hours a year at most, so one page of
       // flights covers the window comfortably.
-      fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${aircraftId}&limit=300`),
+      fetchJsonArray<ApiFlightSummary>(`/api/flights?aircraftId=${aircraftId}&limit=300`),
       fetchJsonArray<ApiReservation>(
         `/api/reservations?aircraftId=${aircraftId}&from=${now.toISOString()}&to=${to}`
       ),
@@ -126,12 +133,18 @@ export default function StatusPage() {
 
   const lastFlight = (flights ?? [])[0] ?? null;
   const openSquawks = squawks ?? [];
+  // What the airplane is next due for, for the line under the tach. Read off
+  // the fleet the provider already holds — no fetch of its own.
+  const nextMaintenance = nextDue(
+    selected?.maintenance ?? [],
+    selected?.lastTach ?? null
+  );
 
   if (!selected) {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — an admin can add one from Org settings.
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );
@@ -178,6 +191,15 @@ export default function StatusPage() {
             </span>
             {selected.lastHobbs == null && " · not recorded"}
           </p>
+          {/* The tach only means something against what it's counting DOWN to.
+              The maintenance card below has the whole sheet; this is the one
+              line a pilot reads off the hero figure. */}
+          {nextMaintenance && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {formatRemaining(maintenanceDue(nextMaintenance, selected.lastTach))}{" "}
+              to {nextMaintenance.label.toLowerCase()}
+            </p>
+          )}
         </Card>
 
         <Meter
@@ -285,6 +307,16 @@ export default function StatusPage() {
           )}
         </Card>
       </div>
+
+      {/* What's due on it. Below the day-to-day panels rather than above them:
+          anything that STOPS a flight is already a banner at the top of the
+          page (see status/layout.tsx), so what's left here is the reference —
+          how many hours to the next oil change — and reference sits under the
+          things you came to look at. */}
+      <MaintenanceGauges
+        aircraft={selected}
+        canManage={Boolean(me?.capabilities.includes("maintenance:manage"))}
+      />
 
       {/* Everything else that's open against the airplane. */}
       <Card className="space-y-2">

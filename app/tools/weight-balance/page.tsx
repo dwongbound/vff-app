@@ -21,10 +21,10 @@
 //
 // Nothing here is stored. A W&B is true of one load on one day, and a saved
 // one is a stale one — the airplane's persistent facts (empty weight, moment,
-// the date it was weighed) live on the Aircraft row and are edited in Org
+// the date it was weighed) live on the Aircraft row and are edited in Club
 // settings, where changing them is a deliberate act.
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -34,9 +34,12 @@ import WeightBalanceChart from "@/components/WeightBalanceChart";
 import { useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
-// formatFullDate rather than formatDay: "Sat, Nov 27" leaves off the one part
-// of a weighing date that decides anything, which is which YEAR it was.
-import { formatFullDate } from "@/lib/dates";
+import { fetchJsonArray } from "@/lib/api";
+// Both date formats, for two different jobs: formatFullDate for the WEIGHING
+// date, where "Sat, Nov 27" leaves off the one part that decides anything
+// (which year it was), and formatDay for "when was the fuel last dipped",
+// where the year would be noise on a reading days old.
+import { formatDay, formatFullDate } from "@/lib/dates";
 import {
   allHeadroom,
   computeWeightBalance,
@@ -51,11 +54,58 @@ import {
   type WeightBalanceBasis,
   type WeightBalanceProfile,
 } from "@/lib/weightBalance";
+import type { ApiCheckout } from "@/lib/types";
+
+/**
+ * What the airplane was last measured to be carrying — the same figures Plane
+ * Status shows, off the last preflight checkout that actually recorded them.
+ *
+ * The tool is still pure arithmetic over what's in the boxes; this only decides
+ * what the boxes OPEN at. Starting the fuel box at "full" was a guess that was
+ * wrong more often than it was right (the airplane is rarely full), and a
+ * member who forgot to correct it planned a flight 100 lb heavy at the tanks.
+ */
+interface RecordedConsumables {
+  fuelGal: number | null;
+  oilQts: number | null;
+  /** Whose walkaround, and when — this is a measurement, so it's attributed. */
+  fuelNote: string | null;
+  oilNote: string | null;
+}
 
 export default function WeightBalancePage() {
   const { selected, loading: fleetLoading } = useAircraft();
   const { me } = useMe();
   usePageLoading(fleetLoading);
+
+  // The last few preflights, for the fuel and oil the airplane was left with.
+  // Falling further back than the most recent one is deliberate: a checkout
+  // where the pilot skipped the dip tells us nothing, and the reading before it
+  // is a better answer than none.
+  const aircraftId = selected?.id ?? null;
+  const [recorded, setRecorded] = useState<RecordedConsumables>(EMPTY_RECORD);
+  useEffect(() => {
+    if (!aircraftId) return;
+    let live = true;
+    fetchJsonArray<ApiCheckout>(
+      `/api/checkouts?aircraftId=${aircraftId}&kind=PREFLIGHT&limit=5`
+    ).then((rows) => {
+      if (!live) return;
+      const fuel = rows.find((c) => c.fuelOnBoardGal != null) ?? null;
+      const oil = rows.find((c) => c.oilQuarts != null) ?? null;
+      const from = (c: ApiCheckout) =>
+        `${c.user.name}'s preflight, ${formatDay(new Date(c.createdAt))}`;
+      setRecorded({
+        fuelGal: fuel?.fuelOnBoardGal ?? null,
+        oilQts: oil?.oilQuarts ?? null,
+        fuelNote: fuel ? from(fuel) : null,
+        oilNote: oil ? from(oil) : null,
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, [aircraftId]);
 
   const profile = profileFor(selected?.wbProfile ?? null);
   const basis: WeightBalanceBasis | null =
@@ -86,15 +136,26 @@ export default function WeightBalancePage() {
         />
       ) : profile && basis && selected ? (
         <Calculator
-          key={selected.id}
+          // Keyed on the recorded fuel as well as the airplane: the reading
+          // arrives a moment after the page does, and the boxes are
+          // initial-state, so the calculator has to be rebuilt to take it.
+          key={`${selected.id}:${recorded.fuelGal ?? "?"}`}
           profile={profile}
           basis={basis}
           weighedOn={selected.weighedOn}
+          recorded={recorded}
         />
       ) : null}
     </div>
   );
 }
+
+const EMPTY_RECORD: RecordedConsumables = {
+  fuelGal: null,
+  oilQts: null,
+  fuelNote: null,
+  oilNote: null,
+};
 
 /**
  * What the tool says when it can't do the sum.
@@ -134,11 +195,11 @@ function MissingBasisCard({
           href="/settings"
           className="inline-block text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
         >
-          Set it in Org settings →
+          Set it in Club settings →
         </Link>
       ) : (
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Ask a club admin to add it in Org settings.
+          Ask a club admin to add it in Club settings.
         </p>
       )}
     </Card>
@@ -149,19 +210,38 @@ function Calculator({
   profile,
   basis,
   weighedOn,
+  recorded,
 }: {
   profile: WeightBalanceProfile;
   basis: WeightBalanceBasis;
   weighedOn: string | null;
+  recorded: RecordedConsumables;
 }) {
+  /**
+   * What each box opens at: the airplane's OWN last-measured fuel where there
+   * is one, otherwise the profile's preset.
+   *
+   * Only the fuel station is prefilled from a measurement, and the oil is the
+   * reason why. This airframe's basis is a modern BASIC empty weight, which
+   * already includes its full 8 quarts — typing the dipstick reading in again
+   * would add 15 lb at arm −20 (the furthest forward station on the airplane)
+   * to every result. So the recorded oil is SHOWN under that box rather than
+   * put in it; see the station's own `why`, and lib/weightBalance.ts.
+   */
+  const openingEntries = () =>
+    Object.fromEntries(
+      profile.stations.map((s) => {
+        if (s.id === "fuel" && recorded.fuelGal != null) {
+          return [s.id, String(recorded.fuelGal)];
+        }
+        return [s.id, s.preset != null ? String(s.preset) : ""];
+      })
+    );
+
   // Held as STRINGS so an empty box stays empty. Storing numbers means a
   // cleared field becomes 0 and immediately renders as "0", which you then
   // have to select and overwrite to type your own weight into.
-  const [entries, setEntries] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      profile.stations.map((s) => [s.id, s.preset != null ? String(s.preset) : ""])
-    )
-  );
+  const [entries, setEntries] = useState<Record<string, string>>(openingEntries);
 
   const loading: Loading = useMemo(
     () =>
@@ -197,12 +277,9 @@ function Calculator({
     return [...byGroup.entries()];
   }, [profile.stations]);
 
-  const reset = () =>
-    setEntries(
-      Object.fromEntries(
-        profile.stations.map((s) => [s.id, s.preset != null ? String(s.preset) : ""])
-      )
-    );
+  // Back to what the page opened at — including the measured fuel, which is
+  // the airplane as it stands rather than a default worth clearing.
+  const reset = () => setEntries(openingEntries());
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -237,16 +314,35 @@ function Calculator({
                     }
                     placeholder="0"
                     hint={
-                      <span className="flex items-center gap-1">
-                        <span>
-                          {UNIT_LABELS[station.unit]} · arm {station.arm} in
-                          {station.max != null
-                            ? ` · max ${station.max} ${station.unit}`
-                            : ""}
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-1">
+                          <span>
+                            {UNIT_LABELS[station.unit]} · arm {station.arm} in
+                            {station.max != null
+                              ? ` · max ${station.max} ${station.unit}`
+                              : ""}
+                          </span>
+                          <InfoTip label={`Why: ${station.label}`}>
+                            {station.why}
+                          </InfoTip>
                         </span>
-                        <InfoTip label={`Why: ${station.label}`}>
-                          {station.why}
-                        </InfoTip>
+                        {/* What the airplane was last measured to be carrying.
+                            Under the FUEL box it explains where the number in
+                            it came from; under the OIL box it's a note and not
+                            a prefill, because this airframe's empty weight
+                            already includes its oil. */}
+                        {station.id === "fuel" && recorded.fuelNote && (
+                          <span className="text-indigo-600 dark:text-indigo-400">
+                            {recorded.fuelGal} gal from {recorded.fuelNote}
+                          </span>
+                        )}
+                        {station.id === "oil" && recorded.oilNote && (
+                          <span>
+                            {recorded.oilQts} qt on the dipstick (
+                            {recorded.oilNote}) — leave this at 0 unless the
+                            basis is a licensed empty weight.
+                          </span>
+                        )}
                       </span>
                     }
                   />
@@ -532,7 +628,7 @@ function BasisCard({
       <p className="text-xs text-gray-500 dark:text-gray-400">
         Stations and envelope: {profile.source}. Empty weight and moment come
         from this airframe&rsquo;s latest Weight/Balance &amp; Equipment List
-        Revision, kept in Org settings — if an A&amp;P has signed a newer one,
+        Revision, kept in Club settings — if an A&amp;P has signed a newer one,
         it needs entering there before this page is right.
       </p>
 

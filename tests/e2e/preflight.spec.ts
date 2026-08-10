@@ -37,8 +37,11 @@ test("a squawk raised on the walk is filed with the checkout", async ({
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/Progress saved/)).toBeVisible({ timeout: 60_000 });
 
-  // It now shows in the airplane's open-squawk list on the log tab.
+  // It now shows in the airplane's open-squawk list on the log tab. The squawk
+  // list is a fact about the AIRPLANE, so it lives on the Club half of the
+  // switch — and the page opens on Mine.
   await gotoTab(page, "/log", "Flight log");
+  await page.getByRole("button", { name: "Club", exact: true }).click();
   await expect(page.getByText("Nav light flickering")).toBeVisible();
 });
 

@@ -1,13 +1,17 @@
 // Checkout runs — one pass over one of the airplane's cards.
 //
-// GET  /api/checkouts?aircraftId=&kind=&mine=1&limit=  — most recent first.
+// GET  /api/checkouts?aircraftId=&kind=&mine=1&open=1&limit=  — newest first.
 //      `kind` is PREFLIGHT or RUNWAY; omit it for both, newest first.
+//      `open=1` returns only runs that were never signed off — with `mine=1`,
+//      that's the walk you left half-done, which the pages offer to resume.
 // POST /api/checkouts  { aircraftId, kind, answers, values, notes, complete }
 //      `fuelOnBoardGal` / `oilQuarts` are NOT accepted: they're derived from
 //      `values` (the readings recorded on the consumables items).
 //      `complete: true` stamps completedAt, which is what makes a run count as
 //      a signed-off checkout. A partial run can be posted too (you got
-//      interrupted at the fuel truck) and finished later.
+//      interrupted at the fuel truck); it is then finished — or discarded —
+//      through PATCH/DELETE on /api/checkouts/[id], so one walkaround is one
+//      row however many times it gets put down and picked back up.
 //
 // The turn-off checkout is NOT here: it's answered on the post-flight form and
 // stored on the Flight row, so it goes up through /api/flights.
@@ -44,6 +48,9 @@ export async function GET(req: Request) {
   const aircraftId = url.searchParams.get("aircraftId");
   const kind = url.searchParams.get("kind");
   const mine = url.searchParams.get("mine") === "1";
+  // Runs that were saved but never signed off. With `mine=1` this is how the
+  // checkout pages find the walk you left half-done and offer to resume it.
+  const openOnly = url.searchParams.get("open") === "1";
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 100);
 
   // An unrecognised kind is a client bug, not "show me everything" — say so
@@ -60,6 +67,7 @@ export async function GET(req: Request) {
       ...(aircraftId ? { aircraftId } : {}),
       ...(kind ? { kind } : {}),
       ...(mine ? { userId: user.id } : {}),
+      ...(openOnly ? { completedAt: null } : {}),
     },
     include: INCLUDE,
     orderBy: { createdAt: "desc" },

@@ -14,6 +14,9 @@ import { serializeCharge } from "@/lib/serialize";
 
 const INCLUDE = {
   member: { select: { id: true, name: true, email: true } },
+  // Who ticked the line off as settled — money marked paid by nobody
+  // in particular is how a statement loses an argument later.
+  paidBy: { select: { id: true, name: true, email: true } },
 } as const;
 
 export async function POST(req: Request) {

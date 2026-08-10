@@ -118,7 +118,46 @@ describe("totals", () => {
       chargedCents: 0,
       creditedCents: 0,
       balanceCents: 0,
+      paidCents: 0,
+      outstandingCents: 0,
     });
+  });
+
+  // Paying is not voiding, and the difference is what these two assert: a
+  // voided line never happened, a paid one happened and has been settled.
+  it("counts a paid line toward what's settled, not out of the month", () => {
+    const settled = totals([
+      { amountCents: 25_000, voided: false, paidAt: "2026-08-09T00:00:00.000Z" },
+      { amountCents: 13_500, voided: false, paidAt: null },
+    ]);
+    // The month still cost what it cost…
+    expect(settled.chargedCents).toBe(38_500);
+    expect(settled.balanceCents).toBe(38_500);
+    // …and only one of the two lines is still owed.
+    expect(settled.paidCents).toBe(25_000);
+    expect(settled.outstandingCents).toBe(13_500);
+  });
+
+  it("nets a settled credit the same way the balance does", () => {
+    // A member paid their dues and took the fuel credit off it in one go: the
+    // pair nets to what actually changed hands.
+    const netted = totals([
+      { amountCents: 25_000, voided: false, paidAt: "2026-08-09T00:00:00.000Z" },
+      { amountCents: -7_000, voided: false, paidAt: "2026-08-09T00:00:00.000Z" },
+    ]);
+    expect(netted.balanceCents).toBe(18_000);
+    expect(netted.paidCents).toBe(18_000);
+    expect(netted.outstandingCents).toBe(0);
+  });
+
+  it("ignores a paid flag on a voided line", () => {
+    // Nothing was owed, so nothing can have been settled.
+    const voided = totals([
+      { amountCents: 25_000, voided: true, paidAt: "2026-08-09T00:00:00.000Z" },
+    ]);
+    expect(voided.balanceCents).toBe(0);
+    expect(voided.paidCents).toBe(0);
+    expect(voided.outstandingCents).toBe(0);
   });
 });
 

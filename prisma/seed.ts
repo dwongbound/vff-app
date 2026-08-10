@@ -461,6 +461,76 @@ const WEIGHT_BALANCE = {
   weighedOn: new Date("2021-11-27T12:00:00Z"),
 };
 
+// N8318B's maintenance sheet, transcribed from the club's own spreadsheet as
+// it stood on 8 Aug 2026 — the second piece of REAL data in this file, and
+// transcribed for the same reason as the flight log: the derived columns give
+// the arithmetic an answer somebody already worked out by hand (the sheet read
+// 19.3 hours / 112 days to the oil change, 355 days to the annual).
+//
+// Two things in it look wrong and are the club's own numbers, so they stay:
+//   • the altimeter/static check is tracked at 12 months, where 91.411 allows
+//     24 — the club's sheet is the tighter of the two, and an app that quietly
+//     doubled it would be extending an inspection nobody authorised;
+//   • "Tach at Last" is 0.0 on the items with no hour interval, which is not a
+//     reading at all. Stored as null here rather than as a zero that would
+//     otherwise render as "last done at tach 0.0".
+//
+// `requiredByReg` is the sheet's own "Required by Regulation" column, and it
+// is what decides whether OVERDUE grounds the airplane (lib/maintenance.ts).
+const MAINTENANCE_SHEET = [
+  {
+    label: "Annual inspection",
+    category: "INSPECTION" as const,
+    requiredByReg: true,
+    reference: "14 CFR 91.409",
+    intervalHours: null,
+    intervalMonths: 12,
+    lastDoneTach: 1473.2,
+    lastDoneOn: [2026, 7, 8] as [number, number, number],
+  },
+  {
+    label: "Engine oil change",
+    category: "INSPECTION" as const,
+    requiredByReg: false,
+    reference: null,
+    intervalHours: 50,
+    intervalMonths: 4,
+    lastDoneTach: 1473.2,
+    lastDoneOn: [2026, 7, 8] as [number, number, number],
+    notes: "Club schedule — 50 hours or 4 months, whichever comes first.",
+  },
+  {
+    label: "Altimeter, encoder & static system",
+    category: "INSPECTION" as const,
+    requiredByReg: false,
+    reference: "14 CFR 91.411",
+    intervalHours: null,
+    intervalMonths: 12,
+    lastDoneTach: null,
+    lastDoneOn: [2026, 7, 8] as [number, number, number],
+  },
+  {
+    label: "Transponder",
+    category: "INSPECTION" as const,
+    requiredByReg: true,
+    reference: "14 CFR 91.413 / 91.215",
+    intervalHours: null,
+    intervalMonths: 24,
+    lastDoneTach: 675.1,
+    lastDoneOn: [2026, 7, 8] as [number, number, number],
+  },
+  {
+    label: "ELT inspection & battery",
+    category: "EQUIPMENT" as const,
+    requiredByReg: false,
+    reference: "14 CFR 91.207",
+    intervalHours: null,
+    intervalMonths: 12,
+    lastDoneTach: null,
+    lastDoneOn: [2026, 7, 8] as [number, number, number],
+  },
+];
+
 /**
  * Local NOON on a calendar date. Noon rather than midnight so no timezone the
  * app is read in can slide a logged flight onto the day before.
@@ -696,6 +766,33 @@ async function main() {
       skipDuplicates: true,
     });
     return flight;
+  }
+
+  // The maintenance sheet. Matched by (aircraft, label) rather than guarded by
+  // a global count, so a database seeded before this existed picks the sheet up
+  // on a reseed — and an item that's already there is LEFT ALONE: an officer
+  // who has since recorded an oil change must not have it rolled back to the
+  // transcribed date.
+  for (const item of MAINTENANCE_SHEET) {
+    const existing = await prisma.maintenanceItem.findFirst({
+      where: { aircraftId: aircraft.id, label: item.label },
+      select: { id: true },
+    });
+    if (existing) continue;
+    await prisma.maintenanceItem.create({
+      data: {
+        aircraftId: aircraft.id,
+        label: item.label,
+        category: item.category,
+        requiredByReg: item.requiredByReg,
+        reference: item.reference,
+        intervalHours: item.intervalHours,
+        intervalMonths: item.intervalMonths,
+        lastDoneTach: item.lastDoneTach,
+        lastDoneOn: on(item.lastDoneOn),
+        notes: "notes" in item ? item.notes : null,
+      },
+    });
   }
 
   // The log, only on a fresh database.
@@ -1076,10 +1173,15 @@ async function main() {
         {
           // Booked with the CFI who is also a member, so the instructor
           // picker has two names in it rather than one.
+          //
+          // Day 6, not day 3: the e2e suite books day 3 at 13:00 on the
+          // strength of the seed leaving it free, and day 9 is the maintenance
+          // block its double-booking test aims at. A seeded booking that lands
+          // on either is a failing suite, not a scheduling clash.
           aircraftId: aircraft.id,
           userId: memberBy("taylor@vffclub.test").id,
-          startsAt: day(3, 13),
-          endsAt: day(3, 15),
+          startsAt: day(6, 9),
+          endsAt: day(6, 11),
           purpose: "TRAINING",
           instructorId: memberBy("drew@vffclub.test").id,
           notes: "Flight review.",

@@ -1,5 +1,5 @@
 "use client";
-// Org settings — the club's own configuration, as opposed to /profile which is
+// Club settings — the club's own configuration, as opposed to /profile which is
 // the member's. Admins only, reached from the avatar menu.
 //
 // Today that means the fleet: add an airplane, fix a tail number, change the
@@ -37,7 +37,7 @@ export default function SettingsPage() {
     return (
       <div className="space-y-4">
         <header>
-          <h1 className="text-xl font-bold">Org settings</h1>
+          <h1 className="text-xl font-bold">Club settings</h1>
         </header>
         <Card>
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -52,7 +52,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Org settings</h1>
+        <h1 className="text-xl font-bold">Club settings</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           The club&rsquo;s fleet and configuration. Member roles live on the{" "}
           Members tab.

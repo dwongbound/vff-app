@@ -5,7 +5,12 @@
 // fact about the airframe, so the Finance Officer can set it (and only it)
 // without being made an admin. Everything else here still needs the flag.
 import { NextResponse } from "next/server";
-import { modelError, normalizeTailNumber, tailNumberError } from "@/lib/aircraft";
+import {
+  AIRCRAFT_INCLUDE,
+  modelError,
+  normalizeTailNumber,
+  tailNumberError,
+} from "@/lib/aircraft";
 import { getSessionUser } from "@/lib/auth";
 import { can } from "@/lib/positions";
 import { prisma } from "@/lib/prisma";
@@ -50,12 +55,7 @@ export async function PATCH(
     const priced = await prisma.aircraft.update({
       where: { id },
       data,
-      include: {
-        squawks: {
-          where: { status: { not: "CLOSED" } },
-          select: { id: true, title: true, status: true },
-        },
-      },
+      include: AIRCRAFT_INCLUDE,
     });
     return NextResponse.json(serializeAircraft(priced));
   }
@@ -139,12 +139,7 @@ export async function PATCH(
   const updated = await prisma.aircraft.update({
     where: { id },
     data,
-    include: {
-      squawks: {
-        where: { status: { not: "CLOSED" } },
-        select: { id: true, title: true, status: true },
-      },
-    },
+    include: AIRCRAFT_INCLUDE,
   });
 
   return NextResponse.json(serializeAircraft(updated));

@@ -14,16 +14,17 @@
 // answer them a fortnight later — the API already knows a flight filed
 // without them is a late entry and leaves the put-away flags alone (see
 // `answeredTurnoff` in app/api/flights/route.ts).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Modal from "@/components/common/Modal";
+import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
-import { sendJson } from "@/lib/api";
+import { fetchJsonArray, sendJson } from "@/lib/api";
 import { toDateInputValue } from "@/lib/dates";
 import { formatHours, tachHours, validateMeters } from "@/lib/hours";
-import type { ApiAircraft, ApiFlight } from "@/lib/types";
+import type { ApiAircraft, ApiFlight, ApiMember } from "@/lib/types";
 
 export default function FlightEntryModal({
   open,
@@ -51,6 +52,25 @@ export default function FlightEntryModal({
   const [landings, setLandings] = useState("1");
   const [nightLandings, setNightLandings] = useState("0");
   const [withInstructor, setWithInstructor] = useState(false);
+  // The CFI who was on board. "" = not recorded, which is legal — a member
+  // catching up an old entry may not remember, and an entry with no name on it
+  // is better than one with a guess.
+  const [instructorId, setInstructorId] = useState("");
+
+  // The club's CFIs, for that picker. Fetched when the modal first opens
+  // rather than on mount: most hand-entered flights aren't lessons, and the
+  // log otherwise never asks for the roster.
+  const [instructors, setInstructors] = useState<ApiMember[] | null>(null);
+  useEffect(() => {
+    if (!open || instructors !== null) return;
+    let live = true;
+    fetchJsonArray<ApiMember>("/api/members").then((rows) => {
+      if (live) setInstructors(rows.filter((m) => m.positions.includes("INSTRUCTOR")));
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, instructors]);
   const [departure, setDeparture] = useState("");
   const [arrival, setArrival] = useState("");
   const [route, setRoute] = useState("");
@@ -110,6 +130,9 @@ export default function FlightEntryModal({
       landings: numeric(landings) ?? 1,
       nightLandings: numeric(nightLandings) ?? 0,
       withInstructor,
+      // Only sent alongside the assertion it belongs to: unticking the box
+      // must not leave a CFI's name on a flight they weren't on.
+      instructorId: withInstructor && instructorId ? instructorId : null,
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
@@ -237,13 +260,37 @@ export default function FlightEntryModal({
             onChange={(e) => setWithInstructor(e.target.checked)}
             className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 dark:border-gray-600"
           />
-          <span>
-            Flown with an approved instructor
-            <span className="block text-xs text-gray-500 dark:text-gray-400">
-              Selects the third column of the club&rsquo;s operating rules.
-            </span>
-          </span>
+          <span>Flown with an approved instructor</span>
         </label>
+
+        {/* Who it was, so the entry can be signed. Only once the box is ticked:
+            an empty CFI picker on every hand-entered local flight is a question
+            nobody was asked. Naming them here is what puts this entry in their
+            Teaching list — a lesson that was never booked in the app has no
+            other way of getting there. */}
+        {withInstructor && (
+          <div>
+            <Select
+              label="Instructor (optional)"
+              value={instructorId}
+              onChange={(e) => setInstructorId(e.target.value)}
+            >
+              <option value="">Not recorded</option>
+              {(instructors ?? []).map((cfi) => (
+                <option key={cfi.id} value={cfi.id}>
+                  {cfi.name}
+                </option>
+              ))}
+            </Select>
+            {/* Outside the <label>, like every hint in the app — inside, it
+                becomes part of the field's accessible name. */}
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {instructors && instructors.length === 0
+                ? "No CFIs on the roster yet — an admin adds the Flight Instructor role from the Members tab."
+                : "They can sign off this entry afterwards."}
+            </p>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Input

@@ -114,12 +114,37 @@ demand:
   Playwright suite across the desktop and both phone projects. The report is
   uploaded as an artifact when something fails.
 
+## Deployment
+
+The app is served by **Vercel**; the Dockerfile is for self-hosting and for the
+compose profiles. The two differ in one way that matters: the container runs
+`prisma migrate deploy` from its `CMD`, and Vercel never runs a `CMD` at all.
+
+So Vercel's build goes through `scripts/vercel-build.sh` (wired up as the
+`vercel-build` npm script, which npm prefers over `build`). It applies
+migrations only when `VERCEL_GIT_COMMIT_REF` is `main` or `staging` — the two
+branches that own a database — and then runs the ordinary build. A PR preview
+builds without touching anyone's schema.
+
+Two things will quietly undo this:
+
+- Setting an explicit **Build Command** in the Vercel project settings. That
+  overrides `package.json`, `vercel-build.sh` never runs, and migrations stop
+  being applied — with no error, because the build still succeeds.
+- Pointing `main` and `staging` at the same database.
+
+`DATABASE_URL` must be set per Vercel environment; `prisma generate` resolves it
+eagerly at install time, so an unset one fails the build rather than the deploy.
+
+To check or fix an environment by hand, see the migration gotchas in
+`CLAUDE.md` — `migrate status` is the read-only version.
+
 ## Setting the club up
 
 1. Sign up. **The first account created becomes the club admin** (a fresh
    install has nobody to grant it).
 2. Change the airplane: the seed creates one from `SEED_TAIL_NUMBER`. As an
-   admin, open the avatar menu → **Org settings** to edit the tail number,
+   admin, open the avatar menu → **Club settings** to edit the tail number,
    model, year, hourly rate, fuel capacity and home base. Renaming keeps the
    airplane's whole history, because everything hangs off its id.
 3. Add the rest of the fleet from the same screen. Everything is keyed by

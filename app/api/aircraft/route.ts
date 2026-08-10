@@ -1,7 +1,12 @@
 // The club's airplanes, with their open squawks folded in so the client can
 // tell at a glance whether anything is grounded.
 import { NextResponse } from "next/server";
-import { modelError, normalizeTailNumber, tailNumberError } from "@/lib/aircraft";
+import {
+  AIRCRAFT_INCLUDE,
+  modelError,
+  normalizeTailNumber,
+  tailNumberError,
+} from "@/lib/aircraft";
 import { getAdminUser, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeAircraft } from "@/lib/serialize";
@@ -12,20 +17,14 @@ export async function GET() {
 
   const rows = await prisma.aircraft.findMany({
     orderBy: [{ active: "desc" }, { tailNumber: "asc" }],
-    include: {
-      squawks: {
-        where: { status: { not: "CLOSED" } },
-        select: { id: true, title: true, status: true },
-        orderBy: { createdAt: "desc" },
-      },
-    },
+    include: AIRCRAFT_INCLUDE,
   });
 
   return NextResponse.json(rows.map(serializeAircraft));
 }
 
 /**
- * Add an airplane to the fleet (admins only, from Org settings).
+ * Add an airplane to the fleet (admins only, from Club settings).
  *
  * Everything in the app is keyed by aircraft, so a second airplane really is
  * just a row — nothing else has to change for the club to grow.
@@ -66,12 +65,7 @@ export async function POST(req: Request) {
       lastTach: numberOrNull(body.lastTach),
       lastHobbs: numberOrNull(body.lastHobbs),
     },
-    include: {
-      squawks: {
-        where: { status: { not: "CLOSED" } },
-        select: { id: true, title: true, status: true },
-      },
-    },
+    include: AIRCRAFT_INCLUDE,
   });
 
   return NextResponse.json(serializeAircraft(created), { status: 201 });

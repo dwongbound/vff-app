@@ -129,9 +129,29 @@ export default function InfoTip({
         onBlur={() => {
           if (!pinned) setPosition(null);
         }}
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-gray-300 text-[10px] font-bold italic leading-none text-gray-500 transition-colors hover:border-indigo-500 hover:bg-indigo-600 hover:text-white dark:border-gray-600 dark:text-gray-400"
+        // A real icon rather than a bordered letter "i". The old marker drew
+        // its own circle in CSS and set a 10px italic glyph inside it, which
+        // put a typeface's letterform (and its vertical metrics — see the
+        // Overpass gotcha) in charge of whether the dot looked centred. The
+        // heroicon carries the circle and the mark as ONE shape, so it's
+        // centred by construction and scales with the row instead of the font.
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:text-indigo-600 focus-visible:text-indigo-600 focus-visible:outline-none dark:text-gray-500 dark:hover:text-indigo-400"
       >
-        i
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className="h-4 w-4"
+        >
+          {/* The circle, then the serif-less "i": a dot and a stem. */}
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 16.5v-4.75" />
+          <path d="M12 8.25h.008" />
+        </svg>
       </button>
 
       {open &&

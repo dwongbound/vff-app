@@ -7,8 +7,10 @@
 //
 // The card itself lives in lib/checkouts.ts and the tick rows are rendered by
 // CheckoutList, which the runway page shares. What's specific to this page is
-// everything AROUND the card: the club's limits for this member, the open
-// squawks, what the walkaround found (fuel and oil), and any squawks it raised.
+// everything AROUND the card: the club's limits for this member, what the
+// walkaround found (fuel and oil), and any squawks it raised. The airplane's
+// EXISTING open squawks hang off the card's own "open squawks" item, which is
+// where the pilot is asked to confirm they've read them.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
@@ -16,8 +18,9 @@ import Card from "@/components/common/Card";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
-import CheckoutList from "@/components/CheckoutList";
+import CheckoutList, { type ItemNote } from "@/components/CheckoutList";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
+import ResumedRun from "@/components/ResumedRun";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { MyLimitsCard } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
@@ -33,10 +36,15 @@ import {
   type Values,
 } from "@/lib/checkouts";
 import { formatDay } from "@/lib/dates";
-import { SQUAWK_STATUS_SHORT, SQUAWK_STATUS_TONES } from "@/lib/squawks";
+import {
+  SQUAWK_STATUS_SHORT,
+  isAwaitingReview,
+  isGrounding,
+  isInMaintenance,
+} from "@/lib/squawks";
 import { soloEligibility } from "@/lib/operatingRules";
 import { useMe } from "@/components/MeProvider";
-import type { ApiCheckout, ApiFlight, ApiSquawk } from "@/lib/types";
+import type { ApiCheckout, ApiFlightSummary, ApiSquawk } from "@/lib/types";
 
 export default function PreflightPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -54,9 +62,15 @@ export default function PreflightPage() {
   const [squawkDrafts, setSquawkDrafts] = useState<SquawkDraft[]>([]);
   const [squawkModalOpen, setSquawkModalOpen] = useState(false);
   const [recent, setRecent] = useState<ApiCheckout[] | null>(null);
+  // The unfinished run this card was seeded from, if any. Its presence is also
+  // what decides whether saving PATCHes that row or POSTs a new one, so one
+  // walkaround stays one row however often it's put down.
+  const [resumed, setResumed] = useState<{ id: string; savedAt: string } | null>(
+    null
+  );
   const [openSquawks, setOpenSquawks] = useState<ApiSquawk[]>([]);
   // My own flights, for the experience/currency half of the operating rules.
-  const [myFlights, setMyFlights] = useState<ApiFlight[]>([]);
+  const [myFlights, setMyFlights] = useState<ApiFlightSummary[]>([]);
   const { me } = useMe();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +89,7 @@ export default function PreflightPage() {
         `/api/checkouts?aircraftId=${aircraftId}&kind=PREFLIGHT&limit=5`
       ),
       fetchJsonArray<ApiSquawk>(`/api/squawks?aircraftId=${aircraftId}&status=open`),
-      fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${aircraftId}&mine=1&limit=300`),
+      fetchJsonArray<ApiFlightSummary>(`/api/flights?aircraftId=${aircraftId}&mine=1&limit=300`),
     ]);
     setRecent(runs);
     setOpenSquawks(squawks);
@@ -85,6 +99,55 @@ export default function PreflightPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Pick up a walk this member started and never signed off.
+  //
+  // Deliberately NOT part of `refresh()`, which runs again after every save:
+  // re-seeding there would overwrite whatever has been ticked since. This runs
+  // once per airplane, which is the only moment the saved copy is newer than
+  // what's on screen.
+  useEffect(() => {
+    if (!aircraftId) return;
+    let cancelled = false;
+    fetchJsonArray<ApiCheckout>(
+      `/api/checkouts?aircraftId=${aircraftId}&kind=PREFLIGHT&mine=1&open=1&limit=1`
+    ).then((rows) => {
+      const run = rows[0];
+      if (cancelled || !run) return;
+      setResumed({ id: run.id, savedAt: run.updatedAt });
+      setAnswers(run.answers);
+      // Saved values win, but anything the run never recorded keeps its
+      // default — otherwise resuming a card saved before a field existed
+      // would leave that field blank rather than at its opening value.
+      setValues((defaults) => ({ ...defaults, ...run.values }));
+      setNotes(run.notes ?? "");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftId]);
+
+  /** Throw the resumed run away and start the card clean. */
+  async function startOver() {
+    if (!resumed) return;
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    const result = await sendJson(`/api/checkouts/${resumed.id}`, "DELETE");
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error ?? "Could not discard the saved checkout.");
+      return;
+    }
+    setResumed(null);
+    setAnswers({});
+    setValues(initialValues("PREFLIGHT"));
+    setPhotos([]);
+    setSquawkDrafts([]);
+    setNotes("");
+    setResetKey((k) => k + 1);
+    await refresh();
+  }
 
   // Prefill the meters from where the last filed flight left the airplane, so
   // the common case is confirming two numbers rather than typing them. Only
@@ -126,17 +189,28 @@ export default function PreflightPage() {
     setSaved(null);
     setBusy(true);
 
-    const result = await sendJson<ApiCheckout>("/api/checkouts", "POST", {
-      aircraftId: selected.id,
-      kind: "PREFLIGHT",
+    // Fuel and oil are no longer asked for twice: they're recorded on the
+    // consumables items, and the API derives the columns from those (it
+    // re-derives server-side too — this is not the client's decision).
+    const payload = {
       answers,
-      // Fuel and oil are no longer asked for twice: they're recorded on the
-      // consumables items, and the API derives the columns from those (it
-      // re-derives server-side too — this is not the client's decision).
       values,
       notes: notes.trim() || null,
       complete: signOff,
-    });
+    };
+
+    // Resuming updates the row we were seeded from; a fresh card creates one.
+    const result = resumed
+      ? await sendJson<ApiCheckout>(
+          `/api/checkouts/${resumed.id}`,
+          "PATCH",
+          payload
+        )
+      : await sendJson<ApiCheckout>("/api/checkouts", "POST", {
+          aircraftId: selected.id,
+          kind: "PREFLIGHT",
+          ...payload,
+        });
 
     if (!result.ok || !result.data) {
       setBusy(false);
@@ -176,15 +250,26 @@ export default function PreflightPage() {
       notifyAircraftChanged();
     }
 
-    // Start clean for the next run — clean meaning "a fresh card", which
-    // includes a fresh clock reading rather than the one from the run that
-    // was just signed off.
-    setAnswers({});
-    setValues(initialValues("PREFLIGHT"));
+    // Photos and squawks are on the row now, so drop the local copies either
+    // way — keeping them would upload the same picture again on the next save.
     setPhotos([]);
     setSquawkDrafts([]);
-    setNotes("");
-    setResetKey((k) => k + 1);
+
+    if (signOff) {
+      // Start clean for the next run — clean meaning "a fresh card", which
+      // includes a fresh clock reading rather than the one from the run that
+      // was just signed off.
+      setResumed(null);
+      setAnswers({});
+      setValues(initialValues("PREFLIGHT"));
+      setNotes("");
+      setResetKey((k) => k + 1);
+    } else {
+      // Saved, not finished: leave the ticks on screen and remember which row
+      // they belong to, so the next save lands on the same one.
+      setResumed({ id: checkoutId, savedAt: result.data.updatedAt });
+    }
+
     await refresh();
   }
 
@@ -192,11 +277,7 @@ export default function PreflightPage() {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — seed one with{" "}
-          <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-700">
-            npm run db:seed
-          </code>
-          .
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );
@@ -214,6 +295,77 @@ export default function PreflightPage() {
   // Deliberately a hint and not a prefill: the number in the box has to be one
   // somebody read off the stick today.
   const lastOilRun = recent?.find((r) => r.oilQuarts != null) ?? null;
+  /**
+   * The squawk item's own traffic light, and the list that justifies it.
+   *
+   * The colour is decided by what the club's statuses MEAN (lib/squawks.ts),
+   * not by how many there are:
+   *
+   *   red   — the airplane is grounded, or it's in the shop. Either way this
+   *           is not a "note the defect and go" morning.
+   *   amber — something is filed that nobody qualified has looked at yet.
+   *           Untriaged is not the same as fine.
+   *   green — nothing open, or only squawks already reviewed as okay to fly.
+   *
+   * Note what does NOT happen: the item never ticks itself. The app knows the
+   * list; it can't know that you read it, and that tick is the pilot saying
+   * they did.
+   */
+  const squawkNote = useMemo<Record<string, ItemNote>>(() => {
+    const grounded = openSquawks.filter((s) => isGrounding(s.status));
+    const inWork = openSquawks.filter((s) => isInMaintenance(s.status));
+    const untriaged = openSquawks.filter((s) => isAwaitingReview(s.status));
+    const tone: ItemNote["tone"] =
+      grounded.length > 0 || inWork.length > 0
+        ? "red"
+        : untriaged.length > 0
+          ? "amber"
+          : "green";
+
+    return {
+      "homework.squawks": {
+        tone,
+        children:
+          openSquawks.length === 0 ? (
+            <>Nothing open on {selected.tailNumber}.</>
+          ) : (
+            <>
+              {/* The headline says what the colour means, in words. */}
+              <span className="block">
+                {grounded.length > 0
+                  ? `Do not fly — ${grounded.length} grounding ${
+                      grounded.length === 1 ? "squawk" : "squawks"
+                    }.`
+                  : inWork.length > 0
+                    ? "In maintenance — check with the Safety Officer before you fly it."
+                    : untriaged.length > 0
+                      ? `${untriaged.length} not yet reviewed by the Safety Officer.`
+                      : "All reviewed as okay to fly."}
+              </span>
+              <span className="mt-1 block space-y-0.5">
+                {openSquawks.map((s) => (
+                  <span key={s.id} className="block">
+                    <span className="opacity-70">
+                      {SQUAWK_STATUS_SHORT[s.status]}
+                    </span>{" "}
+                    — {s.title}
+                    {s.description ? ` — ${s.description}` : ""}
+                  </span>
+                ))}
+              </span>
+              {/* The club's own rule, for the members it applies to. */}
+              {eligibility.tier === "BUILDING" && (
+                <span className="mt-1 block">
+                  Club rules: call the VFF Safety Officer to discuss before
+                  flying with an open squawk.
+                </span>
+              )}
+            </>
+          ),
+      },
+    };
+  }, [openSquawks, eligibility.tier, selected.tailNumber]);
+
   const fieldHints = lastOilRun
     ? {
         "consumables.oil.qts": `Last recorded ${lastOilRun.oilQuarts} qts on ${formatDay(
@@ -237,6 +389,14 @@ export default function PreflightPage() {
         </p>
       </header>
 
+      {resumed && (
+        <ResumedRun
+          savedAt={resumed.savedAt}
+          onStartOver={startOver}
+          busy={busy}
+        />
+      )}
+
       {/* The club's limits for THIS member, before anything else — they decide
           whether the flight happens at all. */}
       <MyLimitsCard
@@ -244,35 +404,12 @@ export default function PreflightPage() {
         totalTimeHours={me?.totalTimeHours ?? null}
       />
 
-      {/* Open squawks up top: knowing what's already wrong changes what you
-          look at on the walk. */}
-      {openSquawks.length > 0 && (
-        <Card className="space-y-2">
-          <h2 className="text-sm font-semibold">Open squawks</h2>
-          {eligibility.tier === "BUILDING" && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-              Club rules: call the VFF Safety Officer to discuss before flying
-              with an open squawk.
-            </p>
-          )}
-          <ul className="space-y-1.5">
-            {openSquawks.map((s) => (
-              <li key={s.id} className="flex items-start gap-2 text-sm">
-                <Badge tone={SQUAWK_STATUS_TONES[s.status]}>
-                  {SQUAWK_STATUS_SHORT[s.status]}
-                </Badge>
-                <span className="min-w-0">
-                  <span className="font-medium">{s.title}</span>
-                  {s.description && (
-                    <span className="text-gray-500 dark:text-gray-400"> — {s.description}</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
+      {/* The open squawks used to be a card of their own above the card. They
+          aren't any more: the checkout already HAS a line for them ("Open
+          squawks — reviewed, airplane airworthy"), and a panel above the
+          progress bar meant the list you were meant to read and the box you
+          tick to say you read it were two screens apart. Now the list hangs
+          off its own item — see `squawkNote`. */}
       <CheckoutList
         checkout={PREFLIGHT_CHECKOUT}
         answers={answers}
@@ -280,6 +417,7 @@ export default function PreflightPage() {
         values={values}
         onValuesChange={setValues}
         hints={fieldHints}
+        itemNotes={squawkNote}
         resetKey={resetKey}
       />
 

@@ -48,6 +48,30 @@ export interface DerivedItem {
   linkLabel?: string;
 }
 
+/**
+ * A live note under an ITEM — what the app already knows about the thing the
+ * pilot is being asked to confirm.
+ *
+ * Different from `derived` on purpose: a derived item is one the app ANSWERS
+ * (the row ticks itself and can't be tapped), while this is one the app can
+ * only inform. "Open squawks — reviewed, airplane airworthy" is exactly that
+ * shape: the club's squawk list is a fact the app holds, but whether you have
+ * READ it is not, so the row stays yours to tick and the list comes to you.
+ *
+ * The tone is the traffic light, and it never travels alone — the note is
+ * words, so it carries the same meaning with the colour switched off.
+ */
+export interface ItemNote {
+  tone: "green" | "amber" | "red";
+  children: ReactNode;
+}
+
+const NOTE_INK: Record<ItemNote["tone"], string> = {
+  green: "text-green-700 dark:text-green-400",
+  amber: "text-amber-700 dark:text-amber-400",
+  red: "font-medium text-red-700 dark:text-red-400",
+};
+
 export default function CheckoutList({
   checkout,
   answers,
@@ -56,6 +80,7 @@ export default function CheckoutList({
   onValuesChange,
   hints,
   derived,
+  itemNotes,
   /** Bump this to collapse back to the first section (after a sign-off). */
   resetKey = 0,
 }: {
@@ -68,6 +93,8 @@ export default function CheckoutList({
   hints?: Record<string, ReactNode>;
   /** Items the app answers for itself, by item id. */
   derived?: Record<string, DerivedItem>;
+  /** Live notes under an item, by item id — see ItemNote. */
+  itemNotes?: Record<string, ItemNote>;
   resetKey?: number;
 }) {
   const [openSection, setOpenSection] = useState<string>(
@@ -240,12 +267,16 @@ export default function CheckoutList({
                   <ul>
                     {section.items.map((item) => {
                       const fact = derived?.[item.id];
+                      const note = itemNotes?.[item.id];
                       const on = Boolean(answers[item.id]);
                       // A derived item that isn't satisfied is the one row on
                       // the card that reads as a problem rather than as work
                       // left to do, so it takes red rather than the neutral
                       // unticked grey.
-                      const blocked = Boolean(fact && !fact.satisfied);
+                      // A red NOTE tints the row the same way, and means the
+                      // same thing: this row is a problem, not work left to do.
+                      const blocked =
+                        Boolean(fact && !fact.satisfied) || note?.tone === "red";
                       // The row's tick target and its (i) are SIBLINGS, not
                       // nested: a button inside a button is invalid HTML and
                       // React refuses to hydrate it. The tick target still
@@ -324,6 +355,17 @@ export default function CheckoutList({
                                   }`}
                                 >
                                   {fact.message}
+                                </span>
+                              )}
+                              {/* What the app knows about this item right now.
+                                  Inside the tick target, so the thing you're
+                                  confirming and the evidence for it are one
+                                  block rather than two. */}
+                              {note && (
+                                <span
+                                  className={`mt-1 block text-xs ${NOTE_INK[note.tone]}`}
+                                >
+                                  {note.children}
                                 </span>
                               )}
                             </span>

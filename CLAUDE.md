@@ -70,6 +70,16 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   Personal Card" column, and it's the only thing that decides whether a
   FUEL_CREDIT is written (`servicingCredit` → `syncServicingCharges`). Never
   touches the tach: no flight happened.
+- **MaintenanceItem** — what the airplane is DUE for: the annual, the 50-hour
+  oil change, the pitot-static and transponder checks, the ELT. Transcribed
+  from the club's own spreadsheet, whose ten columns are arithmetic on FOUR
+  stored facts — `intervalHours`/`intervalMonths` (either may be null; the
+  tighter one wins) and `lastDoneTach`/`lastDoneOn`. Everything else (hours
+  remaining, days remaining, tach due, date due, which item is next) is derived
+  in `lib/maintenance.ts`, because a stored countdown is wrong by one the
+  morning after it's written. `requiredByReg` is the sheet's own column and is
+  the whole difference between "overdue" and "grounded": only a legally
+  required item stops dispatch.
 - **Squawk** — ONE status enum, the club's own sheet vocabulary:
   `NEW | REVIEWED_OK_TO_FLY | REVIEWED_IN_WORK | REVIEWED_GROUNDED | CLOSED`.
   There is deliberately no separate `severity`: "reviewed, aircraft grounded"
@@ -106,7 +116,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   screen and carrying a capability (`flight:sign`).
 - **RecurringCharge** — the RULE for a standing monthly charge (dues). Editing
   it never restates months already billed.
-- **Charge** — one statement line, positive = owed, negative = credit. `period`
+- **Charge** — one statement line, positive = owed, negative = credit.
+  `paidAt`/`paidById` is SETTLED and is deliberately not `voided`: a voided
+  line should never have stood, a paid one stood and has been met, so paying
+  leaves the month's totals alone and only moves `outstandingCents`. `period`
   is stored ("YYYY-MM") rather than derived, so correcting a date can't silently
   move money between settled months. Two unique indexes make the derived kinds
   idempotent — `(memberId, recurringChargeId, period)` and `(flightId, kind)` —
@@ -129,8 +142,11 @@ and no Finances at all.
 W&B, and promoting a leaf to a group later moves a link people have learned.
 Weight & Balance stores nothing: a W&B is true of one load on one day, so the
 page is pure calculator over the aircraft's stored basis.
+Plane Status › Overview also carries the MAINTENANCE sheet (`MaintenancePanel`),
+below the day-to-day panels: anything that stops a flight is already a banner at
+the top, so what's left there is reference.
 `status/layout.tsx` owns the tail-number header, the dispatch banner
-(grounded ▸ in-maintenance, in that priority) and the Overview/Squawks sub-tab
+(inspection run out ▸ grounded ▸ in-maintenance, in that priority — the first is `grounding()` over the maintenance sheet, which is also what the Airworthy badge reads) and the Overview/Squawks sub-tab
 bar — all three are true of the AIRPLANE rather than of a view, so both child
 tabs get them. Sub-tabs rather than rail entries: the rail lists places you go
 during a flying day, and Navbar's `isActive` uses `startsWith`, so
@@ -175,7 +191,8 @@ owns the only splash in the app.
   everyone's with `&all=1` and `finance:read-all`. Reading a month is what materialises its
   dues, idempotently, which is why the club needs no cron).
 - `finances/charges` (POST one-off, `finance:manage`) · `finances/charges/[id]`
-  (PATCH to void/restore/amend; DELETE only for hand-entered lines).
+  (PATCH to void/restore/amend, or `{ paid }` to tick a line off as settled;
+  DELETE only for hand-entered lines, and the UI confirms it in a dialog).
 - `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
   refuses once it has billed anyone; deactivate instead).
 - `reservations` (GET window, POST — needs `reservation:book`, and resolves the
@@ -187,6 +204,12 @@ owns the only splash in the app.
   re-derive the put-away flags) · `flights/[id]` (PATCH stamps `editedAt`) ·
   `flights/[id]/sign` (POST/DELETE — the instructor's endorsement, its own
   route so a signature can never be confused with an edit).
+- `maintenance` (POST) · `maintenance/[id]` (PATCH/DELETE) — all three need
+  `maintenance:manage`. There is deliberately NO GET: the sheet rides on
+  `GET /api/aircraft` beside the open squawks (`AIRCRAFT_INCLUDE` in
+  `lib/aircraft.ts`), so every page already holds it and there is one answer to
+  "is anything overdue". The common write is PATCH `{ lastDoneTach, lastDoneOn }`
+  — the shop handed it back, restart both clocks.
 - `squawks` (GET `?status=open|closed|all|<STATUS>`, POST — POST ignores any
   status in the body) · `squawks/[id]` (PATCH; the WHOLE route needs
   `squawk:manage`, wording included, because the description is what the next
@@ -245,6 +268,16 @@ owns the only splash in the app.
   weights, so the tool can only ever be conservative about a light nose-heavy
   load. Oil defaults to 0 because a modern basic empty weight already includes
   it and re-entering it double-counts 15 lb at the nose. ✅tested
+- `maintenance.ts` — the club's maintenance sheet as arithmetic. `dueAtTach`,
+  `dueOn` (calendar months to the END of the month, reusing `calendarMonthsFrom`
+  — 8 Jul + 12 months is 31 Jul, not 8 Jul), `hoursRemaining`, `daysRemaining`,
+  `maintenanceDue` (state + which clock is binding + whether it grounds),
+  `byUrgency`/`nextDue`/`grounding`. Two rules run through it: the TIGHTER
+  interval wins, and the two clocks are compared in units of "about to be due"
+  (`urgency` = remaining ÷ the DUE_SOON threshold) — raw hours against raw days
+  would rank an annual with 300 days left above an oil change with 3 hours left.
+  Hours are a spent budget (0 left ⇒ overdue); a calendar month is good THROUGH
+  its last day (0 days left ⇒ due today, still legal). ✅tested
 - `operatingRules.ts` — VFF-OR-A as data: `pilotTier`, `ruleFor`,
   `landingCurrency`, `hoursInLastYear`, the mnemonics. ✅tested
 - `members.ts` — `MEMBER_SELECT` (roster columns; deliberately no paperwork)
@@ -279,7 +312,9 @@ owns the only splash in the app.
   this person the Finance Officer". **Admins hold every capability implicitly**,
   so the club is never blocked by one member being away. FINANCE_OFFICER holds
   `finance:read-all` + `finance:manage`; SAFETY_OFFICER holds
-  `squawk:manage`; INSTRUCTOR holds `flight:sign`. MEMBERSHIP (rather than any
+  `squawk:manage`; MAINTENANCE_OFFICER holds `maintenance:manage` (the write
+  side of the due list — reading it is open to every member, because "the annual
+  is out next week" is not privileged); INSTRUCTOR holds `flight:sign`. MEMBERSHIP (rather than any
   office) carries `reservation:book` + `finance:read-own`, which is what an
   instructor-only account lacks — `Principal.clubMember` is optional and absent
   means TRUE, so every caller predating instructor accounts still behaves.
@@ -289,7 +324,9 @@ owns the only splash in the app.
   Adding a power is: name the capability, list it under an office, check it with
   `can()`. ✅tested
 - `finance.ts` — the books as arithmetic: periods ("YYYY-MM", local month),
-  `totals` (credits are stored NEGATIVE so a balance is one addition),
+  `totals` (credits are stored NEGATIVE so a balance is one addition; `paidCents`
+  and `outstandingCents` come off the same lines, so a settled month still
+  reports what it cost),
   `flightCharge`/`fuelCredit`, `ruleAppliesTo`/`membersBilledBy`,
   money parsing/formatting. ✅tested
 - `ledger.ts` — the db half. `syncFlightCharges` rebuilds a flight's two derived
@@ -315,7 +352,7 @@ owns the only splash in the app.
 ## Components
 
 The flight log's Club/Mine switch changes what the page is about, not just the
-rows: Club = the airplane (hours this month, club totals, everyone's flights,
+rows, and it OPENS on Mine (the same way Finances opens on your own statement): Club = the airplane (hours this month, club totals, everyone's flights,
 squawks); Mine = your flying (your totals + landing currency, with the
 operating rules as a popover opened from that currency card). For an
 instructor-only account that second tab is **Teaching** instead: they have no
@@ -335,13 +372,19 @@ sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
 (phone), `ReservationModal`, `FlightDetailModal`, `FlightEntryModal` (add a flight to
 the log by hand — the flight that never got filed at the time, so it asks for
 no turn-off checkout: those ticks mean "I confirmed this at the airplane" and
-there is no honest way to answer them a fortnight later), `CheckoutList` (the collapsible
+there is no honest way to answer them a fortnight later), `MaintenancePanel` (Plane Status' maintenance sheet: the next-due strip, a
+countdown bar per clock, and — with `maintenance:manage` — Mark done / Edit /
+Add), `CheckoutList` (the collapsible
 section renderer shared by the preflight and runway pages — one section open at
 a time, sticky progress bar, "next section" affordance, and opening a section
 scrolls it to the top of the column so it can't expand below the fold. Two
 optional props: `hints` puts a muted note under a FIELD — the preflight page
 uses it for "last recorded 6 qts on Tue by Alex Rivera" under the oil box, a hint and
-never a prefill — and `derived` marks an ITEM the app answers for itself), `TurnoffCheckout`
+never a prefill — `derived` marks an ITEM the app answers for itself, and `itemNotes` puts a
+TONED live note under one — used for the preflight card's open-squawks line,
+which carries the airplane's current squawks and goes red for grounded/in-work,
+amber for anything untriaged, green otherwise. The item still has to be TICKED
+by the pilot: the app knows the list, it can't know you read it), `TurnoffCheckout`
 (post-flight turn-off ticks — flat, no collapsing, because you're working down
 a list you've just done rather than navigating one), `InflightReference`
 (collapsed card at the foot of the runway page), `WeightBalanceChart` (the CG
@@ -371,14 +414,55 @@ hover: brushing past a control that changes a stored value shouldn't open it.
 ## Gotchas
 
 - **A schema change now needs a migration.** Dev still uses `db push` (fast,
-  no migration written), but the production container runs
-  `prisma migrate deploy` on boot, so prod's schema is whatever
+  no migration written), but every deployed environment's schema is whatever
   `prisma/migrations/` says — push-only changes reach dev and never reach prod,
   and the symptom is a deploy that boots clean then 500s on the one query
   touching the unmigrated column. Run `npm run db:migrate -- --name <change>`
   and commit the result. CI's `migrations` job replays the directory into a
   shadow database and diffs it against `schema.prisma`, so drift fails the
   build rather than the deploy.
+- **There are TWO deployment targets and they apply migrations differently.**
+  The Docker image runs `prisma migrate deploy` from its CMD, so a container
+  migrates itself on boot. **Vercel — which is what actually serves
+  vardafreeflyers.com — never runs that CMD**, and its build was
+  `prisma generate && next build`, which touches no database. Both Neon
+  databases therefore sat at ZERO of six migrations while looking perfectly
+  deployed: the build passed, the site came up, static pages rendered, and
+  every request reaching Postgres 500'd with an EMPTY body (an unhandled
+  throw, not one of a route's own JSON errors — that empty `Content-Length: 0`
+  is the tell, and `/api/signup` failing that way looks like a broken sign-up
+  form rather than a schema-less database). Fixed by `scripts/vercel-build.sh`
+  via the `vercel-build` npm script, which npm prefers over `build` on Vercel.
+  Two things about it are load-bearing: it gates on `VERCEL_GIT_COMMIT_REF`
+  so only `main` and `staging` (the two branches that own a database) migrate
+  and a PR preview never mutates a shared schema, and it only runs at all
+  while the Vercel project's **Build Command is left on its default** — an
+  explicit Build Command in the dashboard overrides package.json and silently
+  restores the original bug.
+- To apply migrations to a Neon database BY HAND (recovery, or a database that
+  predates the above), don't use compose — its `env_file` would override
+  `DATABASE_URL` with the dev one. Pass it explicitly, and don't mount the
+  host's `node_modules`: its Prisma engines are darwin binaries and the
+  container is linux.
+
+  ```sh
+  DB=$(grep '^DATABASE_URL=' env/prod.env | cut -d= -f2-)   # or env/staging.env
+  docker run --rm -e DATABASE_URL="$DB" \
+    -v "$PWD/prisma":/work/prisma \
+    -v "$PWD/prisma.config.ts":/work/prisma.config.ts \
+    -w /work node:24 sh -c '
+      echo "{\"type\":\"module\"}" > package.json &&
+      npm i --no-audit --no-fund prisma@7.9.1 tsx &&
+      npx prisma migrate deploy'
+  ```
+
+  The `package.json` with `"type": "module"` and the LOCAL prisma install are
+  both required: `prisma.config.ts` is ESM and does
+  `import { env } from "prisma/config"`, which Node resolves from the config
+  file's own directory — the same constraint the Dockerfile satisfies by
+  putting the config beside `/prisma-cli`. `migrate status` in place of
+  `migrate deploy` is the read-only version, and is how you check an
+  environment without writing to it.
 - The Dockerfile is multi-stage and ships Next's `output: "standalone"` bundle
   (~1.5GB → ~420MB, 140MB compressed) because the image is now PULLED by the
   server rather than built there. Three things about it are load-bearing:
@@ -453,6 +537,17 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   instructor accounts is a flying member — but it means a caller that simply
   forgets to select the column gets the permissive answer. `getSessionUser()`
   and `/api/me` both select it.
+- The Weight & Balance tool OPENS its fuel box at the last preflight dip rather
+  than at full tanks, and deliberately does NOT do the same for oil: N8318B's
+  basis is a modern basic empty weight that already includes its 8 quarts, so
+  entering the dipstick reading again would double-count 15 lb at the furthest
+  forward station. The recorded oil is shown UNDER the box instead.
+- Nothing in the nav carries a permanent tint any more. Reservations used to,
+  as the app's call to action, and it competed with the one mark that actually
+  changes — which tab you're on.
+- The UI calls `/settings` **Club settings**; an empty fleet tells members to
+  ask an admin to add an airplane there rather than naming a shell command
+  nobody reading the page can run.
 - The nav is filtered per viewer (`navFor` in Navbar), and the flattened route
   list the SWIPE PAGER walks is derived from the filtered nav — so a hidden tab
   is hidden from the gesture too. While `me` is still loading the full nav is
@@ -491,9 +586,10 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   `GROUNDING` to `REVIEWED_GROUNDED` first so a grounded airplane can't quietly
   come back on the line). Then apply the SQL to your dev db by hand — dev uses
   `db push`, which never reads `prisma/migrations/`.
-- Prod applies `prisma/migrations/` via `migrate deploy` at boot (Dockerfile
-  CMD) while dev uses `db push`, so a schema change with no migration builds,
-  tests and runs locally and then simply never reaches production. The CI
+- Deployed environments apply `prisma/migrations/` (Docker at boot, Vercel in
+  `scripts/vercel-build.sh` — see the two-targets gotcha above) while dev uses
+  `db push`, so a schema change with no migration builds, tests and runs
+  locally and then simply never reaches production. The CI
   `migrations` job is what catches it: `prisma migrate diff --from-migrations
   … --to-schema … --exit-code` must say "No difference detected".
 - `prisma db push` REFUSES a destructive change without `--accept-data-loss`,
@@ -534,6 +630,20 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   the rail down in step with the page instead of leaving a seam.
 - The app is written entirely in `indigo-*` classes; `tailwind.config.ts`
   remaps that palette to the club's Cessna orange. Don't add literal oranges.
+- **Overpass is self-hosted (`app/fonts/`) so its vertical metrics can be
+  overridden, and that override is load-bearing.** As shipped, the face puts
+  0.183em of air above a capital and 0.383em below the baseline, so glyphs ride
+  0.100em ABOVE the middle of their own line box — and nothing in CSS moves
+  them back, since half-leading is added equally top and bottom. `items-center`
+  then centres the box with the text sitting high inside it, which is how ONE
+  font swap knocked the nav tab labels, every Badge, the avatar initial and
+  every icon-beside-a-label out of true at once (1.5px at `text-sm`).
+  `app/layout.tsx` restates ascent/descent to 98.3%/28.3% — cap-to-baseline
+  centring, with the SUM held at the original 1.266em so line boxes keep their
+  exact height and nothing reflows. Don't "fix" a centring complaint with a
+  per-component nudge (`-mt-px`, `translate-y`) — that's this, and it's global.
+  Swapping the sans face means recomputing the pair: ascent =
+  (asc + desc + capHeight) / 2, descent = the remainder.
 - `Button` sets `inline-flex`; adding a `hidden sm:inline-flex` class to it is
   a stylesheet-order coin flip. Hide with a wrapper `<div className="hidden
   sm:block">`.
