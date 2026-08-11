@@ -60,12 +60,42 @@ jobs:
 
       - run: npm run test:unit
 
+  # One job per layout, in parallel. The three projects are independent suites
+  # (see playwright.config.ts) and each leg gets its OWN runner and its own
+  # Postgres service, which is what makes running them at once safe: the specs
+  # share a database within a leg — global-setup resets and reseeds it — and
+  # legs share nothing at all. Serialising them behind one runner meant the
+  # slowest shape set the wall clock for the whole gate.
   e2e:
-    name: End-to-end (desktop + mobile)
+    name: E2E (${{ matrix.project }})
     runs-on: ubuntu-latest
-    # Both halves of the suite are worth running even when the other fails, but
-    # there's no point booting Postgres if the code doesn't compile.
+    # Every shape is worth running even when another fails — "it breaks on a
+    # phone" and "it breaks everywhere" are different bugs and you want to know
+    # which one you have on the first run. There's still no point booting
+    # Postgres if the code doesn't compile.
     needs: unit
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: desktop
+            # Which engine to download. NOT cosmetic and NOT uniform: only the
+            # desktop project is Chromium. Playwright's iPad/iPhone descriptors
+            # are Safari device profiles and default to WEBKIT, so installing
+            # chromium alone left those two legs with no browser to launch
+            # ("Executable doesn't exist at .../webkit-NNNN/pw_run.sh"). It
+            # passed locally because a dev machine has all the engines from the
+            # first `playwright install`.
+            #
+            # Webkit is also the RIGHT engine here rather than a chore to work
+            # around: an iPhone member is on Safari, and a phone-shaped Chromium
+            # would miss exactly the bugs these two legs exist to catch.
+            browser: chromium
+          - project: ipad
+            browser: webkit
+          - project: iphone
+            browser: webkit
 
     services:
       postgres:
@@ -116,9 +146,9 @@ jobs:
           DATABASE_URL: postgresql://vff:vff@localhost:5433/vff_test
 
       - name: Install Playwright browsers
-        # Only the engine the projects actually use (all three projects are
-        # Chromium-based device presets), so the download stays small.
-        run: npx playwright install --with-deps chromium
+        # Only this leg's engine, so each download stays small — see the
+        # matrix above for why it isn't the same one every time.
+        run: npx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Push the schema
         # global-setup force-resets and reseeds per run; this just makes sure
@@ -128,7 +158,7 @@ jobs:
           DATABASE_URL: postgresql://vff:vff@localhost:5433/vff_test
 
       - name: Run the e2e suite
-        run: npm run test:e2e
+        run: npm run test:e2e -- --project=${{ matrix.project }}
         env:
           CI: "true"
 
@@ -138,7 +168,9 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          # Suffixed, or the three legs race to upload under one name and only
+          # one report survives — the wrong one, as often as not.
+          name: playwright-report-${{ matrix.project }}
           path: |
             playwright-report/
             test-results/

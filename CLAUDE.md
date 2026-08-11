@@ -20,6 +20,9 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `iphone` (402 — bottom pill + the narrow page branches). `tour.spec.ts` runs
   in all three; everything else is scoped by `testMatch`/`testIgnore`.
   One project: `npx playwright test --project=ipad`.
+  They are NOT all the same browser engine: desktop is Chromium, but the iPad
+  and iPhone presets are Safari device profiles and run on **webkit**. CI runs
+  the three as parallel matrix jobs, each installing only its own engine.
 - Everything in containers: `docker compose --profile test up --abort-on-container-exit`
 - `npm run typecheck` · `db:push` · `db:seed` · `db:studio` ·
   `db:migrate -- --name <change>` (writes `prisma/migrations/`, which is what
@@ -153,7 +156,9 @@ during a flying day, and Navbar's `isActive` uses `startsWith`, so
 `/status/squawks` keeps the Status entry lit for free. `preflight` and `runway` are the two before-the-
 flight checkouts — separate pages with separate sign-offs, because they're
 walked at different times and an interrupted member must never re-tick the
-airplane. The turn-off checkout is a card on `postflight`.
+airplane. Both AUTOSAVE (no Save button — see `lib/checkoutDraft.ts`), so their
+one remaining submit means exactly one thing: this walk is done and I'm putting
+my name to it. The turn-off checkout is a card on `postflight`.
 `layout.tsx` = pre-hydration theme script + `AppShell`; `AppShell` = top bar +
 nav rail + content column + swipe pager, and is a CLIENT component only because
 the column reserves the rail's width (`md:pl-60`) and `/login` — which has no
@@ -175,6 +180,19 @@ owns the only splash in the app.
 - `checkouts` (GET `?kind=PREFLIGHT|RUNWAY`, POST; `complete:true` requires
   every REQUIRED item ticked — optional sections/items excluded). An
   unrecognised `kind` is a 400, never a silent "show me everything".
+  Two housekeeping rules ride on this route, and they exist because the pages
+  AUTOSAVE: an open run is now created a couple of seconds after the first tick
+  rather than by someone pressing a button, so unclaimed ones would pile up
+  forever. POSTing a PARTIAL run retires any the caller already had open on
+  that card (`supersedeOpenRuns`), which is the "at most one open run per
+  member per airplane per card" invariant `resolveResume` leans on; and
+  `?mine=1&open=1` — the resume query — sweeps the caller's runs left idle
+  past `ABANDONED_DRAFT_DAYS` (`sweepAbandonedRuns`). Both live in
+  `lib/checkoutCleanup.ts`. Sweeping inside a read is the same deliberate
+  pattern as finances materialising dues: the read happens exactly when the
+  answer matters, so the club needs no cron. `?open=1` also orders by
+  `updatedAt`, not `createdAt` — with `limit=1` you want the run you last
+  touched, not the one you started first.
 - `members` (GET roster, any member) · `members/[id]` (PATCH `isAdmin`,
   `positions` and/or `clubMember`, admin; 409 if it would leave the club with
   no admin, and 409 on un-membering an admin. There is no matching "last
@@ -228,6 +246,29 @@ owns the only splash in the app.
   legal), `findConflict`, `validateReservation`, `upcoming`/`past`. ✅tested
 - `hours.ts` — tach/Hobbs math, `validateMeters` (catches the mis-read meter),
   totals, cost, formatting. ✅tested
+- `checkoutDraft.ts` — a half-walked card, kept on the device it's being walked
+  on. The checkouts AUTOSAVE: there is no Save button any more, because a button
+  you have to remember to press while holding a dipstick is one that doesn't get
+  pressed, and closing the tab used to throw the walk away. Two stores answer
+  two questions — localStorage answers "is my work safe right now" without a
+  network, the `Checkout` row answers "can I finish this on the iPad". The
+  device is therefore allowed to be AHEAD of the server, and `resolveResume` is
+  the rule that reconciles them: NEWEST WINS, a tie goes to the device (the
+  sync had just landed, so they agree anyway, and it keeps the rule off
+  phone-vs-server clock skew), and the server's row id is adopted either way so
+  one walk can't fork into two rows. `parseDraft` DISCARDS rather than repairs —
+  wrong card version above all, since item ids survive a rewording by design,
+  which is exactly why the version is the thing that has to match. Plus
+  `pruneDrafts` (bounded storage, by age only, so a shared clubhouse iPad never
+  eats a walk somebody else has in progress), `draftHasProgress` (which ignores
+  items the APP answers, or merely opening the runway page would autosave a
+  draft for a member who has done nothing) and `savedAgo`. Nothing here touches
+  `window`: every entry point takes its store, which is what makes it testable
+  under vitest's node environment. ✅tested
+- `checkoutCleanup.ts` — the db half of the above. See the `checkouts` API
+  bullet: `supersedeOpenRuns` + `sweepAbandonedRuns`, sharing
+  `ABANDONED_DRAFT_DAYS` with the device's own sweep so the two stores can't
+  disagree about which walks are dead.
 - `checkouts.ts` — the three checkouts, transcribed item-for-item off
   N8318B's two laminated cards, every item with a `why` for the (i) popover.
   `PREFLIGHT_CHECKOUT` = I'M SAFE + homework + consumables + cockpit + the walk
@@ -374,9 +415,20 @@ the log by hand — the flight that never got filed at the time, so it asks for
 no turn-off checkout: those ticks mean "I confirmed this at the airplane" and
 there is no honest way to answer them a fortnight later), `MaintenancePanel` (Plane Status' maintenance sheet: the next-due strip, a
 countdown bar per clock, and — with `maintenance:manage` — Mark done / Edit /
-Add), `CheckoutList` (the collapsible
+Add), `CheckoutDraftBar` +
+`useCheckoutDraft` (autosave: everything about the SAVED STATE of a walk, and
+the only place Reset lives. Deliberately NOT folded into the sticky bar —
+Reset destroys a walk, and the sticky bar is the one thing parked under a
+member's thumb for the whole card. It absorbed the old `ResumedRun` banner as
+one of its states, and Reset confirms in a modal that says what goes),
+`CheckoutList` (the collapsible
 section renderer shared by the preflight and runway pages — one section open at
-a time, sticky progress bar, "next section" affordance, and opening a section
+a time, sticky progress bar showing WHICH STEP you're on and your place in that
+section (scrolled into a 15-item section with its header off screen, a bare
+percentage tells you neither), with a segmented gauge whose segments are as wide
+as their sections are long; it is deliberately not a `role="status"` live region
+— that would re-announce the whole thing on every tap — "next section"
+affordance, and opening a section
 scrolls it to the top of the column so it can't expand below the fold. Two
 optional props: `hints` puts a muted note under a FIELD — the preflight page
 uses it for "last recorded 6 qts on Tue by Alex Rivera" under the oil box, a hint and
@@ -558,6 +610,28 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   then `getByRole("option", …)`), never `selectOption`. Its accessible name is
   "Status" followed by the current value, which is why specs match on the
   prefix.
+- **The checkout pages autosave, so every e2e spec that ticks anything leaves a
+  booby trap for the next one.** A resumed half-ticked card turns "Check all"
+  into "Clear" and makes a bare `0 of N checked` assertion fail for reasons
+  that have nothing to do with the test. `clearCheckoutDrafts(page)` in
+  `tests/e2e/helpers.ts` is the fix and belongs in the `beforeEach` of any spec
+  that walks a card. It has to clear BOTH stores: clearing only localStorage
+  leaves the server's copy to be resumed, and clearing only the server leaves
+  the device's — which wins a tie anyway. The symptom when it's missing is not
+  an obviously stale tick: a section that is ALREADY complete offers "Clear"
+  rather than "Check all", so the spec waits ninety seconds for a button that
+  will never appear.
+- **The other half of that trap: ticking is instant, syncing is not.** A spec
+  that ticks something and then navigates tears the page down with the sync
+  still in flight (`page.goto` destroys the JS context and the request with it),
+  and what goes missing is whatever rides on that sync — a squawk, most
+  importantly. `waitForCheckoutSaved(page)` is the barrier. It works because the
+  draft bar deliberately distinguishes "Saved … on this device · syncing to the
+  club" from "Saved · just now", and only the second means the server has it —
+  the bar must never say "Saved" for a write that hasn't happened, or it stops
+  being something a member (or a test) can believe. An earlier version said
+  "Saved just now" the instant the tick hit localStorage, and a spec asserting
+  on `/^Saved/` passed while the squawk it was testing was silently dropped.
 - Scope page-content assertions in e2e to `getByRole("main")`. The rail, the
   bottom pill and GuidedTour's spotlight all render their own copies of nav
   controls, so a bare `getByRole("button", { name: "New" })` is a strict-mode
@@ -656,6 +730,18 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   `File[]`; the page calls `uploadPhotos()` with the new id).
 - The Playwright image tag in `docker-compose.yml` must match the pinned
   `@playwright/test` version.
+- **The three e2e projects are not all Chromium, and CI has to install the right
+  engine for each.** `devices["Desktop Chrome"]` is chromium, but
+  `devices["iPad Pro 11"]` and `devices["iPhone 16 Pro"]` are Safari device
+  profiles whose `defaultBrowserType` is **webkit**. CI installed only chromium
+  for a long time and every ipad/iphone test died with "Executable doesn't exist
+  at …/webkit-NNNN/pw_run.sh" — invisible locally, because a dev machine has all
+  the engines from its first `playwright install`. Webkit is also the RIGHT
+  engine rather than a chore: an iPhone member is on Safari, and a phone-shaped
+  Chromium would miss exactly the bugs those legs exist to catch. The e2e job is
+  a matrix over the three projects (`fail-fast: false`, its own Postgres service
+  per leg, artifact names suffixed per leg), so they run in parallel and one
+  shape failing still reports the others.
 - Two e2e traps specific to `CheckoutList`. A SECTION header's accessible name
   starts with its number badge and ends with its count ("3 Consumables … 0/6"),
   so `{ name: /^Consumables/ }` matches nothing and a bare `"Consumables"`

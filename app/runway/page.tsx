@@ -18,12 +18,14 @@ import Card from "@/components/common/Card";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
 import CheckoutList from "@/components/CheckoutList";
-import ResumedRun from "@/components/ResumedRun";
+import CheckoutDraftBar from "@/components/CheckoutDraftBar";
+import { useCheckoutDraft } from "@/components/useCheckoutDraft";
 import InflightReference from "@/components/InflightReference";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { GumpsCard } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
+import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import {
   RUNWAY_CHECKOUT,
@@ -48,8 +50,17 @@ function signedOffToday(run: ApiCheckout | null): boolean {
   return clubDateKey(run.completedAt) === clubDateKey(new Date());
 }
 
+/**
+ * Items this page answers on the pilot's behalf (see CheckoutList's
+ * DerivedItem). Module-level so its identity is stable across renders — the
+ * autosave hook holds it in a ref, and a fresh array every render would be a
+ * quiet way to make that ref lie.
+ */
+const DERIVED_ITEM_IDS = ["start.preflight"] as const;
+
 export default function RunwayPage() {
   const { selected, loading: fleetLoading } = useAircraft();
+  const { me } = useMe();
   const aircraftId = selected?.id ?? null;
   const [answers, setAnswers] = useState<Answers>({});
   // The card's "Flight timer — start" box opens at the club's current clock
@@ -61,12 +72,6 @@ export default function RunwayPage() {
   const [squawkModalOpen, setSquawkModalOpen] = useState(false);
   const [recent, setRecent] = useState<ApiCheckout[] | null>(null);
   const [preflights, setPreflights] = useState<ApiCheckout[]>([]);
-  // The unfinished run this card was seeded from, if any. Its presence is also
-  // what decides whether saving PATCHes that row or POSTs a new one, so one
-  // run stays one row however often it's put down.
-  const [resumed, setResumed] = useState<{ id: string; savedAt: string } | null>(
-    null
-  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -92,33 +97,6 @@ export default function RunwayPage() {
     refresh();
   }, [refresh]);
 
-  // Pick up a run this member started and never signed off.
-  //
-  // Deliberately NOT part of `refresh()`, which runs again after every save:
-  // re-seeding there would overwrite whatever has been ticked since. This runs
-  // once per airplane, which is the only moment the saved copy is newer than
-  // what's on screen.
-  useEffect(() => {
-    if (!aircraftId) return;
-    let cancelled = false;
-    fetchJsonArray<ApiCheckout>(
-      `/api/checkouts?aircraftId=${aircraftId}&kind=RUNWAY&mine=1&open=1&limit=1`
-    ).then((rows) => {
-      const run = rows[0];
-      if (cancelled || !run) return;
-      setResumed({ id: run.id, savedAt: run.updatedAt });
-      setAnswers(run.answers);
-      // Saved values win, but anything the run never recorded keeps its
-      // default — otherwise resuming a card saved before a field existed
-      // would leave that field blank rather than at its opening value.
-      setValues((defaults) => ({ ...defaults, ...run.values }));
-      setNotes(run.notes ?? "");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [aircraftId]);
-
   // Computed up here rather than beside the row it draws, because the effect
   // below has to run on every render — including the "no airplane yet" one
   // that returns early further down.
@@ -141,22 +119,63 @@ export default function RunwayPage() {
   }, [preflightDone]);
 
   const complete = isComplete("RUNWAY", answers);
-  const anyChecked = Object.keys(answers).length > 0;
   const remaining = useMemo(() => missingItems("RUNWAY", answers), [answers]);
 
-  /** Throw the resumed run away and start the card clean. */
-  async function startOver() {
-    if (!resumed) return;
-    setBusy(true);
+  /** File anything raised on this run, once there's a row to hang it off. */
+  const flushAttachments = useCallback(
+    async (checkoutId: string) => {
+      if (!selected || squawkDrafts.length === 0) return;
+      // Cleared before the posts, so a sync landing mid-flight can't re-file
+      // the same squawk.
+      const pending = squawkDrafts;
+      setSquawkDrafts([]);
+      for (const draft of pending) {
+        await sendJson<ApiSquawk>("/api/squawks", "POST", {
+          aircraftId: selected.id,
+          checkoutId,
+          title: draft.title,
+          description: draft.description || null,
+        });
+      }
+      notifyAircraftChanged();
+      await refresh();
+    },
+    [selected, squawkDrafts, refresh]
+  );
+
+  // Autosave — see components/useCheckoutDraft.ts.
+  const draft = useCheckoutDraft({
+    kind: "RUNWAY",
+    aircraftId,
+    memberId: me?.id ?? null,
+    answers,
+    values,
+    notes,
+    // "Preflight — complete" is the APP's answer, not the pilot's, and it's
+    // already in `answers` before anyone touches the page. Without this, merely
+    // opening the runway card on a day the airplane was walked would count as
+    // progress and autosave a draft for someone who has done nothing.
+    derivedIds: DERIVED_ITEM_IDS,
+    onResume: useCallback((picked) => {
+      setAnswers(picked.answers);
+      // Saved values win, but anything the run never recorded keeps its
+      // default — otherwise resuming a card saved before a field existed
+      // would leave that field blank rather than at its opening value.
+      setValues((defaults) => ({ ...defaults, ...picked.values }));
+      setNotes(picked.notes);
+    }, []),
+    onSynced: flushAttachments,
+  });
+
+  /** Throw the saved run away, on both stores, and start the card clean. */
+  async function resetCard() {
     setError(null);
     setSaved(null);
-    const result = await sendJson(`/api/checkouts/${resumed.id}`, "DELETE");
-    setBusy(false);
+    const result = await draft.reset();
     if (!result.ok) {
       setError(result.error ?? "Could not discard the saved checkout.");
       return;
     }
-    setResumed(null);
     // `start.preflight` is the app's own answer rather than a tick of the
     // pilot's, so a cleared card keeps it — the effect above would put it back
     // anyway, and seeding it here avoids a frame where the row looks unticked.
@@ -168,23 +187,31 @@ export default function RunwayPage() {
     await refresh();
   }
 
-  async function submit(signOff: boolean) {
+  /** Sign the run off — the page's only submit now that saving is automatic. */
+  async function signOff() {
     if (!selected) return;
     setError(null);
     setSaved(null);
     setBusy(true);
+    // Stop autosaving for the duration. A debounced sync coming due while this
+    // request is in flight would POST a fresh DRAFT a moment after the walk was
+    // signed for, and the next visit would offer to resume the card the member
+    // had just put their name to.
+    draft.freeze();
 
     const payload = {
       answers,
       values,
       notes: notes.trim() || null,
-      complete: signOff,
+      complete: true,
     };
 
-    // Resuming updates the row we were seeded from; a fresh card creates one.
-    const result = resumed
+    // Autosave has almost certainly created the row already; PATCH it so one
+    // run stays one row. The POST covers the member who ticks the last box
+    // inside the debounce window.
+    const result = draft.serverId
       ? await sendJson<ApiCheckout>(
-          `/api/checkouts/${resumed.id}`,
+          `/api/checkouts/${draft.serverId}`,
           "PATCH",
           payload
         )
@@ -196,48 +223,26 @@ export default function RunwayPage() {
 
     if (!result.ok || !result.data) {
       setBusy(false);
+      // The sign-off didn't take, so the walk is still live work — put autosave
+      // back rather than leaving the member ticking into nothing.
+      draft.thaw();
       setError(result.error ?? "Could not save the runway checkout.");
       return;
     }
 
-    for (const draft of squawkDrafts) {
-      await sendJson<ApiSquawk>("/api/squawks", "POST", {
-        aircraftId: selected.id,
-        checkoutId: result.data.id,
-        title: draft.title,
-        description: draft.description || null,
-      });
-    }
+    await flushAttachments(result.data.id);
+
+    // The row is the airplane's record now, not a draft — drop the device copy
+    // so the next visit opens clean.
+    draft.finish();
 
     setBusy(false);
-    setSaved(
-      signOff
-        ? "Runway checkout signed off. Clear prop — have a good flight."
-        : "Progress saved — pick it back up any time."
-    );
+    setSaved("Runway checkout signed off. Clear prop — have a good flight.");
 
-    // A new squawk changes the open count the Status tab shows. It can no
-    // longer ground the airplane by itself — only the Safety Officer's triage
-    // does that — so this refreshes the count rather than a banner.
-    if (squawkDrafts.length > 0) {
-      notifyAircraftChanged();
-    }
-
-    // Filed now, so drop the local copies — keeping them would re-file the
-    // same squawks on the next save.
-    setSquawkDrafts([]);
-
-    if (signOff) {
-      setResumed(null);
-      setAnswers(preflightDone ? { "start.preflight": true } : {});
-      setValues(initialValues("RUNWAY"));
-      setNotes("");
-      setResetKey((k) => k + 1);
-    } else {
-      // Saved, not finished: leave the ticks on screen and remember which row
-      // they belong to, so the next save lands on the same one.
-      setResumed({ id: result.data.id, savedAt: result.data.updatedAt });
-    }
+    setAnswers(preflightDone ? { "start.preflight": true } : {});
+    setValues(initialValues("RUNWAY"));
+    setNotes("");
+    setResetKey((k) => k + 1);
 
     await refresh();
   }
@@ -295,13 +300,17 @@ export default function RunwayPage() {
         </p>
       </header>
 
-      {resumed && (
-        <ResumedRun
-          savedAt={resumed.savedAt}
-          onStartOver={startOver}
-          busy={busy}
-        />
-      )}
+      {/* Everything about the SAVED STATE of this run, including Reset. */}
+      <CheckoutDraftBar
+        savedAt={draft.savedAt}
+        serverSynced={draft.serverId !== null && !draft.deviceOnly}
+        deviceOnly={draft.deviceOnly}
+        storageBlocked={draft.storageBlocked}
+        resume={draft.resume}
+        dirty={draft.dirty}
+        onReset={resetCard}
+        busy={busy}
+      />
 
       {/* The card's own first before-start item is "Preflight — complete", so
           answer it here rather than making the member remember. Not a gate:
@@ -414,23 +423,16 @@ export default function RunwayPage() {
             with <span className="font-medium">{remaining[0]?.label}</span>.
           </p>
         )}
+        {/* One button — saving is automatic now, so this one means only "this
+            run is done and I'm putting my name to it". See the preflight page. */}
         <div className="flex flex-col gap-2 sm:flex-row-reverse">
           <Button
             size="lg"
-            onClick={() => submit(true)}
+            onClick={signOff}
             disabled={busy || !complete}
             className="w-full sm:w-auto"
           >
             {busy ? <LoadingDots size="sm" /> : "Sign off"}
-          </Button>
-          <Button
-            size="lg"
-            variant="secondary"
-            onClick={() => submit(false)}
-            disabled={busy || !anyChecked}
-            className="w-full sm:w-auto"
-          >
-            Save
           </Button>
         </div>
       </div>

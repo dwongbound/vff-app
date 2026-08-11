@@ -20,7 +20,12 @@
 //     layout's card and once in the navbar banner ("…Do not fly until it's
 //     signed off"). Assertions here name the role, not the bare text.
 import { expect, test, type Page } from "@playwright/test";
-import { gotoTab, signIn } from "./helpers";
+import {
+  clearCheckoutDrafts,
+  gotoTab,
+  signIn,
+  waitForCheckoutSaved,
+} from "./helpers";
 
 /** A seeded member with no admin flag and no office. */
 const PLAIN_MEMBER = "alex@vffclub.test";
@@ -35,13 +40,33 @@ const groundedBanner = (page: Page) => page.getByText(/is grounded:/);
 
 /** File a squawk from the preflight checkout, the way a member actually does. */
 async function fileSquawk(page: Page, title: string) {
+  // Start from a clean card. These specs share one database and the checkouts
+  // autosave, so an earlier call's ticks are still on the airplane — and a
+  // section that is ALREADY complete offers "Clear", not "Check all", so the
+  // click below waits 90 seconds for a button that will never appear. Must run
+  // before navigating: once the page has loaded it has already seeded React
+  // from the stored draft, and clearing storage then changes nothing on screen.
+  await clearCheckoutDrafts(page);
   await gotoTab(page, "/preflight", "Preflight");
   await page.getByRole("button", { name: "Report" }).click();
   await page.getByLabel("What's wrong?").fill(title);
   await page.getByRole("button", { name: "Add" }).click();
   await page.getByRole("button", { name: "Check all" }).first().click();
-  await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText(/Progress saved/)).toBeVisible({ timeout: 60_000 });
+  // Autosave files it: the ticks reach the device instantly and the club's
+  // server a couple of seconds later, and the squawk goes up with that first
+  // sync. There is no Save button to press any more — so wait for the SERVER
+  // to have it, or the caller's next navigation kills the request mid-flight.
+  await waitForCheckoutSaved(page);
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get("/api/squawks?status=open&limit=50");
+        const rows = res.ok() ? ((await res.json()) as { title: string }[]) : [];
+        return rows.some((s) => s.title === title);
+      },
+      { timeout: 60_000 }
+    )
+    .toBe(true);
 }
 
 /**

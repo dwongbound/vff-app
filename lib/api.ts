@@ -41,14 +41,22 @@ export async function fetchJsonObject<T>(
 }
 
 /**
- * POST/PATCH JSON and return `{ ok, data, error }` — the shape every form in
- * the app wants (show the server's message on failure, the row on success).
+ * POST/PATCH JSON and return `{ ok, data, error, status }` — the shape every
+ * form in the app wants (show the server's message on failure, the row on
+ * success).
+ *
+ * `status` is the raw HTTP code, or null when the request never got a reply at
+ * all. Most callers only need `ok`; it's there for the few that have to tell
+ * WHICH refusal they got, rather than matching on the prose of `error` — the
+ * checkout autosave retargets a draft whose row has gone (404) but not one the
+ * server merely rejected, and a message string is not a stable thing to branch
+ * on.
  */
 export async function sendJson<T>(
   url: string,
   method: "POST" | "PATCH" | "PUT" | "DELETE",
   body?: unknown
-): Promise<{ ok: boolean; data: T | null; error: string | null }> {
+): Promise<{ ok: boolean; data: T | null; error: string | null; status: number | null }> {
   try {
     const res = await fetch(url, {
       method,
@@ -61,10 +69,10 @@ export async function sendJson<T>(
         (data && typeof data === "object" && "error" in data
           ? String((data as { error: unknown }).error)
           : null) ?? "Something went wrong.";
-      return { ok: false, data: null, error };
+      return { ok: false, data: null, error, status: res.status };
     }
-    return { ok: true, data: data as T, error: null };
+    return { ok: true, data: data as T, error: null, status: res.status };
   } catch {
-    return { ok: false, data: null, error: "Network error — please retry." };
+    return { ok: false, data: null, error: "Network error — please retry.", status: null };
   }
 }

@@ -79,7 +79,7 @@ test("every checkout item can explain itself", async ({ page }) => {
   // Asking why must not tick the item off — that's the whole reason the (i)
   // isn't nested inside the row's button. (Anchored on "checked" because the
   // verdict card also says "0 of 3 full-stop night landings".)
-  await expect(page.getByText(/^0 of \d+ checked$/)).toBeVisible();
+  await expect(page.getByText(/^Step 1 of \d+ · 0 of \d+ checked$/)).toBeVisible();
 
   // Escape closes it.
   await page.keyboard.press("Escape");
@@ -91,8 +91,13 @@ test("the flight log keeps the rules behind the currency card, on Mine", async (
 }) => {
   await gotoTab(page, "/log", "Flight log");
 
+  // The log OPENS on Mine — your own flying, the same way Finances opens on
+  // your own statement — so the currency card is already there.
+  await expect(page.getByText("Your landing currency")).toBeVisible();
+
   // The club view is about the airplane: no personal currency, and no way in
   // to the rules from here.
+  await page.getByRole("button", { name: "Club", exact: true }).click();
   await expect(page.getByText("Your landing currency")).toBeHidden();
   await expect(page.getByRole("button", { name: "Operating rules" })).toBeHidden();
 

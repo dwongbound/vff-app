@@ -4,14 +4,18 @@
 //      `kind` is PREFLIGHT or RUNWAY; omit it for both, newest first.
 //      `open=1` returns only runs that were never signed off — with `mine=1`,
 //      that's the walk you left half-done, which the pages offer to resume.
+//      That exact combination also SWEEPS the caller's abandoned runs; see
+//      lib/checkoutCleanup.ts for why the housekeeping rides on this read.
 // POST /api/checkouts  { aircraftId, kind, answers, values, notes, complete }
 //      `fuelOnBoardGal` / `oilQuarts` are NOT accepted: they're derived from
 //      `values` (the readings recorded on the consumables items).
 //      `complete: true` stamps completedAt, which is what makes a run count as
-//      a signed-off checkout. A partial run can be posted too (you got
-//      interrupted at the fuel truck); it is then finished — or discarded —
-//      through PATCH/DELETE on /api/checkouts/[id], so one walkaround is one
-//      row however many times it gets put down and picked back up.
+//      a signed-off checkout. A partial run can be posted too — that's the
+//      checkout pages autosaving; it is then finished, or discarded, through
+//      PATCH/DELETE on /api/checkouts/[id], so one walkaround stays one row
+//      however many times it gets put down and picked back up. Posting a
+//      partial run RETIRES any the caller already had open on that card, which
+//      is the invariant the resume logic depends on: at most one.
 //
 // The turn-off checkout is NOT here: it's answered on the post-flight form and
 // stored on the Flight row, so it goes up through /api/flights.
@@ -19,6 +23,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeCheckout } from "@/lib/serialize";
+import { supersedeOpenRuns, sweepAbandonedRuns } from "@/lib/checkoutCleanup";
 import {
   checkoutFor,
   deriveFuelOil,
@@ -62,6 +67,14 @@ export async function GET(req: Request) {
     );
   }
 
+  // "Find the walk I left half-done" is exactly when the runs nobody will ever
+  // resume are worth clearing out, so the sweep rides on this query rather than
+  // on a scheduled job the club would have to keep running. Own rows only, and
+  // only ones that have been idle for a week — see lib/checkoutCleanup.ts.
+  if (mine && openOnly) {
+    await sweepAbandonedRuns({ userId: user.id });
+  }
+
   const rows = await prisma.checkout.findMany({
     where: {
       ...(aircraftId ? { aircraftId } : {}),
@@ -70,7 +83,10 @@ export async function GET(req: Request) {
       ...(openOnly ? { completedAt: null } : {}),
     },
     include: INCLUDE,
-    orderBy: { createdAt: "desc" },
+    // `updatedAt` when hunting for a run to resume: a walk begun on Monday and
+    // added to this morning is the one you want back, and ordering by when it
+    // was STARTED would hand you a staler row with `limit=1`.
+    orderBy: openOnly ? { updatedAt: "desc" } : { createdAt: "desc" },
     take: limit,
   });
 
@@ -129,6 +145,24 @@ export async function POST(req: Request) {
     kind === "PREFLIGHT"
       ? deriveFuelOil(values)
       : { fuelOnBoardGal: null, oilQuarts: null };
+
+  // Any run posted for this card supersedes the caller's OPEN ones on it.
+  //
+  // This holds the "at most one open run per member per airplane per card"
+  // invariant that `resolveResume` depends on. Without it, autosave POSTing a
+  // fresh draft — because the device's copy had lost track of its row — would
+  // quietly fork one walk into two, and the next resume would have to pick.
+  //
+  // It applies to a COMPLETE post too, which is not a contradiction of "a
+  // sign-off never deletes anything": what it retires is an unfinished DRAFT of
+  // the same card by the same member, which is the same walk by definition, and
+  // never a signed-off record (`supersedeOpenRuns` filters on
+  // `completedAt: null`). That case is reachable when a member ticks the last
+  // box and signs off inside the autosave debounce, so the sign-off POSTs
+  // without knowing a draft row had just been created for it — and without this,
+  // the walk they just signed for would greet them as "picking up where you
+  // left off" on their next visit.
+  await supersedeOpenRuns({ userId: user.id, aircraftId, kind });
 
   const created = await prisma.checkout.create({
     data: {
