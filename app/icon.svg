@@ -1,19 +1,59 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <!--
-    VFF club mark: a white high-wing single (the 172, seen from above) on the
-    club's orange disc. Next.js App Router serves this as the favicon.
+    VFF club mark: N8318B's own tail livery — the orange-and-black swoosh
+    sweeping up across a white field, in the club's disc.
+
+    The SHAPE is read off the airframe, and the thing that makes it read as
+    N8318B rather than as a generic swoosh is that the bands FAN. They come in
+    narrow and close together — 40 and 28 wide with 12 of white between them —
+    and open out as they sweep: 110 and 70 wide with 60 of white, by the far
+    side of the disc. So no two edges here share a curve; each of the four is
+    its own cubic. Parallel bands were the earlier version of this file and
+    they looked like a road, not a tail.
+
+    They also WAVE rather than sweep straight: flat where they come in, steep
+    through the middle, flattening again at the far side. That S is the shape
+    the eye recognises from thirty feet away on the ramp.
+
+    The COLOUR is the app's, not the paint's: #c64912 is `indigo-600` after
+    tailwind.config.ts remaps that palette to the club's orange, which is what
+    every button, active tab and avatar circle in the app is painted with. The
+    airframe's sienna (#b06236) is browner, and a mark sitting an inch from the
+    avatar in the top bar has to match the app it's in — two oranges that nearly
+    agree read as a mistake, where one that's plainly the brand reads as the
+    brand. Change it here and in components/Logo.tsx together.
+
+    Next.js App Router serves this as the favicon; components/Logo.tsx is the
+    same drawing on the same grid for the top bar. Change one, change the other.
   -->
-  <circle cx="256" cy="256" r="248" fill="#c64912"/>
-  <circle cx="256" cy="256" r="209" fill="none" stroke="#ffe6d5" stroke-width="9"/>
-  <g fill="#ffffff">
-    <!-- fuselage -->
-    <path d="M239 111 q17 -34 34 0 l13 222 -60 0 Z"/>
-    <rect x="226" y="316" width="60" height="77" rx="17"/>
-    <!-- wing -->
-    <path d="M77 230 l358 0 l0 39 l-358 0 Z"/>
-    <!-- tailplane -->
-    <path d="M171 375 l170 0 l0 30 l-170 0 Z"/>
-    <!-- spinner -->
-    <circle cx="256" cy="102" r="17"/>
+  <defs>
+    <clipPath id="disc">
+      <circle cx="256" cy="256" r="248"/>
+    </clipPath>
+  </defs>
+
+  <!-- White field: the fuselage/fin the stripes are painted on. -->
+  <circle cx="256" cy="256" r="248" fill="#ffffff"/>
+
+  <g clip-path="url(#disc)">
+    <!-- Orange band: top edge out, then back along the bottom edge. -->
+    <path fill="#c64912" d="M-30 316
+      C 140 316, 170 214, 300 158
+      C 410 110, 470 84, 545 72
+      L 545 182
+      C 470 196, 410 226, 300 254
+      C 170 316, 140 356, -30 356
+      Z"/>
+    <!-- Black band trailing below it, same curve, a thin white gap between. -->
+    <path fill="#1b1b1e" d="M-30 368
+      C 140 368, 180 314, 300 286
+      C 410 262, 470 246, 545 240
+      L 545 310
+      C 470 318, 410 336, 300 352
+      C 180 384, 140 390, -30 390
+      Z"/>
   </g>
+
+  <!-- Orange rim, so the white field still has an edge on a white tab strip. -->
+  <circle cx="256" cy="256" r="243" fill="none" stroke="#c64912" stroke-width="10"/>
 </svg>

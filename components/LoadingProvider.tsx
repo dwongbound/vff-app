@@ -41,6 +41,10 @@ type Controls = {
   report: (key: string, loading: boolean) => void;
 };
 
+// How long the overlay takes to fade out. One number in two places — the
+// `duration-300` class below and the timer that closes the initial load.
+const FADE_MS = 300;
+
 const LoadingContext = createContext<Controls>({
   begin: () => {},
   report: () => {},
@@ -90,6 +94,11 @@ export default function LoadingProvider({
   const [booting, setBooting] = useState(true);
   // Kept true until the fade-out finishes, so the overlay can animate out.
   const [rendered, setRendered] = useState(false);
+  // The INITIAL load is one continuous episode: it starts before hydration and
+  // ends when the first page has its data on screen. This flips at the end of
+  // it and never flips back — see `wholeWindow` below for why it can't just be
+  // `booting`.
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
   const pathname = usePathname();
 
   const visible = booting || navigating || loadingKeys.size > 0;
@@ -129,6 +138,18 @@ export default function LoadingProvider({
     setNavigating(false);
   }, [pathname]);
 
+  // Close the initial-load episode. Deliberately one fade AFTER the last
+  // reporter finishes, not the instant it does: the splash is still on screen
+  // through the fade, and shrinking its box to the content column mid-fade
+  // would jump the airplane sideways on its way out. A timer rather than
+  // `onTransitionEnd` so a browser that never fires the event (reduced motion,
+  // a backgrounded tab) can't strand the app in first-load forever.
+  useEffect(() => {
+    if (visible || firstLoadDone) return;
+    const t = setTimeout(() => setFirstLoadDone(true), FADE_MS);
+    return () => clearTimeout(t);
+  }, [visible, firstLoadDone]);
+
   // When the splash owns the WHOLE WINDOW rather than just the content column.
   //
   // Two cases, and they're the same case: there is nothing behind it worth
@@ -138,6 +159,14 @@ export default function LoadingProvider({
   //     that hasn't loaded yet, and showing them framing an empty hole is a
   //     half-drawn app rather than a loading one. It takes z-50 there, above
   //     the navbar's z-30, because covering them is the whole point.
+  //
+  //     "The first boot" lasts until the first page is READY TO SHOW, which is
+  //     `firstLoadDone` and NOT `booting`. `booting` ends at the first client
+  //     commit — a few milliseconds in, with AuthGate still verifying the
+  //     session and the page yet to fetch anything — so keying off it moved
+  //     the splash into the content column for essentially the whole initial
+  //     load, and the airplane spun in the bottom right of the window inside a
+  //     frame whose nav wasn't drawn yet.
   //   • /login, which has no rail or top bar at all (Navbar returns null) —
   //     the same exception AppShell makes for the content column's indent.
   //
@@ -145,7 +174,7 @@ export default function LoadingProvider({
   // the chrome stays put: covering a rail you're still using would make the
   // app flash its whole frame on every tab tap.
   const chromeless = pathname === "/login";
-  const wholeWindow = booting || chromeless;
+  const wholeWindow = !firstLoadDone || chromeless;
 
   return (
     <LoadingContext.Provider value={{ begin, report }}>

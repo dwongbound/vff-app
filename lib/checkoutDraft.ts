@@ -41,6 +41,28 @@ export const DRAFT_FORMAT = 1;
 export const DRAFT_KEY_PREFIX = `vff:checkout-draft:v${DRAFT_FORMAT}`;
 
 /**
+ * The post-flight form's own draft key (see lib/postflightDraft.ts).
+ *
+ * It lives here rather than beside its own module so `pruneDrafts` below can
+ * sweep both families in one pass — the page that saves one is not always the
+ * page that opens next, and a device with drafts nobody sweeps is a device that
+ * fills up.
+ */
+export const POSTFLIGHT_DRAFT_FORMAT = 1;
+export const POSTFLIGHT_DRAFT_KEY_PREFIX = `vff:postflight-draft:v${POSTFLIGHT_DRAFT_FORMAT}`;
+
+/**
+ * Every key family this app stores drafts under: the root it has always used,
+ * and the prefix the CURRENT format writes. Anything under a root but not under
+ * its current prefix is an older format's residue — unreadable by this build,
+ * so swept on sight.
+ */
+const DRAFT_FAMILIES = [
+  { root: "vff:checkout-draft:", current: `${DRAFT_KEY_PREFIX}:` },
+  { root: "vff:postflight-draft:", current: `${POSTFLIGHT_DRAFT_KEY_PREFIX}:` },
+] as const;
+
+/**
  * How long an untouched draft is worth keeping, on the device and on the
  * server. Exported because BOTH halves have to agree: the server sweep
  * (GET /api/checkouts?mine=1&open=1) and `pruneDrafts` below use this same
@@ -213,6 +235,9 @@ export function clearDraft(store: DraftStore | null, expect: DraftIdentity): voi
 /**
  * Sweep drafts that will never be resumed, so the device's storage is bounded.
  *
+ * Sweeps BOTH families — the checkout cards and the post-flight form — because
+ * either page's sweep has to be able to clear up after the other's.
+ *
  * Deliberately blind to WHOSE draft it is: on a shared clubhouse iPad this has
  * to be able to clear out a member who hasn't signed in for a fortnight, and
  * age is the only fair way to decide that. It is not blind to age, though — a
@@ -240,14 +265,16 @@ export function pruneDrafts(
     }
 
     for (const key of keys) {
+      const family = DRAFT_FAMILIES.find((f) => key.startsWith(f.root));
+      if (!family) continue;
+
       // An older format's keys can't be parsed by this build, so age can't be
       // read off them — they go on sight.
-      if (key.startsWith("vff:checkout-draft:") && !isDraftKey(key)) {
+      if (!key.startsWith(family.current)) {
         store.removeItem(key);
         removed.push(key);
         continue;
       }
-      if (!isDraftKey(key)) continue;
 
       const raw = store.getItem(key);
       let savedAt: string | null = null;

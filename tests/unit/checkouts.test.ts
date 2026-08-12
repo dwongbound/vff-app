@@ -250,6 +250,13 @@ describe("the club's own additions", () => {
     expect(extra).toEqual([
       "homework.squawks",
       "cockpit.meters",
+      // Not on the card: the card's tail items check that the elevator, trim
+      // and rudder are ATTACHED, which is a different question from whether
+      // they move.
+      "empennage.controls-free",
+      // The starter turn at the end of the cold-start pre-lube: the card's
+      // hand pull moves oil off the cylinder walls, the crank works the pump.
+      "prelube.crank",
       "parking.cabin",
     ]);
   });
@@ -354,7 +361,9 @@ describe("parseValues", () => {
 // whether the flight happens.
 describe("outOfRange", () => {
   const oil = fieldById("PREFLIGHT", "consumables.oil.qts")!;
-  const mags = fieldById("RUNWAY", "runup.mags.left")!;
+  // The runup's RPM boxes are gone (a judgement at the tachometer, not a
+  // figure typed at 1600 RPM), so the max-side example is now the fuel dip.
+  const dip = fieldById("PREFLIGHT", "consumables.dip.left")!;
 
   it("flags a reading below the card's minimum", () => {
     expect(outOfRange(oil, 3)).toBeTruthy();
@@ -363,8 +372,8 @@ describe("outOfRange", () => {
   });
 
   it("flags a reading above the card's maximum", () => {
-    expect(outOfRange(mags, 140)).toBeTruthy();
-    expect(outOfRange(mags, 75)).toBeNull();
+    expect(outOfRange(dip, 24)).toBeTruthy();
+    expect(outOfRange(dip, 17.5)).toBeNull();
   });
 
   it("says nothing about a field with no expected range, or no value", () => {

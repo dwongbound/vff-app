@@ -18,11 +18,15 @@ import Textarea from "@/components/common/Textarea";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
 import TurnoffCheckout from "@/components/TurnoffCheckout";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
+import PostflightDraftBar from "@/components/PostflightDraftBar";
+import { usePostflightDraft } from "@/components/usePostflightDraft";
+import { useMe } from "@/components/MeProvider";
+import type { PostflightForm } from "@/lib/postflightDraft";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { initialValues, type Answers, type Values } from "@/lib/checkouts";
-import { formatDay, formatTimeRange, toDateInputValue } from "@/lib/dates";
+import { clubDateKey, formatDay, formatTimeRange, toDateInputValue } from "@/lib/dates";
 import {
   flightCostCents,
   formatCents,
@@ -31,10 +35,17 @@ import {
   tachHours,
   validateMeters,
 } from "@/lib/hours";
-import type { ApiFlight, ApiMember, ApiReservation, ApiSquawk } from "@/lib/types";
+import type {
+  ApiCheckout,
+  ApiFlight,
+  ApiMember,
+  ApiReservation,
+  ApiSquawk,
+} from "@/lib/types";
 
 export default function PostflightPage() {
   const { selected, loading: fleetLoading } = useAircraft();
+  const { me } = useMe();
   // See the preflight page: depend on the id, not the object identity.
   const aircraftId = selected?.id ?? null;
 
@@ -76,6 +87,8 @@ export default function PostflightPage() {
   // `bookedInstructor` below, which is why this picker hides in that case.
   const [instructorId, setInstructorId] = useState("");
   const [instructors, setInstructors] = useState<ApiMember[] | null>(null);
+  /** Today's signed-off preflight walk, if there is one — the start meters. */
+  const [todaysPreflight, setTodaysPreflight] = useState<ApiCheckout | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -100,6 +113,28 @@ export default function PostflightPage() {
     loadBookings();
   }, [loadBookings]);
 
+  // Today's preflight walk, for the start meters below. Only TODAY's: a reading
+  // from last week is a number about a different flight, and quietly prefilling
+  // it would be worse than leaving the box empty.
+  useEffect(() => {
+    if (!aircraftId) return;
+    let live = true;
+    fetchJsonArray<ApiCheckout>(
+      `/api/checkouts?aircraftId=${aircraftId}&kind=PREFLIGHT&limit=5`
+    ).then((rows) => {
+      if (!live) return;
+      const today = clubDateKey(new Date());
+      setTodaysPreflight(
+        rows.find(
+          (r) => r.completedAt != null && clubDateKey(r.completedAt) === today
+        ) ?? null
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [aircraftId]);
+
   // The roster, only once somebody says they flew with an instructor. Most
   // flights aren't lessons, and this page otherwise never needs it.
   useEffect(() => {
@@ -118,29 +153,226 @@ export default function PostflightPage() {
     (openBookings ?? []).find((r) => r.id === reservationId)?.instructor?.name ??
     null;
 
-  // Prefill the "start" meters from where the airplane was left. The pilot
-  // still confirms them against the panel — they're editable, and a mismatch
-  // usually means someone forgot to file a flight.
+  // ── Where the four meter numbers come from ──────────────────────────────
+  //
+  // Ideally: nowhere the member has to type twice. Both ends of the flight are
+  // already read off the panel ON A CARD — the preflight's "Tach & Hobbs —
+  // recorded" at the start, the turn-off's "Tach & Hobbs — record time in
+  // flight log" at the end — so this card's job is to SHOW what those cards
+  // captured, not to ask again. A member who filled in both checkouts should
+  // be able to scroll past it.
+  //
+  // Each box MIRRORS its card until the member types in the box itself, at
+  // which point that one field stops following and their correction stands.
+  //
+  // "Until it's empty" was the old rule and it was subtly wrong the moment the
+  // upstream field became one being typed into live: the first keystroke of
+  // "1506.1" arrives as `1`, the box is still empty so it takes it, and every
+  // keystroke after that is ignored because the box is no longer empty. The
+  // meter card sat there reading "1" under a checklist reading 1506.1. What
+  // decides whether a prefill still applies has to be "has the member edited
+  // THIS box", never "does it happen to hold something".
+  const [edited, setEdited] = useState({
+    tachStart: false,
+    tachEnd: false,
+    hobbsStart: false,
+    hobbsEnd: false,
+  });
+
+  // START, first choice: what today's preflight walk actually read off the
+  // panel. Second choice: where the last filed flight left the airplane, which
+  // is what this page used before and is still right when nobody walked the
+  // card today. A disagreement between the two usually means somebody flew and
+  // didn't file, which is worth seeing rather than smoothing over.
+  const walkedTach = todaysPreflight?.values["cockpit.meters.tach"];
+  const walkedHobbs = todaysPreflight?.values["cockpit.meters.hobbs"];
   const lastTach = selected?.lastTach ?? null;
   const lastHobbs = selected?.lastHobbs ?? null;
+  const startTach = typeof walkedTach === "number" ? walkedTach : lastTach;
+  const startHobbs = typeof walkedHobbs === "number" ? walkedHobbs : lastHobbs;
   useEffect(() => {
-    setTachStart((current) =>
-      current === "" && lastTach != null ? String(lastTach) : current
-    );
-    setHobbsStart((current) =>
-      current === "" && lastHobbs != null ? String(lastHobbs) : current
-    );
-  }, [lastTach, lastHobbs]);
+    if (startTach != null && !edited.tachStart) setTachStart(String(startTach));
+  }, [startTach, edited.tachStart]);
+  useEffect(() => {
+    if (startHobbs != null && !edited.hobbsStart) setHobbsStart(String(startHobbs));
+  }, [startHobbs, edited.hobbsStart]);
 
-  // The tach the pilot just wrote down on the shutdown item IS the tach end.
-  // Prefill it rather than asking twice — only while the field is untouched,
-  // so a correction here always wins.
+  // END: the two numbers the pilot just wrote on the shutdown item ARE the end
+  // readings. Nothing else on the airplane knows them.
   const recordedTach = turnoffValues["shutdown.tach.hours"];
+  const recordedHobbs = turnoffValues["shutdown.tach.hobbs"];
   useEffect(() => {
-    if (typeof recordedTach === "number") {
-      setTachEnd((current) => (current === "" ? String(recordedTach) : current));
+    if (typeof recordedTach === "number" && !edited.tachEnd) {
+      setTachEnd(String(recordedTach));
     }
-  }, [recordedTach]);
+  }, [recordedTach, edited.tachEnd]);
+  useEffect(() => {
+    if (typeof recordedHobbs === "number" && !edited.hobbsEnd) {
+      setHobbsEnd(String(recordedHobbs));
+    }
+  }, [recordedHobbs, edited.hobbsEnd]);
+
+  // ── Autosave ────────────────────────────────────────────────────────────
+  //
+  // The same promise the checkout cards make: leave the page, come back, your
+  // work is still here. It used to be false on this one page, which is the
+  // worst place for it to be false — the form is filled in standing at the
+  // tail, one-handed, and walking away to push the airplane back was enough to
+  // lose the lot.
+  //
+  // Device only, and the bar says so: there is no server row to sync a
+  // post-flight entry to until it's filed. See lib/postflightDraft.ts.
+  const form: PostflightForm = useMemo(
+    () => ({
+      reservationId,
+      flownOn,
+      tachStart,
+      tachEnd,
+      hobbsStart,
+      hobbsEnd,
+      landings,
+      nightLandings,
+      withInstructor,
+      instructorId,
+      departure,
+      arrival,
+      route,
+      fuelAdded,
+      fuelCost,
+      oilAdded,
+      notes,
+      turnoffAnswers,
+      turnoffValues,
+      edited,
+      // Files can't be stored, so the TEXT of a squawk is kept and the fact
+      // that pictures were attached is recorded — see the module comment.
+      squawks: squawkDrafts.map((d) => ({
+        title: d.title,
+        description: d.description,
+        hadPhotos: d.photos.length > 0,
+      })),
+      hadPhotos: photos.length > 0,
+    }),
+    [
+      reservationId,
+      flownOn,
+      tachStart,
+      tachEnd,
+      hobbsStart,
+      hobbsEnd,
+      landings,
+      nightLandings,
+      withInstructor,
+      instructorId,
+      departure,
+      arrival,
+      route,
+      fuelAdded,
+      fuelCost,
+      oilAdded,
+      notes,
+      turnoffAnswers,
+      turnoffValues,
+      edited,
+      squawkDrafts,
+      photos,
+    ]
+  );
+
+  const draft = usePostflightDraft({
+    aircraftId,
+    memberId: me?.id ?? null,
+    form,
+    onRestore: useCallback((stored) => {
+      setReservationId(stored.reservationId);
+      if (stored.flownOn) setFlownOn(stored.flownOn);
+      setTachStart(stored.tachStart);
+      setTachEnd(stored.tachEnd);
+      setHobbsStart(stored.hobbsStart);
+      setHobbsEnd(stored.hobbsEnd);
+      if (stored.landings) setLandings(stored.landings);
+      if (stored.nightLandings) setNightLandings(stored.nightLandings);
+      setWithInstructor(stored.withInstructor);
+      setInstructorId(stored.instructorId);
+      setDeparture(stored.departure);
+      setArrival(stored.arrival);
+      setRoute(stored.route);
+      setFuelAdded(stored.fuelAdded);
+      setFuelCost(stored.fuelCost);
+      setOilAdded(stored.oilAdded);
+      setNotes(stored.notes);
+      setTurnoffAnswers(stored.turnoffAnswers);
+      // Saved values win, but a field the draft never recorded keeps its
+      // default — otherwise restoring an entry saved before a field existed
+      // would blank it rather than leave it at its opening value.
+      setTurnoffValues((defaults) => ({ ...defaults, ...stored.turnoffValues }));
+      setEdited(stored.edited);
+      // Photos are gone (files don't survive a reload); the text isn't.
+      setSquawkDrafts(
+        stored.squawks.map((sq) => ({
+          title: sq.title,
+          description: sq.description,
+          photos: [],
+        }))
+      );
+    }, []),
+  });
+
+  /** Clear the draft AND the form — the bar only knows about the first half. */
+  function resetForm() {
+    draft.reset();
+    setReservationId("");
+    setFlownOn(toDateInputValue(new Date()));
+    setTachStart("");
+    setTachEnd("");
+    setHobbsStart("");
+    setHobbsEnd("");
+    setEdited({
+      tachStart: false,
+      tachEnd: false,
+      hobbsStart: false,
+      hobbsEnd: false,
+    });
+    setLandings("1");
+    setNightLandings("0");
+    setWithInstructor(false);
+    setInstructorId("");
+    setDeparture("");
+    setArrival("");
+    setRoute("");
+    setFuelAdded("");
+    setFuelCost("");
+    setOilAdded("");
+    setTurnoffAnswers({});
+    setTurnoffValues(initialValues("TURNOFF"));
+    setNotes("");
+    setPhotos([]);
+    setSquawkDrafts([]);
+    setError(null);
+    setSaved(null);
+  }
+
+  /**
+   * What to say under a meter box: where the number in it came from.
+   *
+   * Written as four plain branches rather than a nested ternary in the JSX.
+   * They ARE nearly the same shape twice over, and saying so twice is cheaper
+   * to read than one clever expression that says it once.
+   */
+  function startHint(box: "tachStart" | "hobbsStart"): string | undefined {
+    const walked = box === "tachStart" ? walkedTach : walkedHobbs;
+    if (edited[box]) return undefined;
+    if (typeof walked === "number") return "from today's preflight walk";
+    if (box === "tachStart") return "from the last filed flight";
+    return undefined;
+  }
+
+  function endHint(box: "tachEnd" | "hobbsEnd"): string | undefined {
+    const recorded = box === "tachEnd" ? recordedTach : recordedHobbs;
+    if (edited[box]) return undefined;
+    if (typeof recorded === "number") return "from the turn-off checkout";
+    return undefined;
+  }
 
   // Hobbs counts as recorded only when BOTH readings are there. The start is
   // prefilled from the airplane, so without this a pilot who simply doesn't use
@@ -176,6 +408,10 @@ export default function PostflightPage() {
     }
 
     setBusy(true);
+    // Stop saving for the duration: a write landing between the POST and the
+    // form being cleared would store a draft of an entry that has just been
+    // filed, and the next visit would offer to restore it.
+    draft.freeze();
     const result = await sendJson<ApiFlight>("/api/flights", "POST", {
       aircraftId: selected.id,
       reservationId: reservationId || null,
@@ -204,21 +440,25 @@ export default function PostflightPage() {
 
     if (!result.ok || !result.data) {
       setBusy(false);
+      // The flight didn't file, so this is still live work — start saving again
+      // rather than leaving the member typing into nothing.
+      draft.thaw();
       setError(result.error ?? "Could not save the flight.");
       return;
     }
 
     const flightId = result.data.id;
     if (photos.length) await uploadPhotos(photos, "flight", flightId);
-    for (const draft of squawkDrafts) {
+    // `pending`, not `draft`: that name belongs to the autosave hook now.
+    for (const pending of squawkDrafts) {
       const squawk = await sendJson<ApiSquawk>("/api/squawks", "POST", {
         aircraftId: selected.id,
         flightId,
-        title: draft.title,
-        description: draft.description || null,
+        title: pending.title,
+        description: pending.description || null,
       });
-      if (squawk.ok && squawk.data && draft.photos.length) {
-        await uploadPhotos(draft.photos, "squawk", squawk.data.id);
+      if (squawk.ok && squawk.data && pending.photos.length) {
+        await uploadPhotos(pending.photos, "squawk", squawk.data.id);
       }
     }
 
@@ -234,6 +474,15 @@ export default function PostflightPage() {
     setTachEnd("");
     setHobbsStart(hobbsEnd);
     setHobbsEnd("");
+    // The carried-over starts are this member's own numbers rather than a
+    // card's, so they hold; the ends go back to following the turn-off card,
+    // which is about to be blank again for the next flight.
+    setEdited({
+      tachStart: true,
+      tachEnd: false,
+      hobbsStart: true,
+      hobbsEnd: false,
+    });
     setLandings("1");
     setNightLandings("0");
     setWithInstructor(false);
@@ -249,6 +498,9 @@ export default function PostflightPage() {
     setNotes("");
     setPhotos([]);
     setSquawkDrafts([]);
+    // The entry is the club's record now rather than a draft, so the device
+    // copy goes — otherwise the next visit offers to restore a filed flight.
+    draft.finish();
 
     // The filed flight advanced the airplane's meters, so everyone's view of
     // it is stale — one event, which the provider turns into one refetch.
@@ -276,6 +528,22 @@ export default function PostflightPage() {
         </p>
       </header>
 
+      {/* Where this entry stands, and the only way to throw it away. Above the
+          form rather than at the foot of it: the question it answers ("if I
+          walk away now, is this kept?") is one a member asks before they start,
+          not after they finish. */}
+      <PostflightDraftBar
+        savedAt={draft.savedAt}
+        storageBlocked={draft.storageBlocked}
+        restoredAt={draft.restored?.savedAt ?? null}
+        droppedFiles={
+          (draft.restored?.hadPhotos ?? false) ||
+          (draft.restored?.squawks ?? []).some((sq) => sq.hadPhotos)
+        }
+        dirty={draft.dirty}
+        onReset={resetForm}
+      />
+
       {/* The turn-off checkout comes FIRST: it's the back of the airplane's
           card and you work it standing at the tail, and its shutdown section is
           where you read the tach off the panel. Recording it here is what
@@ -301,8 +569,11 @@ export default function PostflightPage() {
             inputMode="decimal"
             step="0.1"
             value={tachStart}
-            onChange={(e) => setTachStart(e.target.value)}
-            hint="prefilled from the last flight"
+            onChange={(e) => {
+              setTachStart(e.target.value);
+              setEdited((f) => (f.tachStart ? f : { ...f, tachStart: true }));
+            }}
+            hint={startHint("tachStart")}
           />
           <Input
             label="Tach end"
@@ -310,7 +581,11 @@ export default function PostflightPage() {
             inputMode="decimal"
             step="0.1"
             value={tachEnd}
-            onChange={(e) => setTachEnd(e.target.value)}
+            onChange={(e) => {
+              setTachEnd(e.target.value);
+              setEdited((f) => (f.tachEnd ? f : { ...f, tachEnd: true }));
+            }}
+            hint={endHint("tachEnd")}
           />
           <Input
             label="Hobbs start"
@@ -318,7 +593,11 @@ export default function PostflightPage() {
             inputMode="decimal"
             step="0.1"
             value={hobbsStart}
-            onChange={(e) => setHobbsStart(e.target.value)}
+            onChange={(e) => {
+              setHobbsStart(e.target.value);
+              setEdited((f) => (f.hobbsStart ? f : { ...f, hobbsStart: true }));
+            }}
+            hint={startHint("hobbsStart")}
           />
           <Input
             label="Hobbs end"
@@ -326,7 +605,11 @@ export default function PostflightPage() {
             inputMode="decimal"
             step="0.1"
             value={hobbsEnd}
-            onChange={(e) => setHobbsEnd(e.target.value)}
+            onChange={(e) => {
+              setHobbsEnd(e.target.value);
+              setEdited((f) => (f.hobbsEnd ? f : { ...f, hobbsEnd: true }));
+            }}
+            hint={endHint("hobbsEnd")}
           />
         </div>
 
@@ -411,14 +694,14 @@ export default function PostflightPage() {
             label="From"
             value={departure}
             onChange={(e) => setDeparture(e.target.value)}
-            placeholder="KBFI"
+            placeholder="KTOA"
             className="uppercase"
           />
           <Input
             label="To"
             value={arrival}
             onChange={(e) => setArrival(e.target.value)}
-            placeholder="KBFI"
+            placeholder="KTOA"
             className="uppercase"
           />
         </div>
@@ -426,7 +709,7 @@ export default function PostflightPage() {
           label="Route (optional)"
           value={route}
           onChange={(e) => setRoute(e.target.value)}
-          placeholder="KBFI → KWVI → practice area → KBFI"
+          placeholder="KTOA → KCMA → practice area → KTOA"
         />
         <Toggle
           checked={withInstructor}
@@ -520,14 +803,16 @@ export default function PostflightPage() {
       {/* Squawks found on this flight. */}
       <Card className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Anything wrong with the airplane?</h2>
+          <h2 className="text-sm font-semibold">Squawks from this flight</h2>
           <Button variant="secondary" size="sm" onClick={() => setSquawkModalOpen(true)}>
             Report
           </Button>
         </div>
         {squawkDrafts.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Nothing reported — the airplane goes back on the line as-is.
+            Nothing reported — the airplane goes back on the line as-is. Report
+            anything you found and it's filed with this flight, for the next
+            member to read before they fly it.
           </p>
         ) : (
           <ul className="space-y-2">

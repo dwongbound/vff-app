@@ -1,19 +1,32 @@
 "use client";
 // "Your work is safe, and here's how to throw it away."
 //
-// One strip above the card carrying everything about the SAVED STATE of a walk,
-// which is now a thing that happens by itself rather than something the member
-// does. It replaces two older pieces of UI: the Save button (which is gone —
-// see useCheckoutDraft for why a button was the wrong shape for this) and
-// ResumedRun, whose amber "picking up where you left off" banner is folded in
-// here as one of this strip's states.
+// Everything about the SAVED STATE of a walk, which is now a thing that happens
+// by itself rather than something the member does. It replaces two older pieces
+// of UI: the Save button (which is gone — see useCheckoutDraft for why a button
+// was the wrong shape for this) and ResumedRun, whose amber "picking up where
+// you left off" banner is folded in here as one of this strip's states.
 //
-// Deliberately NOT part of the sticky progress bar. Reset destroys a walk, and
-// the sticky bar is the one thing parked under the member's thumb for the whole
-// length of the card — a destructive control that follows you down a checklist
-// you're walking one-handed on a ramp is a control that eventually gets pressed
-// by accident. Progress travels; Reset stays at the top with the rest of the
-// bookkeeping.
+// It renders INSIDE CheckoutList's sticky progress bar (the `status` slot), so
+// it is one line in a bar rather than a card of its own. That's a reversal of
+// the original arrangement, and the reason for the original still stands and is
+// answered rather than ignored: Reset destroys a walk, and the sticky bar is
+// the one thing parked under a member's thumb for the whole length of the card.
+// So Reset is the quietest control on the strip — ghost weight, at the far edge,
+// out of the way of the section headers and tick rows that get tapped — and it
+// still asks in a modal that says what goes. What the move buys is that a
+// member's progress and whether that progress is SAFE are now one thing they
+// look at, in the one part of the page that follows them down the card; before
+// this, the save state scrolled off the top and the answer to "did that get
+// kept" was a trip back up the page.
+//
+// Two consequences of living in a bar:
+//   - the copy has to survive a phone's width, so it clamps to two lines;
+//   - "Picking up where you left off" gives way to the ordinary saved line as
+//     soon as the member ticks anything (see `justResumed`). It's a greeting,
+//     not a state — once you've started work it stops being true, and a
+//     permanent amber notice in a sticky bar is a permanent tax on the height
+//     of every card.
 import { useEffect, useState } from "react";
 import Button from "@/components/common/Button";
 import Modal from "@/components/common/Modal";
@@ -66,41 +79,41 @@ export default function CheckoutDraftBar({
     setConfirming(false);
   }
 
-  // A card nobody has touched yet. Say what WILL happen — this is the line
-  // that has to do the job the Save button used to do, which is tell a member
-  // their work isn't going to evaporate. No Reset: there's nothing to reset,
-  // and offering it would only invite the question of what it would delete.
+  // A card nobody has touched yet. Say what WILL happen — this is the line that
+  // has to do the job the Save button used to do, which is tell a member their
+  // work isn't going to evaporate. No Reset: there's nothing to reset, and
+  // offering it would only invite the question of what it would delete.
   if (!dirty && !resume) {
     return (
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        Your progress saves automatically as you work down the card — you can
-        close this and pick it up later.
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Your progress saves automatically as you work down the card.
       </p>
     );
   }
 
-  const tone = resume || deviceOnly || storageBlocked ? "amber" : "plain";
+  // Resumed AND untouched: `savedAt` still being the stored copy's own stamp is
+  // exactly "nothing has been written since we picked this up". The first tick
+  // moves it, and the greeting gives way to the saved line.
+  const justResumed = resume !== null && savedAt === resume.savedAt;
+  const amber = justResumed || deviceOnly || storageBlocked;
 
   return (
     <>
-      <div
-        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
-          tone === "amber"
-            ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
-            : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
-        }`}
-      >
+      <div className="flex items-center gap-2">
         {/* `role="status"` rather than a bare <p>: this text changes on its own
             while the member is looking elsewhere, which is precisely what a
             polite live region is for. It's also the stable handle the e2e
-            suite reads the save state from. */}
+            suite reads the save state from.
+            It is the ONLY live region on this page — the progress bar wrapped
+            around it deliberately isn't one, or every tick would re-announce
+            the whole strip. */}
         <p
           role="status"
-          className={
-            tone === "amber"
-              ? "min-w-0 text-amber-900 dark:text-amber-100"
-              : "min-w-0 text-gray-600 dark:text-gray-300"
-          }
+          className={`line-clamp-2 min-w-0 flex-1 text-xs ${
+            amber
+              ? "text-amber-700 dark:text-amber-400"
+              : "text-gray-500 dark:text-gray-400"
+          }`}
         >
           {storageBlocked ? (
             <>
@@ -110,7 +123,7 @@ export default function CheckoutDraftBar({
               Private browsing or a full disk — your work is going to the club&apos;s
               server instead, so finish the card without closing this tab.
             </>
-          ) : resume ? (
+          ) : justResumed ? (
             // Deliberately does NOT say WHICH store this came from. It's
             // tempting — `Resume.source` is right there — but the server copy
             // is normally just this device's own sync landing a couple of
@@ -150,9 +163,14 @@ export default function CheckoutDraftBar({
           )}
         </p>
 
+        {/* Quietest control on the strip, and the furthest from anything a
+            member taps on purpose while walking the card. `-mr-1.5` pulls its
+            padding back to the bar's edge so the label lines up with the "19%"
+            sitting directly above it. */}
         <Button
-          variant="secondary"
+          variant="ghost"
           size="sm"
+          className="-mr-1.5 shrink-0"
           onClick={() => setConfirming(true)}
           disabled={busy || resetting}
         >

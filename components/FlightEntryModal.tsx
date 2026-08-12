@@ -297,14 +297,14 @@ export default function FlightEntryModal({
             label="From"
             value={departure}
             onChange={(e) => setDeparture(e.target.value)}
-            placeholder="KBFI"
+            placeholder="KTOA"
             className="uppercase"
           />
           <Input
             label="To"
             value={arrival}
             onChange={(e) => setArrival(e.target.value)}
-            placeholder="KBFI"
+            placeholder="KTOA"
             className="uppercase"
           />
         </div>
@@ -312,7 +312,7 @@ export default function FlightEntryModal({
           label="Route"
           value={route}
           onChange={(e) => setRoute(e.target.value)}
-          placeholder="KBFI → KWVI → KBFI"
+          placeholder="KTOA → KCMA → KTOA"
         />
 
         <div className="grid gap-3 sm:grid-cols-3">

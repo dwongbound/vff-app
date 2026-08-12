@@ -1,6 +1,6 @@
 "use client";
 // The parts of the airplane's card you read in the air, parked at the bottom
-// of the runway page: takeoff, climb, cruise, descent, and the KBFI
+// of the runway page: takeoff, climb, cruise, descent, and the KTOA
 // frequencies.
 //
 // Collapsed by default — it's a lookup, not a step in the walkaround, and the

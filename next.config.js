@@ -26,7 +26,14 @@ const nextConfig = {
   // runtime image can drop node_modules entirely (~1.5GB → ~250MB). Matters
   // because the image is now pulled over the network on every deploy rather
   // than built in place, and ghcr's free private quota is 500MB.
-  output: "standalone",
+  //
+  // OFF on Vercel, which is the other deployment target and does its own
+  // tracing. Vercel's builder ends a build by reading
+  // `.next/next-server.js.nft.json`; standalone output writes the traced tree
+  // into `.next/standalone` and never emits that manifest, so the build dies
+  // in onBuildComplete with a bare ENOENT for a file nobody asked for. Vercel
+  // sets VERCEL=1 in every build environment.
+  ...(process.env.VERCEL ? {} : { output: "standalone" }),
   // Next's dev overlay renders a floating indicator (<nextjs-portal>) pinned to
   // a corner of the viewport, and it swallows pointer events over its own
   // footprint. On a phone-sized viewport that footprint lands squarely on the
