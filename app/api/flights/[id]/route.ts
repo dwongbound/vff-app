@@ -1,11 +1,18 @@
-// Fix or remove one flight-log entry. Pilots can correct their own; admins can
-// correct anyone's (a mis-keyed tach reading throws off the club's billing
-// until someone fixes it).
+// One flight-log entry, in full.
+//
+// GET    — the entry with its photos and squawks. The list endpoint returns
+//          neither (see lib/flights.ts), so this is what FlightDetailModal
+//          fetches when a member opens a row.
+// PATCH  — fix it. Pilots can correct their own; admins can correct anyone's
+//          (a mis-keyed tach reading throws off the club's billing until
+//          someone fixes it). Stamps `editedAt`.
+// DELETE — remove it, and the bytes of any photos attached.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { purgePhotosFor } from "@/lib/photos";
 import { serializeFlight } from "@/lib/serialize";
+import { FLIGHT_DETAIL_INCLUDE } from "@/lib/flights";
 import { validateMeters } from "@/lib/hours";
 import {
   TURNOFF_CHECKOUT,
@@ -16,21 +23,28 @@ import {
 import { syncFlightCharges } from "@/lib/ledger";
 import { resolveInstructor, resolutionFailed } from "@/lib/instructors";
 
-const INCLUDE = {
-  aircraft: { select: { id: true, tailNumber: true } },
-  pilot: { select: { id: true, name: true, email: true } },
-  instructor: { select: { id: true, name: true, email: true } },
-  signedBy: { select: { id: true, name: true, email: true } },
-  photos: true,
-  squawks: {
-    include: {
-      reportedBy: { select: { id: true, name: true, email: true } },
-      resolvedBy: { select: { id: true, name: true, email: true } },
-      photos: true,
-    },
-  },
-} as const;
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
+  const { id } = await params;
+  const flight = await prisma.flight.findUnique({
+    where: { id },
+    include: FLIGHT_DETAIL_INCLUDE,
+  });
+  if (!flight) {
+    return NextResponse.json({ error: "That flight is gone." }, { status: 404 });
+  }
+
+  // Readable by any member: the flight log is the club's shared record, and
+  // the list this is opened from already shows every flight to everyone.
+  return NextResponse.json(serializeFlight(flight, user.id));
+}
+
+/** Number, or null for "" / null / undefined / unparseable. */
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
@@ -102,8 +116,11 @@ export async function PATCH(
   // two can't drift apart (see the POST route for the same rule).
   if ("turnoffAnswers" in body) {
     const turnoffAnswers = parseAnswers("TURNOFF", body.turnoffAnswers);
-  const turnoffValues = parseValues("TURNOFF", body.turnoffValues);
     data.turnoffAnswers = turnoffAnswers;
+    // The readings recorded ON those items (the tach, the flight timer) go
+    // with them — they were being parsed and then dropped, which quietly wiped
+    // the shutdown tach every time a filed flight was corrected.
+    data.turnoffValues = parseValues("TURNOFF", body.turnoffValues);
     data.turnoffCheckoutVersion = TURNOFF_CHECKOUT.version;
     Object.assign(data, derivePutAway(turnoffAnswers));
   }
@@ -139,7 +156,7 @@ export async function PATCH(
   const updated = await prisma.flight.update({
     where: { id },
     data,
-    include: INCLUDE,
+    include: FLIGHT_DETAIL_INCLUDE,
   });
 
   // A corrected tach reading or fuel receipt changes what this flight cost, so

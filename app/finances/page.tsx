@@ -68,6 +68,10 @@ export default function FinancesPage() {
   const [busy, setBusy] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
+  // The line a delete has been asked for but not yet confirmed. Deleting is
+  // the only action here with no undo, so it goes through a dialog that names
+  // the line and its amount rather than a second tap on the same button.
+  const [confirmingDelete, setConfirmingDelete] = useState<ApiCharge | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
 
   usePageLoading(data === null);
@@ -93,8 +97,16 @@ export default function FinancesPage() {
         chargedCents: acc.chargedCents + s.chargedCents,
         creditedCents: acc.creditedCents + s.creditedCents,
         balanceCents: acc.balanceCents + s.balanceCents,
+        paidCents: acc.paidCents + s.paidCents,
+        outstandingCents: acc.outstandingCents + s.outstandingCents,
       }),
-      { chargedCents: 0, creditedCents: 0, balanceCents: 0 }
+      {
+        chargedCents: 0,
+        creditedCents: 0,
+        balanceCents: 0,
+        paidCents: 0,
+        outstandingCents: 0,
+      }
     );
   }, [data]);
 
@@ -109,6 +121,45 @@ export default function FinancesPage() {
     setBusy(false);
     if (!result.ok) {
       setError(result.error ?? "Could not change that charge.");
+      return;
+    }
+    await load();
+  }
+
+  /** Tick a line off as settled — or un-tick it, for the wrong row. */
+  async function setPaid(charge: ApiCharge, paid: boolean) {
+    setError(null);
+    setBusy(true);
+    const result = await sendJson<ApiCharge>(
+      `/api/finances/charges/${charge.id}`,
+      "PATCH",
+      { paid }
+    );
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error ?? "Could not change that charge.");
+      return;
+    }
+    await load();
+  }
+
+  /**
+   * Remove a line for good.
+   *
+   * Only ever reached through the confirm dialog below — this is the one
+   * action on the page that leaves no trace, and the API refuses it outright
+   * for a derived line (a flight's charge would only come back the next time
+   * the flight was corrected). Its error is shown rather than swallowed, since
+   * "void it instead" is exactly what the officer needs to hear.
+   */
+  async function deleteCharge(charge: ApiCharge) {
+    setError(null);
+    setBusy(true);
+    const result = await sendJson(`/api/finances/charges/${charge.id}`, "DELETE");
+    setBusy(false);
+    setConfirmingDelete(null);
+    if (!result.ok) {
+      setError(result.error ?? "Could not delete that charge.");
       return;
     }
     await load();
@@ -182,11 +233,14 @@ export default function FinancesPage() {
             <span className="min-w-0 flex-1 text-sm">
               Add charges and credits, set the club&apos;s dues and hourly rate.
             </span>
+            {/* Named for WHAT each one writes, not for the verb: one line on
+                this month's statement, versus the standing rule that bills
+                every month. "Add"/"Rules" read as generic chrome. */}
             <Button size="sm" onClick={() => setAddOpen(true)}>
-              Add
+              One Off
             </Button>
             <Button size="sm" variant="secondary" onClick={() => setRulesOpen(true)}>
-              Rules
+              Recurring
             </Button>
           </div>
         </OfficerOnly>
@@ -196,13 +250,23 @@ export default function FinancesPage() {
         <Card className="flex flex-wrap items-baseline justify-between gap-2">
           <span className="text-sm font-semibold">
             Outstanding across the club
+            {/* Payments come off this figure and leave the month's totals
+                alone — see `totals` in lib/finance.ts. */}
+            {clubTotals.paidCents !== 0 && (
+              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+                {formatMoney(clubTotals.paidCents)} of{" "}
+                {formatMoney(clubTotals.balanceCents)} settled
+              </span>
+            )}
           </span>
           <span
             className={`tabular text-xl font-bold ${
-              clubTotals.balanceCents < 0 ? "text-green-600 dark:text-green-400" : ""
+              clubTotals.outstandingCents < 0
+                ? "text-green-600 dark:text-green-400"
+                : ""
             }`}
           >
-            {formatMoney(clubTotals.balanceCents)}
+            {formatMoney(clubTotals.outstandingCents)}
           </span>
         </Card>
       )}
@@ -215,8 +279,53 @@ export default function FinancesPage() {
           canManage={canManage}
           busy={busy}
           onVoid={voidCharge}
+          onPaid={setPaid}
+          onDelete={(charge) => setConfirmingDelete(charge)}
         />
       ))}
+
+      {/* Deleting a line is the one thing on this page that can't be undone —
+          voiding keeps the record, and un-ticking "paid" is free. So it asks,
+          and it names the line and the amount it's about to remove. */}
+      {confirmingDelete && (
+        <Modal
+          open
+          onClose={() => setConfirmingDelete(null)}
+          title="Delete this line?"
+          subtitle={`${confirmingDelete.description} · ${formatMoney(
+            confirmingDelete.amountCents
+          )}`}
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => setConfirmingDelete(null)}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => deleteCharge(confirmingDelete)}
+                disabled={busy}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            It disappears from {confirmingDelete.member.name}&rsquo;s statement
+            and from the club&rsquo;s totals, with no record that it was ever
+            there. To unwind a charge and keep the trail, <strong>void</strong>{" "}
+            it instead.
+          </p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Lines that came from a flight or a recurring rule can&rsquo;t be
+            deleted at all — they would be rebuilt from their source. Void those.
+          </p>
+        </Modal>
+      )}
 
       {addOpen && (
         <AddChargeModal
@@ -248,12 +357,16 @@ function StatementCard({
   canManage,
   busy,
   onVoid,
+  onPaid,
+  onDelete,
 }: {
   statement: ApiStatement;
   showName: boolean;
   canManage: boolean;
   busy: boolean;
   onVoid: (charge: ApiCharge, voided: boolean) => void;
+  onPaid: (charge: ApiCharge, paid: boolean) => void;
+  onDelete: (charge: ApiCharge) => void;
 }) {
   return (
     <Card className="space-y-3">
@@ -302,7 +415,12 @@ function StatementCard({
 
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {statement.charges.map((charge) => {
+                // Voided and paid both quieten the row, and they are NOT the
+                // same claim: voided is struck through (it should never have
+                // stood), paid keeps its amount and its strikethrough-free
+                // description, with a tick to say it's settled.
                 const muted = charge.voided;
+                const paid = Boolean(charge.paidAt);
                 return (
                   <tr key={charge.id}>
                     <td className="whitespace-nowrap py-2 pl-1 pr-3 text-gray-500 dark:text-gray-400">
@@ -324,6 +442,21 @@ function StatementCard({
                           voided
                         </span>
                       )}
+                      {paid && !muted && (
+                        <span
+                          className="ml-2 align-middle text-xs font-medium text-green-700 dark:text-green-400"
+                          title={
+                            charge.paidBy
+                              ? `Marked paid by ${charge.paidBy.name}`
+                              : undefined
+                          }
+                        >
+                          ✓ paid
+                          {charge.paidAt
+                            ? ` ${formatDay(new Date(charge.paidAt))}`
+                            : ""}
+                        </span>
+                      )}
                     </td>
                     <td
                       className={`tabular whitespace-nowrap py-2 pr-1 text-right font-medium ${
@@ -338,13 +471,38 @@ function StatementCard({
                     </td>
                     {canManage && (
                       <td className="py-2 pl-3 pr-1 text-right">
-                        <button
-                          onClick={() => onVoid(charge, !charge.voided)}
-                          disabled={busy}
-                          className="text-xs font-medium text-gray-500 hover:underline disabled:opacity-50 dark:text-gray-400"
-                        >
-                          {charge.voided ? "Restore" : "Void"}
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          {/* The everyday action, first: the member paid. A
+                              checkbox rather than a verb, because it toggles
+                              and its state IS the answer. */}
+                          {!charge.voided && (
+                            <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                              <input
+                                type="checkbox"
+                                checked={paid}
+                                disabled={busy}
+                                onChange={(e) => onPaid(charge, e.target.checked)}
+                                className="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600 dark:border-gray-600"
+                                aria-label={`Paid — ${charge.description}`}
+                              />
+                              Paid
+                            </label>
+                          )}
+                          <button
+                            onClick={() => onVoid(charge, !charge.voided)}
+                            disabled={busy}
+                            className="text-xs font-medium text-gray-500 hover:underline disabled:opacity-50 dark:text-gray-400"
+                          >
+                            {charge.voided ? "Restore" : "Void"}
+                          </button>
+                          <button
+                            onClick={() => onDelete(charge)}
+                            disabled={busy}
+                            className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -572,7 +730,7 @@ function DirectionButton({
  * The rate is per AIRPLANE — a club with a 172 and a Cherokee charges
  * differently for each — so the officer picks the airplane first and the field
  * follows it. This is the only place the rate can be set: it's a price, so it
- * doesn't belong in org settings next to the tail number and the fuel capacity.
+ * doesn't belong in club settings next to the tail number and the fuel capacity.
  */
 function RulesModal({
   fleet,

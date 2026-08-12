@@ -37,10 +37,21 @@ test("it starts from the airplane's own weighing, not a default", async ({ page 
   // is on the page next to the result.
   await expect(page.getByText("November 27, 2021")).toBeVisible();
 
-  // Fuel starts full and oil starts empty — entering oil on top of a modern
-  // basic empty weight would double-count 15 lb at the nose.
-  await expect(page.getByLabel("Fuel", { exact: true })).toHaveValue("37");
+  // Fuel opens at what the airplane was last DIPPED to, not at "full": the
+  // seeded preflight recorded a part-full airplane, and a form that opened at
+  // 37 would plan a flight 100 lb heavy unless somebody remembered to correct
+  // it. The reading is attributed on the page, because it's a measurement.
+  const fuel = page.getByLabel("Fuel", { exact: true });
+  await expect(fuel).not.toHaveValue("");
+  await expect(fuel).not.toHaveValue("37");
+  await expect(page.getByText(/gal from .*preflight/)).toBeVisible();
+
+  // Oil still starts EMPTY, and the recorded dipstick reading is shown beside
+  // the box rather than typed into it: this airframe's basis is a modern basic
+  // empty weight that already includes its oil, so entering it again would
+  // double-count 15 lb at the furthest forward station on the airplane.
   await expect(page.getByLabel("Engine oil", { exact: true })).toHaveValue("0");
+  await expect(page.getByText(/qt on the dipstick/)).toBeVisible();
 });
 
 test("a normal two-up load is within limits, at takeoff and on landing", async ({
@@ -48,6 +59,9 @@ test("a normal two-up load is within limits, at takeoff and on landing", async (
 }) => {
   await gotoTab(page, "/tools/weight-balance", "Weight & Balance");
 
+  // Full tanks, stated rather than assumed: the box now opens at whatever the
+  // last preflight dipped, so a test about the arithmetic has to fix it.
+  await page.getByLabel("Fuel", { exact: true }).fill("37");
   await page.getByLabel("Pilot", { exact: true }).fill("170");
   await page.getByLabel("Front passenger", { exact: true }).fill("150");
   await page.getByLabel("Baggage", { exact: true }).fill("20");
@@ -73,6 +87,9 @@ test("a normal two-up load is within limits, at takeoff and on landing", async (
 test("it answers how much more each station will take", async ({ page }) => {
   await gotoTab(page, "/tools/weight-balance", "Weight & Balance");
 
+  // Full tanks, stated rather than assumed: the box now opens at whatever the
+  // last preflight dipped, so a test about the arithmetic has to fix it.
+  await page.getByLabel("Fuel", { exact: true }).fill("37");
   await page.getByLabel("Pilot", { exact: true }).fill("170");
   await page.getByLabel("Front passenger", { exact: true }).fill("150");
   await page.getByLabel("Baggage", { exact: true }).fill("20");
@@ -103,6 +120,7 @@ test("it catches the load that is legal on the scales but too far aft", async ({
   // Two big people in the back, a light pilot, bags behind them: 2165 lb, so
   // under gross — and a CG of 46.85 in, well aft of the limit. This is exactly
   // the load a "does it weigh too much" check waves straight through.
+  await page.getByLabel("Fuel", { exact: true }).fill("37");
   await page.getByLabel("Pilot", { exact: true }).fill("130");
   await page.getByLabel("Rear left", { exact: true }).fill("200");
   await page.getByLabel("Rear right", { exact: true }).fill("200");
@@ -124,6 +142,7 @@ test("it catches the load that is legal on the scales but too far aft", async ({
 test("it catches an over-gross load", async ({ page }) => {
   await gotoTab(page, "/tools/weight-balance", "Weight & Balance");
 
+  await page.getByLabel("Fuel", { exact: true }).fill("37");
   await page.getByLabel("Pilot", { exact: true }).fill("200");
   await page.getByLabel("Front passenger", { exact: true }).fill("200");
   await page.getByLabel("Rear left", { exact: true }).fill("180");
@@ -135,10 +154,10 @@ test("it catches an over-gross load", async ({ page }) => {
   await expect(page.getByText("Over by")).toBeVisible();
 });
 
-test("Org settings holds the basis, and echoes back the arm as a check", async ({
+test("Club settings holds the basis, and echoes back the arm as a check", async ({
   page,
 }) => {
-  await gotoTab(page, "/settings", "Org settings");
+  await gotoTab(page, "/settings", "Club settings");
 
   await expect(page.getByLabel("Empty weight")).toHaveValue("1353.48");
   await expect(page.getByLabel("Empty moment")).toHaveValue("52406.81");

@@ -4,6 +4,7 @@
 // UI needs.
 import type { CheckoutKind, Values } from "./checkouts";
 import type { Purpose } from "./constants";
+import type { MaintenanceCategory } from "./maintenance";
 import type { SquawkStatus } from "./squawks";
 import type { ChargeKind } from "./finance";
 import type { Capability, Position } from "./positions";
@@ -45,6 +46,40 @@ export interface ApiAircraft {
   openSquawkCount: number;
   /** Filed but not yet triaged — what the Safety Officer owes the club. */
   newSquawkCount: number;
+  /**
+   * What the airplane is due for — the club's maintenance sheet, still tracked.
+   *
+   * Carried on the AIRPLANE rather than fetched by the one page that draws it,
+   * for the same reason the open squawks are: "is anything overdue" is a
+   * dispatch question, and the answer has to be available anywhere the fleet
+   * is — the Status header's airworthy badge reads it without a fetch of its
+   * own. Only `active` items; a retired one keeps its history and drops off.
+   * Every countdown is DERIVED from these four facts plus `lastTach`, in
+   * lib/maintenance.ts — nothing here is a stored "days remaining".
+   */
+  maintenance: ApiMaintenanceItem[];
+}
+
+/** One row of the airplane's maintenance sheet. */
+export interface ApiMaintenanceItem {
+  id: string;
+  aircraftId: string;
+  label: string;
+  category: MaintenanceCategory;
+  /**
+   * Required by regulation rather than by the club's own schedule. Decides
+   * what OVERDUE means: a grounding, or a job that's late.
+   */
+  requiredByReg: boolean;
+  /** The rule it comes from, as the club's sheet writes it: "14 CFR 91.413". */
+  reference: string | null;
+  intervalHours: number | null;
+  intervalMonths: number | null;
+  lastDoneTach: number | null;
+  lastDoneOn: string | null;
+  notes: string | null;
+  active: boolean;
+  updatedAt: string;
 }
 
 export interface ApiSquawkSummary {
@@ -82,7 +117,18 @@ export interface ApiPhoto {
   createdAt: string;
 }
 
-export interface ApiFlight {
+/**
+ * One row of the flight log, as the LIST endpoints return it.
+ *
+ * Everything a list draws, and nothing more. The photos and squawks attached
+ * to a flight are deliberately absent: they're only ever read when a member
+ * opens the entry, and including them made `GET /api/flights?limit=300` carry
+ * every photo record, every squawk, every squawk's photos and two user objects
+ * per squawk — for pages (Plane Status, Preflight) that use the response to
+ * draw a bar chart and read a tach reading. The counts below are what a list
+ * row actually shows; the objects come from `GET /api/flights/[id]`.
+ */
+export interface ApiFlightSummary {
   id: string;
   aircraft: { id: string; tailNumber: string };
   pilot: ApiUserSummary;
@@ -110,8 +156,14 @@ export interface ApiFlight {
   /** Readings recorded on the turn-off items (tach, flight timer). */
   turnoffValues: Values;
   notes: string | null;
-  photos: ApiPhoto[];
-  squawks: ApiSquawk[];
+  /** How many photos are attached — the list shows the count, not the images. */
+  photoCount: number;
+  /**
+   * How many of this flight's squawks are still open. A count rather than the
+   * rows because the list only asks a yes/no question of it ("does this entry
+   * still have something wrong hanging off it?").
+   */
+  openSquawkCount: number;
   /**
    * The instructor's endorsement of this entry.
    *
@@ -130,6 +182,18 @@ export interface ApiFlight {
   editedAt: string | null;
   createdAt: string;
   mine: boolean;
+}
+
+/**
+ * One flight with everything hanging off it — `GET /api/flights/[id]`, which is
+ * what FlightDetailModal fetches when a member opens a log entry.
+ *
+ * An extension of the summary rather than a separate shape, so anything that
+ * takes a log row (the hours maths, the signature rules) accepts either.
+ */
+export interface ApiFlight extends ApiFlightSummary {
+  photos: ApiPhoto[];
+  squawks: ApiSquawk[];
 }
 
 export interface ApiSquawk {
@@ -164,6 +228,13 @@ export interface ApiCheckout {
   completedAt: string | null;
   photos: ApiPhoto[];
   createdAt: string;
+  /**
+   * Last written. On an OPEN run this is when progress was last saved, which
+   * is what the resume banner shows — `createdAt` would report when the walk
+   * was begun, so a card put down and picked up twice would claim to be older
+   * than the work in it.
+   */
+  updatedAt: string;
 }
 
 /**
@@ -252,6 +323,13 @@ export interface ApiCharge {
   recurringChargeId: string | null;
   voided: boolean;
   voidReason: string | null;
+  /**
+   * When this line was marked settled, and by whom. Null = still outstanding.
+   * Distinct from `voided`: a voided line should never have stood, a paid one
+   * stood and has been met.
+   */
+  paidAt: string | null;
+  paidBy: ApiUserSummary | null;
   createdAt: string;
   /** True when the line belongs to the signed-in member. */
   mine: boolean;
@@ -278,6 +356,10 @@ export interface ApiStatement {
   chargedCents: number;
   creditedCents: number;
   balanceCents: number;
+  /** Of the balance, what has been marked settled. */
+  paidCents: number;
+  /** What's still owed — balance less what's been paid. */
+  outstandingCents: number;
 }
 
 /**

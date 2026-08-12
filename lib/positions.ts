@@ -41,7 +41,7 @@ export const POSITION_BLURBS: Record<Position, string> = {
   SAFETY_OFFICER:
     "The person to call about an open squawk — and the one who triages it: sets its status, and decides whether the airplane flies.",
   MAINTENANCE_OFFICER:
-    "Coordinates the shop. Title only in the app today.",
+    "Keeps the airplane's maintenance sheet: what's due, when it was last done, and what comes next.",
   INSTRUCTOR:
     "A CFI who teaches here: can be named on a training booking, and signs off the flight-log entry afterwards.",
 };
@@ -78,6 +78,17 @@ export type Capability =
    */
   | "flight:sign"
   /**
+   * Keep the airplane's maintenance sheet: add an item, correct an interval,
+   * record that something was signed off.
+   *
+   * Read is deliberately NOT gated — what the airplane is due for is the first
+   * thing every member should see, and an item nobody may read is an item that
+   * surprises somebody on a Saturday. This is the WRITE side: saying the annual
+   * was done is a claim about the airplane's airworthiness, and it belongs to
+   * the officer who deals with the shop (and to admins, like everything else).
+   */
+  | "maintenance:manage"
+  /**
    * Book the airplane, and be billed for it.
    *
    * Granted by MEMBERSHIP rather than by an office: it's the answer to "does
@@ -103,7 +114,7 @@ const POSITION_CAPABILITIES: Record<Position, Capability[]> = {
   SECRETARY: [],
   FINANCE_OFFICER: ["finance:read-all", "finance:manage"],
   SAFETY_OFFICER: ["squawk:manage"],
-  MAINTENANCE_OFFICER: [],
+  MAINTENANCE_OFFICER: ["maintenance:manage"],
   INSTRUCTOR: ["flight:sign"],
 };
 
@@ -126,6 +137,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "finance:manage",
   "squawk:manage",
   "flight:sign",
+  "maintenance:manage",
   "reservation:book",
   "finance:read-own",
 ];

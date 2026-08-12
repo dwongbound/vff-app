@@ -44,6 +44,17 @@ describe("positions", () => {
     expect(can(finance, "squawk:manage")).toBe(false);
   });
 
+  it("gives the Maintenance Officer the airplane's due list and nothing else", () => {
+    const shop = { isAdmin: false, positions: ["MAINTENANCE_OFFICER" as const] };
+    expect(can(shop, "maintenance:manage")).toBe(true);
+    // Recording that the annual was done is not triaging what members report:
+    // the two jobs meet at the airplane and are held by different people.
+    expect(can(shop, "squawk:manage")).toBe(false);
+    expect(can(shop, "finance:manage")).toBe(false);
+    // …and nobody but an admin or the Maintenance Officer may write the sheet.
+    expect(can(nobody, "maintenance:manage")).toBe(false);
+  });
+
   it("unions the capabilities of someone holding two offices", () => {
     const both = {
       isAdmin: false,

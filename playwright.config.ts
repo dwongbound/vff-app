@@ -41,6 +41,13 @@ export default defineConfig({
   // the narrow branches, `ipad.spec.ts` covers the desktop layout under
   // pressure, and everything else assumes a comfortable desktop.
   //
+  // They are not all the same ENGINE, which matters when installing browsers:
+  // "Desktop Chrome" is Chromium, but Playwright's iPad and iPhone descriptors
+  // are Safari device profiles and default to WEBKIT. That's deliberate — an
+  // iPhone member really is on Safari — but it means `playwright install
+  // chromium` alone leaves two thirds of the suite with nothing to launch. CI
+  // installs one engine per leg; see the e2e matrix in .github/workflows/ci.yml.
+  //
   // `tour.spec.ts` is the exception — it runs in ALL THREE. The guided tour
   // measures live nav elements to place its highlight, so it's the one feature
   // whose correctness is a function of the layout, and a desktop-only check

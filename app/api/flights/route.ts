@@ -7,7 +7,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { serializeFlight } from "@/lib/serialize";
+import { serializeFlight, serializeFlightSummary } from "@/lib/serialize";
+import { FLIGHT_DETAIL_INCLUDE, FLIGHT_LIST_SELECT } from "@/lib/flights";
 import { validateMeters } from "@/lib/hours";
 import {
   TURNOFF_CHECKOUT,
@@ -18,20 +19,6 @@ import {
 import { syncFlightCharges } from "@/lib/ledger";
 import { resolveInstructor, resolutionFailed } from "@/lib/instructors";
 
-const INCLUDE = {
-  aircraft: { select: { id: true, tailNumber: true } },
-  pilot: { select: { id: true, name: true, email: true } },
-  instructor: { select: { id: true, name: true, email: true } },
-  signedBy: { select: { id: true, name: true, email: true } },
-  photos: true,
-  squawks: {
-    include: {
-      reportedBy: { select: { id: true, name: true, email: true } },
-      resolvedBy: { select: { id: true, name: true, email: true } },
-      photos: true,
-    },
-  },
-} as const;
 
 /** Number, or null for "" / null / undefined / unparseable. */
 function num(v: unknown): number | null {
@@ -77,12 +64,12 @@ export async function GET(req: Request) {
       ...(mine ? { userId: user.id } : {}),
       ...(instructing ? { instructorId: user.id } : {}),
     },
-    include: INCLUDE,
+    include: FLIGHT_LIST_SELECT,
     orderBy: [{ flownOn: "desc" }, { createdAt: "desc" }],
     take: limit,
   });
 
-  return NextResponse.json(rows.map((f) => serializeFlight(f, user.id)));
+  return NextResponse.json(rows.map((f) => serializeFlightSummary(f, user.id)));
 }
 
 export async function POST(req: Request) {
@@ -222,7 +209,9 @@ export async function POST(req: Request) {
       turnoffCheckoutVersion: answeredTurnoff ? TURNOFF_CHECKOUT.version : null,
       notes: body.notes ? String(body.notes).trim() : null,
     },
-    include: INCLUDE,
+    // The POST response is the full entry — the post-flight form hands it
+    // straight to the detail modal.
+    include: FLIGHT_DETAIL_INCLUDE,
   });
 
   // Advance the airplane's meters. Guarded with `>` so filing an older flight

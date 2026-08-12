@@ -1,5 +1,5 @@
 "use client";
-// Org settings › New account codes.
+// Club settings › New account codes.
 //
 // The club's two front doors, side by side, because the whole point is that
 // they are DIFFERENT doors: the member list creates people who book the

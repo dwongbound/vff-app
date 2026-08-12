@@ -11,7 +11,7 @@
 // Reservations → Finances. Reservations is styled as a call-to-action rather
 // than a tab: booking the airplane is what most people came to do.
 //
-// Members and Org settings are deliberately NOT tabs — the roster and the
+// Members and Club settings are deliberately NOT tabs — the roster and the
 // club's configuration are about people and admin, not about flying, so they
 // hang off the avatar menu in the top bar, next to "My profile".
 //
@@ -117,6 +117,11 @@ const NAV: NavItem[] = [
     children: [
       { href: "/status", label: "Overview", mobileLabel: "Overview", icon: PLANE_ICON },
       { href: "/status/squawks", label: "Squawks", mobileLabel: "Squawks", icon: WRENCH_ICON },
+      // What the airplane is DUE for, as opposed to what's wrong with it. Next
+      // to Squawks because the two are read by the same person on the same
+      // morning, and `isActive` uses the longest matching href, so a nested
+      // route can't light two entries at once.
+      { href: "/status/maintenance", label: "Maintenance", mobileLabel: "Mx", icon: GAUGE_ICON },
     ],
   },
   {
@@ -185,9 +190,11 @@ function navFor(capabilities: Capability[]): NavItem[] {
   });
 }
 
-// The reservations tab is the app's call to action — the thing a member most
-// often came here to do — so it's styled as a button rather than a tab.
-const CTA_HREF = "/reservations";
+// Reservations used to carry a tint of its own here, as the app's call to
+// action. It doesn't any more: a tab that is permanently coloured says the same
+// thing on every page, so it stops being a signal and competes with the ONE
+// mark that actually changes — which tab you're on. Every tab now looks the
+// same until it's the current one.
 
 // The theme modes, named. "System" is last because it's the default: the list
 // reads as "pick one, or hand it back to the OS".
@@ -450,7 +457,7 @@ export default function Navbar() {
           href="/settings"
           className="block px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
         >
-          Org settings
+          Club settings
         </Link>
       )}
       {/* Replaying the tour has its own button in the top bar now, so it's not
@@ -565,11 +572,7 @@ export default function Navbar() {
                   href={item.href}
                   onClick={() => handleTabClick(item.href)}
                   data-tour={tourKey(item.href)}
-                  className={
-                    item.href === CTA_HREF
-                      ? railCtaClassName(isActive(item.href))
-                      : railClassName(isActive(item.href))
-                  }
+                  className={railClassName(isActive(item.href))}
                 >
                   <TabIcon d={item.icon} />
                   <span className="flex-1 text-left">{item.label}</span>
@@ -709,11 +712,7 @@ export default function Navbar() {
                   handleTabClick(item.href);
                 }}
                 data-tour={tourKey(item.href)}
-                className={
-                  item.href === CTA_HREF
-                    ? bottomCtaClassName(active)
-                    : bottomTabClassName(active)
-                }
+                className={bottomTabClassName(active)}
               >
                 <TabIcon d={item.icon} />
                 {label}
@@ -900,7 +899,12 @@ function ThemeSubmenu({
 // beneath it, because the tail is what members say to each other.
 function AircraftChip() {
   const { aircraft, selected, selectAircraft } = useAircraft();
-  if (!selected) return null;
+  // No airplane yet (a brand-new club, or the fleet still loading): render an
+  // EMPTY CELL rather than nothing. The header is a three-column grid whose
+  // outer `1fr`s are what centre the chip, and returning null here leaves only
+  // two children — grid auto-placement then slides the account controls into
+  // the middle column and they stop being right-aligned.
+  if (!selected) return <span aria-hidden />;
 
   const hasChoice = Boolean(aircraft && aircraft.length > 1);
 
@@ -1020,26 +1024,6 @@ function railChildClassName(active: boolean): string {
     return `${base} bg-indigo-50 font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300`;
   }
   return `${base} text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700`;
-}
-
-// The reservations tab: still marked out as the thing most people came to do,
-// but with a soft tint rather than a filled button. When it IS the current tab
-// it takes the ordinary active fill, so "where I am" always outranks "what's
-// worth doing".
-function railCtaClassName(active: boolean): string {
-  if (active) return railClassName(true);
-  const base =
-    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus:outline-none";
-  return `${base} bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50`;
-}
-
-// The same swap in the phone pill: the current tab is the filled lozenge, and
-// Reservations settles for a tint.
-function bottomCtaClassName(active: boolean): string {
-  if (active) return bottomTabClassName(true);
-  const base =
-    "flex flex-1 flex-col items-center gap-0.5 rounded-full px-1 py-1.5 font-semibold transition-colors focus:outline-none";
-  return `${base} bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300`;
 }
 
 // Bottom-bar tab styling: stacked icon + label, evenly sharing the pill's

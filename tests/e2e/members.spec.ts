@@ -55,7 +55,7 @@ test("org settings edits the fleet, and only admins get in", async ({ page }) =>
   await signIn(page);
   await page.goto("/settings");
   await expect(
-    page.getByRole("heading", { name: "Org settings", exact: true })
+    page.getByRole("heading", { name: "Club settings", exact: true })
   ).toBeVisible({ timeout: 60_000 });
 
   // The seeded airplane is there, and its tail number is editable.

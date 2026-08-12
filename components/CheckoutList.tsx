@@ -48,6 +48,30 @@ export interface DerivedItem {
   linkLabel?: string;
 }
 
+/**
+ * A live note under an ITEM — what the app already knows about the thing the
+ * pilot is being asked to confirm.
+ *
+ * Different from `derived` on purpose: a derived item is one the app ANSWERS
+ * (the row ticks itself and can't be tapped), while this is one the app can
+ * only inform. "Open squawks — reviewed, airplane airworthy" is exactly that
+ * shape: the club's squawk list is a fact the app holds, but whether you have
+ * READ it is not, so the row stays yours to tick and the list comes to you.
+ *
+ * The tone is the traffic light, and it never travels alone — the note is
+ * words, so it carries the same meaning with the colour switched off.
+ */
+export interface ItemNote {
+  tone: "green" | "amber" | "red";
+  children: ReactNode;
+}
+
+const NOTE_INK: Record<ItemNote["tone"], string> = {
+  green: "text-green-700 dark:text-green-400",
+  amber: "text-amber-700 dark:text-amber-400",
+  red: "font-medium text-red-700 dark:text-red-400",
+};
+
 export default function CheckoutList({
   checkout,
   answers,
@@ -56,6 +80,7 @@ export default function CheckoutList({
   onValuesChange,
   hints,
   derived,
+  itemNotes,
   /** Bump this to collapse back to the first section (after a sign-off). */
   resetKey = 0,
 }: {
@@ -68,6 +93,8 @@ export default function CheckoutList({
   hints?: Record<string, ReactNode>;
   /** Items the app answers for itself, by item id. */
   derived?: Record<string, DerivedItem>;
+  /** Live notes under an item, by item id — see ItemNote. */
+  itemNotes?: Record<string, ItemNote>;
   resetKey?: number;
 }) {
   const [openSection, setOpenSection] = useState<string>(
@@ -115,6 +142,27 @@ export default function CheckoutList({
   const complete = checked === total;
   const progress = total === 0 ? 100 : Math.round((checked / total) * 100);
 
+  // Per-section tallies, computed once: the sticky bar, the segmented gauge and
+  // every section header all want them, and walking the card three times to get
+  // the same numbers is how they end up disagreeing.
+  const sectionState = checkout.sections.map((section) => {
+    const done = countSectionChecked(section, answers);
+    return { section, done, complete: done === section.items.length };
+  });
+
+  // Which step the member is ON.
+  //
+  // The open section when there is one — that's literally what they're looking
+  // at. When everything is collapsed, the first UNFINISHED section is the
+  // honest answer to "where am I", and it's also where the accordion would send
+  // them next. A finished card falls back to the last section rather than
+  // reporting step 1 of 8 under a full green bar.
+  const current =
+    sectionState.find((s) => s.section.id === openSection) ??
+    sectionState.find((s) => !s.complete) ??
+    sectionState[sectionState.length - 1];
+  const currentIndex = sectionState.indexOf(current);
+
   function toggle(id: string) {
     // A derived item's answer isn't the pilot's to give — see DerivedItem.
     if (derived?.[id]) return;
@@ -151,39 +199,85 @@ export default function CheckoutList({
 
   return (
     <div className="space-y-4">
-      {/* Sticky progress bar: it's the one number you want while working down
-          the airplane, and it stays put as you scroll. */}
+      {/* Sticky progress bar. It answers WHERE AM I, which on a card walked
+          one-handed round an airplane is a different question from how much is
+          left: scrolled into the middle of a 15-item section with the header
+          off the top of the screen, "26%" doesn't tell you which section you're
+          in or how close you are to the end of it.
+          So: the section you're on, your position inside it, and — as the gauge
+          — the whole card broken into its sections, which puts the overall
+          figure and the current step in one picture. */}
       {/* `top-0`, not the header height: this sticks to the content column,
           which already starts below the header. */}
+      {/* Deliberately NOT `role="status"`. It looks like one — it's a strip
+          that updates by itself — but a live region here would re-announce the
+          whole "step 3 of 8, Consumables, 4 of 6, 26%" on EVERY tap, over the
+          top of the checkbox's own state change. The numbers are plain text in
+          reading order, which is what a screen reader wants; the live region on
+          this page is the draft bar, which changes when nobody touched
+          anything. */}
       <div className="sticky top-0 z-10 -mx-4 bg-gray-50/95 px-4 py-2 backdrop-blur dark:bg-gray-900/95">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-medium">
-            {checked} of {total} checked
+        <div className="flex items-baseline justify-between gap-3 text-sm">
+          <span className="min-w-0 truncate font-semibold">
+            {current.section.title}
+          </span>
+          <span className="shrink-0 tabular text-gray-500 dark:text-gray-400">
+            {current.done}/{current.section.items.length}
+          </span>
+        </div>
+
+        {/* One segment per section, each as wide as the section is long, so the
+            gauge is a true picture of the card rather than eight equal boxes
+            that make the 3-item briefing look like the 15-item cockpit. The
+            section you're on is outlined — that's the "you are here". */}
+        <div className="mt-1.5 flex gap-1" aria-hidden>
+          {sectionState.map(({ section, done, complete: sectionComplete }) => {
+            const fill =
+              section.items.length === 0
+                ? 100
+                : Math.round((done / section.items.length) * 100);
+            return (
+              <div
+                key={section.id}
+                style={{ flexGrow: section.items.length }}
+                className={`h-2 basis-0 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700 ${
+                  section.id === current.section.id
+                    ? "ring-2 ring-indigo-500 ring-offset-1 ring-offset-gray-50 dark:ring-offset-gray-900"
+                    : ""
+                }`}
+              >
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    sectionComplete ? "bg-green-500" : "bg-indigo-600"
+                  }`}
+                  style={{ width: `${fill}%` }}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-1 flex items-baseline justify-between gap-3 text-xs">
+          <span className="text-gray-500 dark:text-gray-400">
+            Step {currentIndex + 1} of {sectionState.length} · {checked} of {total}{" "}
+            checked
           </span>
           <span
             className={
               complete
-                ? "font-semibold text-green-600 dark:text-green-400"
-                : "text-gray-500 dark:text-gray-400"
+                ? "shrink-0 font-semibold text-green-600 dark:text-green-400"
+                : "shrink-0 text-gray-500 dark:text-gray-400"
             }
           >
             {complete ? "Ready to sign off" : `${progress}%`}
           </span>
         </div>
-        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-          <div
-            className={`h-full rounded-full transition-all duration-300 ${
-              complete ? "bg-green-500" : "bg-indigo-600"
-            }`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
       </div>
 
       <div className="space-y-3">
-        {checkout.sections.map((section, sectionIndex) => {
-          const done = countSectionChecked(section, answers);
-          const sectionComplete = done === section.items.length;
+        {/* Same tallies the sticky bar above is drawn from, so a section header
+            and the gauge can never report different numbers for one section. */}
+        {sectionState.map(({ section, done, complete: sectionComplete }, sectionIndex) => {
           const expanded = openSection === section.id;
 
           return (
@@ -240,12 +334,16 @@ export default function CheckoutList({
                   <ul>
                     {section.items.map((item) => {
                       const fact = derived?.[item.id];
+                      const note = itemNotes?.[item.id];
                       const on = Boolean(answers[item.id]);
                       // A derived item that isn't satisfied is the one row on
                       // the card that reads as a problem rather than as work
                       // left to do, so it takes red rather than the neutral
                       // unticked grey.
-                      const blocked = Boolean(fact && !fact.satisfied);
+                      // A red NOTE tints the row the same way, and means the
+                      // same thing: this row is a problem, not work left to do.
+                      const blocked =
+                        Boolean(fact && !fact.satisfied) || note?.tone === "red";
                       // The row's tick target and its (i) are SIBLINGS, not
                       // nested: a button inside a button is invalid HTML and
                       // React refuses to hydrate it. The tick target still
@@ -324,6 +422,17 @@ export default function CheckoutList({
                                   }`}
                                 >
                                   {fact.message}
+                                </span>
+                              )}
+                              {/* What the app knows about this item right now.
+                                  Inside the tick target, so the thing you're
+                                  confirming and the evidence for it are one
+                                  block rather than two. */}
+                              {note && (
+                                <span
+                                  className={`mt-1 block text-xs ${NOTE_INK[note.tone]}`}
+                                >
+                                  {note.children}
                                 </span>
                               )}
                             </span>

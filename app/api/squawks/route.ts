@@ -34,14 +34,19 @@ export async function GET(req: Request) {
   const status = url.searchParams.get("status") ?? "open";
 
   // `open`/`closed`/`all` are the coarse buckets the pages ask for; an exact
-  // status is allowed too, for the Squawks tab's filter.
-  const where = isSquawkStatus(status)
-    ? { status }
-    : status === "all"
-      ? {}
-      : status === "closed"
-        ? { status: "CLOSED" as const }
-        : { status: { not: "CLOSED" as const } };
+  // status is allowed too, for the Squawks tab's filter. An unrecognised value
+  // falls through to "open", which is the default the pages rely on.
+  //
+  // Written as a chain of plain cases rather than nested ternaries: this is the
+  // query that decides which defects the next pilot is shown, and it should be
+  // readable at a glance by someone who doesn't already know the vocabulary.
+  function statusFilter() {
+    if (isSquawkStatus(status)) return { status };
+    if (status === "all") return {};
+    if (status === "closed") return { status: "CLOSED" as const };
+    return { status: { not: "CLOSED" as const } };
+  }
+  const where = statusFilter();
 
   const rows = await prisma.squawk.findMany({
     where: { ...(aircraftId ? { aircraftId } : {}), ...where },

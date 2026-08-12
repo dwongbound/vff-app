@@ -7,8 +7,10 @@
 //
 // The card itself lives in lib/checkouts.ts and the tick rows are rendered by
 // CheckoutList, which the runway page shares. What's specific to this page is
-// everything AROUND the card: the club's limits for this member, the open
-// squawks, what the walkaround found (fuel and oil), and any squawks it raised.
+// everything AROUND the card: the club's limits for this member, what the
+// walkaround found (fuel and oil), and any squawks it raised. The airplane's
+// EXISTING open squawks hang off the card's own "open squawks" item, which is
+// where the pilot is asked to confirm they've read them.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
@@ -16,8 +18,10 @@ import Card from "@/components/common/Card";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
-import CheckoutList from "@/components/CheckoutList";
+import CheckoutList, { type ItemNote } from "@/components/CheckoutList";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
+import CheckoutDraftBar from "@/components/CheckoutDraftBar";
+import { useCheckoutDraft } from "@/components/useCheckoutDraft";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { MyLimitsCard } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
@@ -33,10 +37,15 @@ import {
   type Values,
 } from "@/lib/checkouts";
 import { formatDay } from "@/lib/dates";
-import { SQUAWK_STATUS_SHORT, SQUAWK_STATUS_TONES } from "@/lib/squawks";
+import {
+  SQUAWK_STATUS_SHORT,
+  isAwaitingReview,
+  isGrounding,
+  isInMaintenance,
+} from "@/lib/squawks";
 import { soloEligibility } from "@/lib/operatingRules";
 import { useMe } from "@/components/MeProvider";
-import type { ApiCheckout, ApiFlight, ApiSquawk } from "@/lib/types";
+import type { ApiCheckout, ApiFlightSummary, ApiSquawk } from "@/lib/types";
 
 export default function PreflightPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -56,7 +65,7 @@ export default function PreflightPage() {
   const [recent, setRecent] = useState<ApiCheckout[] | null>(null);
   const [openSquawks, setOpenSquawks] = useState<ApiSquawk[]>([]);
   // My own flights, for the experience/currency half of the operating rules.
-  const [myFlights, setMyFlights] = useState<ApiFlight[]>([]);
+  const [myFlights, setMyFlights] = useState<ApiFlightSummary[]>([]);
   const { me } = useMe();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +84,7 @@ export default function PreflightPage() {
         `/api/checkouts?aircraftId=${aircraftId}&kind=PREFLIGHT&limit=5`
       ),
       fetchJsonArray<ApiSquawk>(`/api/squawks?aircraftId=${aircraftId}&status=open`),
-      fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${aircraftId}&mine=1&limit=300`),
+      fetchJsonArray<ApiFlightSummary>(`/api/flights?aircraftId=${aircraftId}&mine=1&limit=300`),
     ]);
     setRecent(runs);
     setOpenSquawks(squawks);
@@ -85,6 +94,91 @@ export default function PreflightPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  /**
+   * Send up anything that was waiting for a row to hang off.
+   *
+   * Photos and squawks can't go up until the checkout exists, so they're held
+   * on the page until autosave (or a sign-off) creates one. Squawks going up
+   * on the first sync rather than at sign-off is the important half: a walk
+   * that finds something wrong is a walk that often ends with nobody flying,
+   * and a squawk that only reaches the club on a sign-off that never comes is
+   * a squawk nobody reads.
+   */
+  const flushAttachments = useCallback(
+    async (checkoutId: string) => {
+      if (!selected) return;
+      if (photos.length === 0 && squawkDrafts.length === 0) return;
+
+      // Taken and cleared BEFORE the uploads: another autosave landing while
+      // these are in flight would otherwise send the same picture twice.
+      const pendingPhotos = photos;
+      const pendingSquawks = squawkDrafts;
+      setPhotos([]);
+      setSquawkDrafts([]);
+
+      if (pendingPhotos.length) {
+        await uploadPhotos(pendingPhotos, "checkout", checkoutId);
+      }
+      for (const draft of pendingSquawks) {
+        const squawk = await sendJson<ApiSquawk>("/api/squawks", "POST", {
+          aircraftId: selected.id,
+          checkoutId,
+          title: draft.title,
+          description: draft.description || null,
+        });
+        if (squawk.ok && squawk.data && draft.photos.length) {
+          await uploadPhotos(draft.photos, "squawk", squawk.data.id);
+        }
+      }
+
+      // A new squawk changes the open count the Status tab shows. It can no
+      // longer ground the airplane by itself — only the Safety Officer's triage
+      // does that — so this refreshes the count rather than a banner.
+      if (pendingSquawks.length > 0) notifyAircraftChanged();
+      await refresh();
+    },
+    [selected, photos, squawkDrafts, refresh]
+  );
+
+  // Autosave. Every tick lands on the device immediately and reaches the club's
+  // server a couple of seconds later; there is no longer anything for the
+  // member to press. See components/useCheckoutDraft.ts.
+  const draft = useCheckoutDraft({
+    kind: "PREFLIGHT",
+    aircraftId,
+    memberId: me?.id ?? null,
+    answers,
+    values,
+    notes,
+    onResume: useCallback((picked) => {
+      setAnswers(picked.answers);
+      // Saved values win, but anything the run never recorded keeps its
+      // default — otherwise resuming a card saved before a field existed
+      // would leave that field blank rather than at its opening value.
+      setValues((defaults) => ({ ...defaults, ...picked.values }));
+      setNotes(picked.notes);
+    }, []),
+    onSynced: flushAttachments,
+  });
+
+  /** Throw the saved walk away, on both stores, and start the card clean. */
+  async function resetCard() {
+    setError(null);
+    setSaved(null);
+    const result = await draft.reset();
+    if (!result.ok) {
+      setError(result.error ?? "Could not discard the saved checkout.");
+      return;
+    }
+    setAnswers({});
+    setValues(initialValues("PREFLIGHT"));
+    setPhotos([]);
+    setSquawkDrafts([]);
+    setNotes("");
+    setResetKey((k) => k + 1);
+    await refresh();
+  }
 
   // Prefill the meters from where the last filed flight left the airplane, so
   // the common case is confirming two numbers rather than typing them. Only
@@ -114,89 +208,169 @@ export default function PreflightPage() {
   });
 
   const complete = isComplete("PREFLIGHT", answers);
-  const anyChecked = Object.keys(answers).length > 0;
   const remaining = useMemo(() => missingItems("PREFLIGHT", answers), [answers]);
   // Echoed back below the card so the two figures Plane Status depends on are
   // visible before you sign off, without asking for them a second time.
   const fuelOil = useMemo(() => deriveFuelOil(values), [values]);
 
-  async function submit(signOff: boolean) {
+  /**
+   * Sign the walk off. The only submit on this page now — saving happens by
+   * itself, so this button means one thing rather than two.
+   */
+  async function signOff() {
     if (!selected) return;
     setError(null);
     setSaved(null);
     setBusy(true);
+    // Stop autosaving for the duration. A debounced sync coming due while this
+    // request is in flight would POST a fresh DRAFT a moment after the walk was
+    // signed for, and the next visit would offer to resume the card the member
+    // had just put their name to.
+    draft.freeze();
 
-    const result = await sendJson<ApiCheckout>("/api/checkouts", "POST", {
-      aircraftId: selected.id,
-      kind: "PREFLIGHT",
+    // Fuel and oil are no longer asked for twice: they're recorded on the
+    // consumables items, and the API derives the columns from those (it
+    // re-derives server-side too — this is not the client's decision).
+    const payload = {
       answers,
-      // Fuel and oil are no longer asked for twice: they're recorded on the
-      // consumables items, and the API derives the columns from those (it
-      // re-derives server-side too — this is not the client's decision).
       values,
       notes: notes.trim() || null,
-      complete: signOff,
-    });
+      complete: true,
+    };
+
+    // Autosave has almost certainly created the row already; PATCH it so one
+    // walkaround stays one row. The POST is the case where the very first sync
+    // hasn't landed yet — a member who ticks the last box within the debounce.
+    const result = draft.serverId
+      ? await sendJson<ApiCheckout>(
+          `/api/checkouts/${draft.serverId}`,
+          "PATCH",
+          payload
+        )
+      : await sendJson<ApiCheckout>("/api/checkouts", "POST", {
+          aircraftId: selected.id,
+          kind: "PREFLIGHT",
+          ...payload,
+        });
 
     if (!result.ok || !result.data) {
       setBusy(false);
+      // The sign-off didn't take, so the walk is still live work — put autosave
+      // back rather than leaving the member ticking into nothing.
+      draft.thaw();
       setError(result.error ?? "Could not save the preflight checkout.");
       return;
     }
 
-    const checkoutId = result.data.id;
+    // Anything still held on the page — a photo attached seconds ago, a squawk
+    // raised on the last item — needs the row, so it goes up now.
+    await flushAttachments(result.data.id);
 
-    // Photos and squawks both need the row's id, so they go up after it.
-    if (photos.length) {
-      await uploadPhotos(photos, "checkout", checkoutId);
-    }
-    for (const draft of squawkDrafts) {
-      const squawk = await sendJson<ApiSquawk>("/api/squawks", "POST", {
-        aircraftId: selected.id,
-        checkoutId,
-        title: draft.title,
-        description: draft.description || null,
-      });
-      if (squawk.ok && squawk.data && draft.photos.length) {
-        await uploadPhotos(draft.photos, "squawk", squawk.data.id);
-      }
-    }
+    // The row has stopped being a draft: it's the airplane's record. Drop the
+    // device copy so the next visit opens a clean card rather than offering to
+    // resume a walk that's already signed for.
+    draft.finish();
 
     setBusy(false);
     setSaved(
-      signOff
-        ? "Preflight checkout signed off. Next: the runway checkout, once you're sitting in it."
-        : "Progress saved — pick it back up any time."
+      "Preflight checkout signed off. Next: the runway checkout, once you're sitting in it."
     );
 
-    // A new squawk changes the open count the Status tab shows. It can no
-    // longer ground the airplane by itself — only the Safety Officer's triage
-    // does that — so this refreshes the count rather than a banner.
-    if (squawkDrafts.length > 0) {
-      notifyAircraftChanged();
-    }
-
     // Start clean for the next run — clean meaning "a fresh card", which
-    // includes a fresh clock reading rather than the one from the run that
-    // was just signed off.
+    // includes a fresh clock reading rather than the one from the run that was
+    // just signed off.
     setAnswers({});
     setValues(initialValues("PREFLIGHT"));
-    setPhotos([]);
-    setSquawkDrafts([]);
     setNotes("");
     setResetKey((k) => k + 1);
+
     await refresh();
   }
 
+  /**
+   * The squawk item's own traffic light, and the list that justifies it.
+   *
+   * The colour is decided by what the club's statuses MEAN (lib/squawks.ts),
+   * not by how many there are:
+   *
+   *   red   — the airplane is grounded, or it's in the shop. Either way this
+   *           is not a "note the defect and go" morning.
+   *   amber — something is filed that nobody qualified has looked at yet.
+   *           Untriaged is not the same as fine.
+   *   green — nothing open, or only squawks already reviewed as okay to fly.
+   *
+   * Note what does NOT happen: the item never ticks itself. The app knows the
+   * list; it can't know that you read it, and that tick is the pilot saying
+   * they did.
+   */
+  const squawkNote = useMemo<Record<string, ItemNote>>(() => {
+    const grounded = openSquawks.filter((s) => isGrounding(s.status));
+    const inWork = openSquawks.filter((s) => isInMaintenance(s.status));
+    const untriaged = openSquawks.filter((s) => isAwaitingReview(s.status));
+    const tone: ItemNote["tone"] =
+      grounded.length > 0 || inWork.length > 0
+        ? "red"
+        : untriaged.length > 0
+          ? "amber"
+          : "green";
+
+    return {
+      "homework.squawks": {
+        tone,
+        children:
+          openSquawks.length === 0 ? (
+            <>Nothing open on {selected?.tailNumber}.</>
+          ) : (
+            <>
+              {/* The headline says what the colour means, in words. */}
+              <span className="block">
+                {grounded.length > 0
+                  ? `Do not fly — ${grounded.length} grounding ${
+                      grounded.length === 1 ? "squawk" : "squawks"
+                    }.`
+                  : inWork.length > 0
+                    ? "In maintenance — check with the Safety Officer before you fly it."
+                    : untriaged.length > 0
+                      ? `${untriaged.length} not yet reviewed by the Safety Officer.`
+                      : "All reviewed as okay to fly."}
+              </span>
+              <span className="mt-1 block space-y-0.5">
+                {openSquawks.map((s) => (
+                  <span key={s.id} className="block">
+                    <span className="opacity-70">
+                      {SQUAWK_STATUS_SHORT[s.status]}
+                    </span>{" "}
+                    — {s.title}
+                    {s.description ? ` — ${s.description}` : ""}
+                  </span>
+                ))}
+              </span>
+              {/* The club's own rule, for the members it applies to. */}
+              {eligibility.tier === "BUILDING" && (
+                <span className="mt-1 block">
+                  Club rules: call the VFF Safety Officer to discuss before
+                  flying with an open squawk.
+                </span>
+              )}
+            </>
+          ),
+      },
+    };
+  }, [openSquawks, eligibility.tier, selected?.tailNumber]);
+
+  // Everything above this line is a hook, and everything below it may not be.
+  //
+  // The early return used to sit HIGHER, with `squawkNote`'s useMemo below it —
+  // so the render where the fleet hadn't loaded yet ran fewer hooks than the one
+  // after it arrived, and React threw "Rendered more hooks than during the
+  // previous render" the moment the airplane appeared. It only became reachable
+  // once autosave gave the page an async resume to wait on, which is the usual
+  // way a latent Rules-of-Hooks bug announces itself: not when it's written.
   if (!selected) {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — seed one with{" "}
-          <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-700">
-            npm run db:seed
-          </code>
-          .
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );
@@ -214,6 +388,7 @@ export default function PreflightPage() {
   // Deliberately a hint and not a prefill: the number in the box has to be one
   // somebody read off the stick today.
   const lastOilRun = recent?.find((r) => r.oilQuarts != null) ?? null;
+
   const fieldHints = lastOilRun
     ? {
         "consumables.oil.qts": `Last recorded ${lastOilRun.oilQuarts} qts on ${formatDay(
@@ -237,6 +412,18 @@ export default function PreflightPage() {
         </p>
       </header>
 
+      {/* Everything about the SAVED STATE of this walk, including Reset. */}
+      <CheckoutDraftBar
+        savedAt={draft.savedAt}
+        serverSynced={draft.serverId !== null && !draft.deviceOnly}
+        deviceOnly={draft.deviceOnly}
+        storageBlocked={draft.storageBlocked}
+        resume={draft.resume}
+        dirty={draft.dirty}
+        onReset={resetCard}
+        busy={busy}
+      />
+
       {/* The club's limits for THIS member, before anything else — they decide
           whether the flight happens at all. */}
       <MyLimitsCard
@@ -244,35 +431,12 @@ export default function PreflightPage() {
         totalTimeHours={me?.totalTimeHours ?? null}
       />
 
-      {/* Open squawks up top: knowing what's already wrong changes what you
-          look at on the walk. */}
-      {openSquawks.length > 0 && (
-        <Card className="space-y-2">
-          <h2 className="text-sm font-semibold">Open squawks</h2>
-          {eligibility.tier === "BUILDING" && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-              Club rules: call the VFF Safety Officer to discuss before flying
-              with an open squawk.
-            </p>
-          )}
-          <ul className="space-y-1.5">
-            {openSquawks.map((s) => (
-              <li key={s.id} className="flex items-start gap-2 text-sm">
-                <Badge tone={SQUAWK_STATUS_TONES[s.status]}>
-                  {SQUAWK_STATUS_SHORT[s.status]}
-                </Badge>
-                <span className="min-w-0">
-                  <span className="font-medium">{s.title}</span>
-                  {s.description && (
-                    <span className="text-gray-500 dark:text-gray-400"> — {s.description}</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
+      {/* The open squawks used to be a card of their own above the card. They
+          aren't any more: the checkout already HAS a line for them ("Open
+          squawks — reviewed, airplane airworthy"), and a panel above the
+          progress bar meant the list you were meant to read and the box you
+          tick to say you read it were two screens apart. Now the list hangs
+          off its own item — see `squawkNote`. */}
       <CheckoutList
         checkout={PREFLIGHT_CHECKOUT}
         answers={answers}
@@ -280,6 +444,7 @@ export default function PreflightPage() {
         values={values}
         onValuesChange={setValues}
         hints={fieldHints}
+        itemNotes={squawkNote}
         resetKey={resetKey}
       />
 
@@ -338,8 +503,9 @@ export default function PreflightPage() {
         </div>
         {squawkDrafts.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Nothing reported. Anything you find here gets filed against this
-            checkout when you submit.
+            Nothing reported. Anything you find here is filed against this
+            checkout within a few seconds — you don&apos;t have to finish the
+            walk, or fly, for the club to see it.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -392,23 +558,19 @@ export default function PreflightPage() {
             with <span className="font-medium">{remaining[0]?.label}</span>.
           </p>
         )}
+        {/* One button. There used to be a Save beside it, which was the only
+            thing that ever wrote a half-finished walk anywhere — a button you
+            had to remember to press while holding a dipstick. Saving is
+            automatic now, so the remaining button means exactly one thing:
+            this walk is done and I am putting my name to it. */}
         <div className="flex flex-col gap-2 sm:flex-row-reverse">
           <Button
             size="lg"
-            onClick={() => submit(true)}
+            onClick={signOff}
             disabled={busy || !complete}
             className="w-full sm:w-auto"
           >
             {busy ? <LoadingDots size="sm" /> : "Sign off"}
-          </Button>
-          <Button
-            size="lg"
-            variant="secondary"
-            onClick={() => submit(false)}
-            disabled={busy || !anyChecked}
-            className="w-full sm:w-auto"
-          >
-            Save
           </Button>
         </div>
       </div>

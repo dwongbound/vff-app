@@ -1,8 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { gotoTab, signIn } from "./helpers";
+import {
+  clearCheckoutDrafts,
+  gotoTab,
+  signIn,
+  waitForCheckoutSaved,
+} from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
+  // The cards autosave now, so every spec in this file would otherwise inherit
+  // the previous one's half-ticked walk. See the helper.
+  await clearCheckoutDrafts(page);
 });
 
 test("the preflight checkout tracks progress and gates sign-off", async ({ page }) => {
@@ -15,10 +23,37 @@ test("the preflight checkout tracks progress and gates sign-off", async ({ page 
 
   // Check off the whole first section in one tap; the counter follows.
   await page.getByRole("button", { name: "Check all" }).click();
-  await expect(page.getByText(/^\d+ of \d+ checked$/)).toBeVisible();
+  await expect(page.getByText(/Step \d+ of \d+ · \d+ of \d+ checked/)).toBeVisible();
 
   // Still incomplete → still gated.
   await expect(signOff).toBeDisabled();
+});
+
+// The sticky bar's job is "where am I", which on a card walked one-handed is a
+// different question from "how much is left" — scrolled into the middle of a
+// 15-item section, a bare percentage tells you neither which section you're in
+// nor how close you are to the end of it.
+test("the sticky bar names the section you're on and your place in it", async ({
+  page,
+}) => {
+  await gotoTab(page, "/preflight", "Preflight");
+  const main = page.getByRole("main");
+
+  // Opens on section one of the card, with nothing ticked.
+  await expect(main.getByText(/^Step 1 of \d+ · 0 of \d+ checked$/)).toBeVisible();
+
+  // Move to a named section and the bar follows the member, not the scroll.
+  await main.getByRole("button", { name: /Consumables.*\d+\/\d+$/ }).click();
+  const stepLine = main.getByText(/^Step \d+ of \d+ · \d+ of \d+ checked$/);
+  await expect(stepLine).toBeVisible();
+  await expect(main.getByText(/^Step 1 of/)).toHaveCount(0);
+
+  // Ticking inside that section moves the section's own count, which is the
+  // "how far down THIS list" half of the question.
+  const before = await stepLine.textContent();
+  await main.getByRole("button", { name: "Check all" }).click();
+  await expect(stepLine).not.toHaveText(before!);
+  await expect(main.getByText("Ready to sign off")).toHaveCount(0);
 });
 
 test("a squawk raised on the walk is filed with the checkout", async ({
@@ -32,13 +67,31 @@ test("a squawk raised on the walk is filed with the checkout", async ({
 
   await expect(page.getByText("Nav light flickering")).toBeVisible();
 
-  // Saving partial progress is allowed and files the squawk with it.
+  // No Save button any more: ticking anything starts the walk saving by itself,
+  // and the first sync is what files the squawk. That timing is the point — a
+  // walk that finds something wrong often ends with nobody flying, so a squawk
+  // that waited for a sign-off would be a squawk nobody ever read.
   await page.getByRole("button", { name: "Check all" }).first().click();
-  await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText(/Progress saved/)).toBeVisible({ timeout: 60_000 });
+  // Wait for the walk to reach the SERVER before navigating: the squawk is
+  // filed on that first sync, and `page.goto` below would tear the page down
+  // with the request still in flight.
+  await waitForCheckoutSaved(page);
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get("/api/squawks?status=open&limit=50");
+        const rows = res.ok() ? ((await res.json()) as { title: string }[]) : [];
+        return rows.some((s) => s.title === "Nav light flickering");
+      },
+      { timeout: 60_000 }
+    )
+    .toBe(true);
 
-  // It now shows in the airplane's open-squawk list on the log tab.
+  // It now shows in the airplane's open-squawk list on the log tab. The squawk
+  // list is a fact about the AIRPLANE, so it lives on the Club half of the
+  // switch — and the page opens on Mine.
   await gotoTab(page, "/log", "Flight log");
+  await page.getByRole("button", { name: "Club", exact: true }).click();
   await expect(page.getByText("Nav light flickering")).toBeVisible();
 });
 
@@ -140,6 +193,86 @@ test("the time box opens at the current time, and can be typed over", async ({
   await time.fill("06:15");
   await expect(time).toHaveValue("06:15");
   await expect(item).toHaveAttribute("aria-pressed", "true");
+});
+
+// The whole point of the change: the walk survives losing the page, and nobody
+// had to press anything for that to be true. Before this there was a Save
+// button, and closing the tab without pressing it threw the walk away.
+test("a walk saves itself and comes back after a reload", async ({ page }) => {
+  await gotoTab(page, "/preflight", "Preflight");
+  const main = page.getByRole("main");
+
+  // An untouched card says what WILL happen rather than showing a control, and
+  // offers nothing to reset — there is nothing yet to throw away.
+  await expect(main.getByText(/progress saves automatically/i)).toBeVisible();
+  await expect(main.getByRole("button", { name: "Reset" })).toHaveCount(0);
+
+  await main.getByRole("button", { name: "Check all" }).click();
+  const step = main.getByText(/^Step \d+ of \d+ · \d+ of \d+ checked$/);
+  const before = await step.textContent();
+  await waitForCheckoutSaved(page);
+
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Preflight", exact: true })
+  ).toBeVisible({ timeout: 60_000 });
+
+  // The ticks are back, the count matches, and the page SAYS why they're
+  // already ticked — a half-ticked card with no explanation is one a careful
+  // member re-walks from scratch, which is the thing saving was meant to avoid.
+  // Scoped to main: LoadingScreen is a `role="status"` too ("Loading…"), and
+  // on a fresh reload the splash can still be up when this first evaluates.
+  await expect(main.getByRole("status")).toHaveText(/Picking up where you left off/);
+  await expect(step).toHaveText(before!);
+});
+
+// Reset is destructive and irreversible, so it asks — and taking the "no" has
+// to actually mean no.
+test("reset confirms first, and backing out changes nothing", async ({ page }) => {
+  await gotoTab(page, "/preflight", "Preflight");
+  const main = page.getByRole("main");
+
+  await main.getByRole("button", { name: "Check all" }).click();
+  const step = main.getByText(/^Step \d+ of \d+ · \d+ of \d+ checked$/);
+  const ticked = await step.textContent();
+  await waitForCheckoutSaved(page);
+
+  await main.getByRole("button", { name: "Reset" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/can't be undone/i)).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Keep it" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(step).toHaveText(ticked!);
+});
+
+test("reset clears the walk on the device and on the server", async ({ page }) => {
+  await gotoTab(page, "/preflight", "Preflight");
+  const main = page.getByRole("main");
+
+  await main.getByRole("button", { name: "Check all" }).click();
+  await waitForCheckoutSaved(page);
+
+  await main.getByRole("button", { name: "Reset" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Reset checkout" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30_000 });
+
+  // Back to a blank card, opened at section one.
+  await expect(main.getByText(/^Step 1 of \d+ · 0 of \d+ checked$/)).toBeVisible();
+  await expect(main.getByText(/progress saves automatically/i)).toBeVisible();
+
+  // And it STAYS gone: a reset that only cleared the screen would come back on
+  // the next load from whichever copy it missed.
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Preflight", exact: true })
+  ).toBeVisible({ timeout: 60_000 });
+  await expect(main.getByText(/^Step 1 of \d+ · 0 of \d+ checked$/)).toBeVisible();
+  await expect(page.getByText(/Picking up where you left off/)).toHaveCount(0);
+
+  // The server's copy went too — nothing left for anyone to resume.
+  const open = await page.request.get("/api/checkouts?mine=1&open=1&kind=PREFLIGHT&limit=10");
+  expect(await open.json()).toEqual([]);
 });
 
 // The other way a flight gets into the log: typed in from the paper one,

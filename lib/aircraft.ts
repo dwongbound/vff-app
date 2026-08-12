@@ -1,6 +1,27 @@
 // Aircraft identity rules, shared by the admin API and the org-settings form so
 // both reject the same input with the same wording.
 
+/**
+ * What `serializeAircraft` needs off the row, as a Prisma `include`.
+ *
+ * Here rather than in each route because an airplane now carries two lists that
+ * the CLIENT treats as facts about it — the open squawks and the maintenance
+ * sheet — and a route that forgot one would serialise an airplane with nothing
+ * due and no squawks, which reads as "all clear" rather than as a bug. (It
+ * can't live in a route.ts either: only Next's own exports may leave one.)
+ */
+export const AIRCRAFT_INCLUDE = {
+  squawks: {
+    where: { status: { not: "CLOSED" as const } },
+    select: { id: true, title: true, status: true },
+    orderBy: { createdAt: "desc" as const },
+  },
+  maintenance: {
+    where: { active: true },
+    orderBy: { createdAt: "asc" as const },
+  },
+} as const;
+
 /** Longest real registration is ~7 characters; 12 leaves room for oddities. */
 const MAX_TAIL_LENGTH = 12;
 

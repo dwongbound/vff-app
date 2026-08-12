@@ -3,12 +3,14 @@
 //
 // The Club/Mine switch changes what the page is *about*, not just which rows
 // it filters:
+//   • Mine — your own flying: your hours, your flights, and your landing
+//     currency. The operating rules hang off that currency card (as a popover)
+//     because that's where "am I allowed to fly?" gets asked. This is where the
+//     page OPENS, the same way Finances opens on your own statement: a member
+//     reading the log is nearly always asking something about themselves.
 //   • Club — the airplane and the people flying it: hours this month, the
 //     club's totals, everyone's flights, and the squawk list. Nothing here is
 //     about you specifically.
-//   • Mine — your own flying: your hours, your flights, and your landing
-//     currency. The operating rules hang off that currency card (as a popover)
-//     because that's where "am I allowed to fly?" gets asked.
 //
 // The airplane's squawk list lives on this page rather than in a tab of its
 // own: a squawk is something you read about a flight, and the grounded banner
@@ -25,8 +27,7 @@ import { RulesModal } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
-import { fetchJsonArray, sendJson } from "@/lib/api";
-import { isOpen } from "@/lib/squawks";
+import { fetchJsonArray, fetchJsonObject, sendJson } from "@/lib/api";
 import {
   SIGNATURE_LABELS,
   SIGNATURE_TONES,
@@ -42,7 +43,7 @@ import {
   totalLandings,
   totalTachHours,
 } from "@/lib/hours";
-import type { ApiFlight, ApiSquawk } from "@/lib/types";
+import type { ApiFlight, ApiFlightSummary, ApiSquawk } from "@/lib/types";
 
 type Filter = "all" | "mine";
 
@@ -62,9 +63,13 @@ function FlightLog() {
   const aircraftId = selected?.id ?? null;
   const { me } = useMe();
   const searchParams = useSearchParams();
-  const [flights, setFlights] = useState<ApiFlight[] | null>(null);
+  const [flights, setFlights] = useState<ApiFlightSummary[] | null>(null);
   const [squawks, setSquawks] = useState<ApiSquawk[]>([]);
-  const [filter, setFilter] = useState<Filter>("all");
+  // Opens on YOUR flying, the way Finances opens on your own statement. A
+  // member coming to the log almost always came to answer a question about
+  // themselves — "am I current", "what did I fly last month" — and the club
+  // view is one tap away for the times they didn't.
+  const [filter, setFilter] = useState<Filter>("mine");
   const [openFlight, setOpenFlight] = useState<ApiFlight | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   // Adding a flight the app never saw — a page of the paper log being caught
@@ -83,7 +88,9 @@ function FlightLog() {
     // The log and the squawk list are always on screen together, so they're
     // fetched together rather than in sequence.
     const [rows, squawkRows] = await Promise.all([
-      fetchJsonArray<ApiFlight>(`/api/flights?aircraftId=${aircraftId}&limit=300`),
+      fetchJsonArray<ApiFlightSummary>(
+        `/api/flights?aircraftId=${aircraftId}&limit=300`
+      ),
       fetchJsonArray<ApiSquawk>(
         `/api/squawks?aircraftId=${aircraftId}&status=${showAllSquawks ? "all" : "open"}`
       ),
@@ -160,6 +167,24 @@ function FlightLog() {
     [all, me?.totalTimeHours]
   );
 
+  /**
+   * Open one entry.
+   *
+   * The list rows carry no photos or squawks (see lib/flights.ts), so the full
+   * entry is fetched here. The modal opens IMMEDIATELY on the summary — with
+   * empty attachment lists — and the real ones drop in a moment later: a member
+   * who taps a row should see it open, not a spinner, and everything above the
+   * photos is already known.
+   */
+  async function openEntry(summary: ApiFlightSummary) {
+    setOpenFlight({ ...summary, photos: [], squawks: [] });
+    const detail = await fetchJsonObject<ApiFlight>(`/api/flights/${summary.id}`);
+    // Ignore a response that lost the race to a different row being opened.
+    if (detail) {
+      setOpenFlight((current) => (current?.id === detail.id ? detail : current));
+    }
+  }
+
   async function deleteFlight(flight: ApiFlight) {
     const result = await sendJson(`/api/flights/${flight.id}`, "DELETE");
     if (result.ok) {
@@ -172,11 +197,7 @@ function FlightLog() {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — seed one with{" "}
-          <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-700">
-            npm run db:seed
-          </code>
-          .
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );
@@ -336,7 +357,7 @@ function FlightLog() {
                   </h2>
                 )}
                 <button
-                  onClick={() => setOpenFlight(flight)}
+                  onClick={() => openEntry(flight)}
                   className="flex w-full items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-indigo-400 active:scale-[0.99] dark:border-gray-700 dark:bg-gray-800"
                 >
                   <div className="w-16 shrink-0">
@@ -367,12 +388,10 @@ function FlightLog() {
                       {SIGNATURE_LABELS[signatureState(flight)]}
                     </Badge>
                   )}
-                  {flight.squawks.some((s) => isOpen(s.status)) && (
-                    <Badge tone="red">Squawk</Badge>
-                  )}
-                  {flight.photos.length > 0 && (
+                  {flight.openSquawkCount > 0 && <Badge tone="red">Squawk</Badge>}
+                  {flight.photoCount > 0 && (
                     <span className="text-xs text-gray-400">
-                      {flight.photos.length} 📷
+                      {flight.photoCount} 📷
                     </span>
                   )}
                 </button>
@@ -419,12 +438,18 @@ function FlightLog() {
         onDelete={deleteFlight}
         viewerId={me?.id ?? null}
         onSignatureChanged={async () => {
-          // Refetch and re-open the same row, so the badge and the dates in the
-          // modal update under the reader rather than after they close it.
-          const rows = await refresh();
-          setOpenFlight(
-            (current) => rows?.find((f) => f.id === current?.id) ?? current
-          );
+          // Refresh the list for the badge, and re-read the open entry so the
+          // signature and dates update under the reader rather than after they
+          // close it.
+          const id = openFlight?.id;
+          await refresh();
+          if (!id) return;
+          const detail = await fetchJsonObject<ApiFlight>(`/api/flights/${id}`);
+          if (detail) {
+            setOpenFlight((current) =>
+              current?.id === detail.id ? detail : current
+            );
+          }
         }}
       />
     </div>

@@ -14,6 +14,7 @@
 import Link from "next/link";
 import Badge from "@/components/common/Badge";
 import { useAircraft } from "@/components/AircraftProvider";
+import { formatRemaining, grounding, maintenanceDue } from "@/lib/maintenance";
 
 
 export default function StatusLayout({
@@ -25,7 +26,15 @@ export default function StatusLayout({
 
   const grounded = selected?.groundingSquawks ?? [];
   const inWork = selected?.inWorkSquawks ?? [];
-  const airworthy = grounded.length === 0;
+  // The OTHER way an airplane stops flying, and the one nobody files a squawk
+  // about: a legally-required inspection that has run out. Only items marked
+  // `requiredByReg` count — the club being late on its own 50-hour oil change
+  // is loud on the Overview tab and is not a grounding (see lib/maintenance).
+  const outOfCheck = grounding(
+    selected?.maintenance ?? [],
+    selected?.lastTach ?? null
+  );
+  const airworthy = grounded.length === 0 && outOfCheck.length === 0;
 
   return (
     <div className="space-y-4">
@@ -43,6 +52,36 @@ export default function StatusLayout({
             {airworthy ? "Airworthy" : "Grounded"}
           </Badge>
         </header>
+      )}
+
+      {/* Paperwork that has run out. Above the squawk banners and separate
+          from them, because it isn't a defect and nobody reported it — the
+          airplane is perfectly serviceable and may not legally be flown. */}
+      {outOfCheck.length > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-500/40 dark:bg-red-900/20">
+          <h2 className="text-sm font-semibold text-red-800 dark:text-red-200">
+            Do not fly — {outOfCheck.length === 1 ? "an inspection has" : "inspections have"}{" "}
+            run out on {selected?.tailNumber ?? "the airplane"}
+          </h2>
+          <ul className="mt-3 space-y-1.5 text-sm text-red-800 dark:text-red-200">
+            {outOfCheck.map((item) => (
+              <li key={item.id} className="flex gap-2">
+                <span aria-hidden="true" className="text-lg leading-5 opacity-70">
+                  ·
+                </span>
+                <span>
+                  {item.label}
+                  {item.reference ? ` (${item.reference})` : ""} —{" "}
+                  {formatRemaining(maintenanceDue(item, selected?.lastTach ?? null))}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-red-800/80 dark:text-red-200/80">
+            The Maintenance Officer records the sign-off on the Overview tab,
+            which clears this.
+          </p>
+        </div>
       )}
 
       {/* The dispatch answer, in priority order: grounded outranks in-work,

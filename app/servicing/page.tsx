@@ -102,11 +102,7 @@ export default function ServicingPage() {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — seed one with{" "}
-          <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-700">
-            npm run db:seed
-          </code>
-          .
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );

@@ -64,6 +64,19 @@ enum ReservationStatus {
   CANCELED
 }
 
+// Which half of the club's maintenance sheet an item sits on. Both halves are
+// the same arithmetic — this is how the club groups them when it reads the
+// sheet, and the app groups them the same way rather than inventing an order.
+//
+//   INSPECTION — inspections and recurrent maintenance: the annual, the
+//                50-hour oil change, the pitot-static and transponder checks.
+//   EQUIPMENT  — installed kit that carries its own clock: an ELT battery, a
+//                fire extinguisher, a portable oxygen bottle's hydro date.
+enum MaintenanceCategory {
+  INSPECTION
+  EQUIPMENT
+}
+
 // What a member is doing with the airplane. Shown as a chip color on the
 // calendar so a "maintenance" block reads differently from a member's flight.
 enum ReservationPurpose {
@@ -185,6 +198,7 @@ model User {
 
   charges                 Charge[]          @relation("ChargeMember")
   chargesRaised           Charge[]          @relation("ChargeAuthor")
+  chargesMarkedPaid       Charge[]          @relation("ChargePaidBy")
   recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
   recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
 
@@ -239,10 +253,72 @@ model Aircraft {
   checkouts    Checkout[]
   squawks      Squawk[]
   servicing    Servicing[]
+  maintenance  MaintenanceItem[]
 
   createdAt DateTime @default(now())
 
   @@map("aircraft")
+}
+
+// One recurring thing the airplane is due for: the annual, the oil change, the
+// transponder check, the ELT battery.
+//
+// The club keeps this on a spreadsheet whose ten columns are arithmetic on
+// FOUR facts — how long the item is good for (hours, calendar months) and when
+// it was last done (at what tach, on what date). Only those four are stored.
+// Hours remaining, days remaining, the tach it comes due at, the date it comes
+// due and which item is next are all derived in lib/maintenance.ts, because a
+// stored "days remaining" is wrong by one the morning after it's written and
+// nothing in the app would know.
+//
+// Both intervals are optional and the tighter one wins, which is how the
+// paperwork actually reads: an oil change is 50 hours OR 4 calendar months,
+// whichever comes first; an annual is 12 calendar months and no hour limit at
+// all. An item with neither is tracked but never due — the club is recording
+// that it exists and when it was last touched.
+model MaintenanceItem {
+  id String @id @default(cuid())
+
+  aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  aircraftId String
+
+  // What the club calls it on its own sheet ("Engine Oil Change").
+  label    String
+  category MaintenanceCategory @default(INSPECTION)
+
+  // Does the LAW require this, as opposed to the club's own schedule? The
+  // difference is what an overdue item MEANS: an out-of-annual airplane may
+  // not be flown at all (91.409), while an oil change 3 hours past the club's
+  // 50 is a maintenance officer's problem and not a legal grounding. The app
+  // only ever calls the first kind a grounding — see lib/maintenance.ts.
+  requiredByReg Boolean @default(false)
+  // The rule it comes from, as the sheet writes it: "14 CFR 91.413".
+  reference     String?
+
+  // The interval, in either or both units. Null = this item has no limit of
+  // that kind, which is not the same as zero.
+  intervalHours  Float?
+  intervalMonths Int?
+
+  // When it was last signed off. The tach reading is what the hour interval
+  // counts from; the date is what the calendar-month interval counts from, and
+  // calendar months run to the END of the month (14 CFR's own counting — see
+  // `calendarMonthsFrom` in lib/dates.ts, which the flight review already uses).
+  lastDoneTach Float?
+  lastDoneOn   DateTime?
+
+  notes String?
+
+  // Retired items stay for their history but drop off the airplane's list —
+  // the club removed the equipment, or stopped tracking the item.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The one query: "everything still tracked on this airplane".
+  @@index([aircraftId, active])
+  @@map("maintenance_items")
 }
 
 // A booking of one airplane for one block of time. Overlap is rejected by the
@@ -675,6 +751,21 @@ model Charge {
   // so the trail of what was charged and unwound is intact.
   voided     Boolean @default(false)
   voidReason String?
+
+  // Settled: the member has paid this line.
+  //
+  // Deliberately NOT the same thing as `voided`, which is the club saying the
+  // charge should never have stood. This is the club saying it stood and has
+  // been met — the line keeps its full amount, stays on the statement, and
+  // simply stops counting toward what's outstanding.
+  //
+  // A timestamp rather than a boolean because "when" is the question anybody
+  // ever asks of a payment, and `paidById` records who ticked it off: money
+  // marked settled by nobody in particular is how a statement quietly loses an
+  // argument later.
+  paidAt   DateTime?
+  paidBy   User?     @relation("ChargePaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  paidById String?
 
   createdBy   User?   @relation("ChargeAuthor", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?

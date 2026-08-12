@@ -3,10 +3,16 @@
 // on its own, gated on its own items, and not sharing progress with the walk.
 import { expect, test } from "@playwright/test";
 import { allItemIds } from "@/lib/checkouts";
-import { gotoTab, signIn } from "./helpers";
+import { clearCheckoutDrafts, gotoTab, signIn } from "./helpers";
+
+/** The sticky bar's overall line — "Step 3 of 7 · 12 of 41 checked". */
+const STEP_LINE = /^Step \d+ of \d+ · \d+ of \d+ checked$/;
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
+  // The cards autosave, so without this each spec inherits the last one's
+  // half-ticked walk. See the helper.
+  await clearCheckoutDrafts(page);
 });
 
 test("the runway checkout gates its own sign-off", async ({ page }) => {
@@ -20,23 +26,39 @@ test("the runway checkout gates its own sign-off", async ({ page }) => {
   await expect(page.getByText("Before anyone gets in")).toBeVisible();
 
   await page.getByRole("button", { name: "Check all" }).click();
-  await expect(page.getByText(/^\d+ of \d+ checked$/)).toBeVisible();
+  await expect(page.getByText(STEP_LINE)).toBeVisible();
   await expect(signOff).toBeDisabled();
+});
+
+// "Preflight — complete" is answered by the app, so it's already ticked before
+// anyone touches this page. That must not count as work: autosaving there would
+// create a draft — and a server row — for a member who has done nothing but
+// open a tab.
+test("merely opening the runway card saves nothing", async ({ page }) => {
+  await gotoTab(page, "/runway", "Runway");
+
+  await expect(page.getByRole("main").getByText(/progress saves automatically/i)).toBeVisible();
+  await expect(page.getByRole("main").getByRole("button", { name: "Reset" })).toHaveCount(0);
+
+  // Give any debounce a chance to fire before checking the server stayed clean.
+  await page.waitForTimeout(5_000);
+  const open = await page.request.get("/api/checkouts?mine=1&open=1&kind=RUNWAY&limit=10");
+  expect(await open.json()).toEqual([]);
 });
 
 test("the two checkouts keep their own progress", async ({ page }) => {
   // Tick the whole first section of the preflight checkout…
   await gotoTab(page, "/preflight", "Preflight");
   await page.getByRole("button", { name: "Check all" }).click();
-  const preflightCount = await page.getByText(/^\d+ of \d+ checked$/).innerText();
+  const preflightCount = await page.getByText(STEP_LINE).innerText();
 
   // …then the runway page counts against its own, different denominator.
   // (Not "0 of N": "Preflight — complete" answers itself from the database,
   // so the runway card legitimately starts at 1 once the airplane has been
   // walked today — see the derived-row tests below.)
   await gotoTab(page, "/runway", "Runway");
-  const runwayCount = await page.getByText(/^\d+ of \d+ checked$/).innerText();
-  const denominator = (count: string) => count.split(" of ")[1];
+  const runwayCount = await page.getByText(STEP_LINE).innerText();
+  const denominator = (count: string) => count.split(" of ")[2];
   expect(denominator(runwayCount)).not.toBe(denominator(preflightCount));
 });
 
@@ -58,9 +80,9 @@ test("the preflight row cannot be ticked without a signed-off preflight", async 
 
   // Not even the section's own bulk tick gets around it: everything else in
   // the section goes green and this one stays red.
-  const before = await page.getByText(/^\d+ of \d+ checked$/).innerText();
+  const before = await page.getByText(STEP_LINE).innerText();
   await page.getByRole("button", { name: "Check all" }).click();
-  const after = await page.getByText(/^\d+ of \d+ checked$/).innerText();
+  const after = await page.getByText(STEP_LINE).innerText();
   expect(after).not.toBe(before);
   await expect(row).toHaveAttribute("aria-pressed", "false");
 });

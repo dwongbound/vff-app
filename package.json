@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "dotenv -e env/dev.env -- next dev",
     "build": "prisma generate && next build",
+    "vercel-build": "sh scripts/vercel-build.sh",
     "postinstall": "prisma generate",
     "start": "next start",
     "typecheck": "tsc --noEmit",

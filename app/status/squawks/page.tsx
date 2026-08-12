@@ -99,7 +99,7 @@ export default function SquawksPage() {
     return (
       <Card>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          No airplane set up yet — an admin can add one from Org settings.
+          No airplane set up yet — an admin can add one from Club settings.
         </p>
       </Card>
     );

@@ -2,7 +2,12 @@
 //
 // PATCH /api/finances/charges/[id] — finance:manage.
 //   { voided, voidReason }             — unwind a line, keeping the record.
+//   { paid }                           — tick it off as settled, or un-tick it.
 //   { amountDollars, description }     — fix a line that was simply wrong.
+//
+// Paying and voiding are different claims and are stored separately: a voided
+// line should never have stood, a paid one stood and has been met. Only the
+// second leaves the month's totals alone (see `totals` in lib/finance.ts).
 //
 // Voiding rather than deleting is the rule for anything derived: a flight's
 // fuel credit that an officer voids stays voided even if the flight is later
@@ -20,6 +25,9 @@ import { serializeCharge } from "@/lib/serialize";
 
 const INCLUDE = {
   member: { select: { id: true, name: true, email: true } },
+  // Who ticked the line off as settled — money marked paid by nobody
+  // in particular is how a statement loses an argument later.
+  paidBy: { select: { id: true, name: true, email: true } },
 } as const;
 
 export async function PATCH(
@@ -57,6 +65,14 @@ export async function PATCH(
         ? body.voidReason.trim()
         : null
       : null;
+  }
+
+  // Settled, or un-settled if the officer ticked the wrong row. Deliberately
+  // NOT the same write as voiding: this line stood and has been met, so it
+  // keeps its amount and simply stops counting toward what's outstanding.
+  if (typeof body.paid === "boolean") {
+    data.paidAt = body.paid ? new Date() : null;
+    data.paidById = body.paid ? officer.id : null;
   }
 
   if ("amountDollars" in body) {

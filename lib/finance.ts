@@ -86,6 +86,8 @@ export const CHARGE_KIND_LABELS: Record<ChargeKind, string> = {
 export interface ChargeLike {
   amountCents: number;
   voided: boolean;
+  /** When the Finance Officer marked it settled; null/absent = unpaid. */
+  paidAt?: string | Date | null;
 }
 
 export interface Totals {
@@ -95,6 +97,22 @@ export interface Totals {
   creditedCents: number;
   /** What the member actually owes: charged - credited. May be negative. */
   balanceCents: number;
+  /**
+   * Of that, what has been marked settled — the net of paid lines, credits
+   * included, so ticking off a charge and its fuel credit together nets out
+   * exactly the way the balance does.
+   */
+  paidCents: number;
+  /**
+   * What's still owed: balance - paid. The number the Finance Officer chases,
+   * and the one the club-wide figure shows.
+   *
+   * `balanceCents` deliberately still means "what this month came to",
+   * unchanged by payments: the two answer different questions ("what did this
+   * month cost" vs "what is left"), and collapsing them would make a settled
+   * month look like a month with no flying in it.
+   */
+  outstandingCents: number;
 }
 
 /**
@@ -107,15 +125,22 @@ export interface Totals {
 export function totals(charges: ChargeLike[]): Totals {
   let chargedCents = 0;
   let creditedCents = 0;
+  let paidCents = 0;
   for (const charge of charges) {
     if (charge.voided) continue;
     if (charge.amountCents >= 0) chargedCents += charge.amountCents;
     else creditedCents += -charge.amountCents;
+    // Signed, so a settled credit reduces what's been settled — the paid
+    // total is a net of the same lines the balance is.
+    if (charge.paidAt) paidCents += charge.amountCents;
   }
+  const balanceCents = chargedCents - creditedCents;
   return {
     chargedCents,
     creditedCents,
-    balanceCents: chargedCents - creditedCents,
+    balanceCents,
+    paidCents,
+    outstandingCents: balanceCents - paidCents,
   };
 }
 
