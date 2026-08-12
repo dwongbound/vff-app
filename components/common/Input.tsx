@@ -24,6 +24,18 @@ export default function Input({
   className = "",
   ...props
 }: InputProps) {
+  // A number field asks for a number, so it opens the number pad — on the phone
+  // in a member's hand on a ramp, that's the difference between two taps and a
+  // QWERTY keyboard they have to switch out of. `type` alone doesn't do it
+  // reliably on iOS, `inputMode` is what the keyboard actually reads.
+  //
+  // Defaulted rather than restated at every call site: every numeric field in
+  // the app already passes one, and this is what stops the next one from
+  // quietly not. A field that counts things (landings) should still pass
+  // `inputMode="numeric"` for a pad with no decimal point on it.
+  const inputMode =
+    props.inputMode ?? (props.type === "number" ? "decimal" : undefined);
+
   return (
     <div className="block">
       <label className="block">
@@ -32,6 +44,7 @@ export default function Input({
         </span>
         <input
           aria-invalid={error ? true : undefined}
+          inputMode={inputMode}
           className={`w-full rounded-lg border bg-white px-3 py-2 text-sm
             focus:outline-none focus:ring-1
             disabled:cursor-not-allowed disabled:opacity-60

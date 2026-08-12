@@ -11,14 +11,15 @@
 // because the two are walked at different times — often with a fuel stop, a
 // passenger, or half an hour in between — and a member who was interrupted
 // should never have to re-tick the airplane.
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
-import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
 import CheckoutList from "@/components/CheckoutList";
 import CheckoutDraftBar from "@/components/CheckoutDraftBar";
+import CompleteCheckoutButton from "@/components/CompleteCheckoutButton";
 import { useCheckoutDraft } from "@/components/useCheckoutDraft";
 import InflightReference from "@/components/InflightReference";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
@@ -59,6 +60,7 @@ function signedOffToday(run: ApiCheckout | null): boolean {
 const DERIVED_ITEM_IDS = ["start.preflight"] as const;
 
 export default function RunwayPage() {
+  const router = useRouter();
   const { selected, loading: fleetLoading } = useAircraft();
   const { me } = useMe();
   const aircraftId = selected?.id ?? null;
@@ -187,8 +189,18 @@ export default function RunwayPage() {
     await refresh();
   }
 
-  /** Sign the run off — the page's only submit now that saving is automatic. */
-  async function signOff() {
+  /**
+   * Complete the run — the page's only submit now that saving is automatic.
+   *
+   * `acknowledgeIncomplete` is the member having been asked, in a modal that
+   * named the unticked items, and having said yes anyway. The API refuses an
+   * incomplete card without it (see CompleteCheckoutButton).
+   */
+  async function completeRun({
+    acknowledgeIncomplete,
+  }: {
+    acknowledgeIncomplete: boolean;
+  }) {
     if (!selected) return;
     setError(null);
     setSaved(null);
@@ -204,6 +216,7 @@ export default function RunwayPage() {
       values,
       notes: notes.trim() || null,
       complete: true,
+      acknowledgeIncomplete,
     };
 
     // Autosave has almost certainly created the row already; PATCH it so one
@@ -237,7 +250,7 @@ export default function RunwayPage() {
     draft.finish();
 
     setBusy(false);
-    setSaved("Runway checkout signed off. Clear prop — have a good flight.");
+    setSaved("Runway checkout completed. Clear prop — have a good flight.");
 
     setAnswers(preflightDone ? { "start.preflight": true } : {});
     setValues(initialValues("RUNWAY"));
@@ -245,6 +258,12 @@ export default function RunwayPage() {
     setResetKey((k) => k + 1);
 
     await refresh();
+
+    // On to the next card, the same way the preflight page hands over to this
+    // one. The flight itself happens between the two, which is exactly why the
+    // post-flight page is where a member wants to land: it's the form they'll
+    // be filling in when they get back, with the turn-off checkout on it.
+    router.push("/postflight");
   }
 
   if (!selected) {
@@ -274,12 +293,12 @@ export default function RunwayPage() {
     "start.preflight": {
       satisfied: preflightDone,
       message: preflightDone
-        ? `Signed off today by ${lastPreflight!.user.name}`
+        ? `Completed today by ${lastPreflight!.user.name}`
         : lastPreflight
-          ? `No preflight signed off today — the last was ${formatDay(
+          ? `No preflight completed today — the last was ${formatDay(
               lastPreflight.completedAt!
             )} by ${lastPreflight.user.name}`
-          : "No preflight checkout has been signed off for this airplane",
+          : "No preflight checkout has been completed for this airplane",
       href: "/preflight",
       linkLabel: "Walk the preflight",
     },
@@ -293,64 +312,20 @@ export default function RunwayPage() {
           {selected.tailNumber} · {selected.model}
           {lastRun && (
             <>
-              {" · last signed off "}
+              {" · last completed "}
               {formatDay(lastRun.completedAt!)} by {lastRun.user.name}
             </>
           )}
         </p>
       </header>
 
-      {/* Everything about the SAVED STATE of this run, including Reset. */}
-      <CheckoutDraftBar
-        savedAt={draft.savedAt}
-        serverSynced={draft.serverId !== null && !draft.deviceOnly}
-        deviceOnly={draft.deviceOnly}
-        storageBlocked={draft.storageBlocked}
-        resume={draft.resume}
-        dirty={draft.dirty}
-        onReset={resetCard}
-        busy={busy}
-      />
-
-      {/* The card's own first before-start item is "Preflight — complete", so
-          answer it here rather than making the member remember. Not a gate:
-          the club flies from other fields, and an airplane walked yesterday
-          evening for a dawn departure is a real thing that happens. */}
-      <Card
-        className={
-          preflightDone
-            ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-900/20"
-            : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-900/20"
-        }
-      >
-        <p className="text-sm">
-          {preflightDone ? (
-            <>
-              <span className="font-semibold text-green-800 dark:text-green-200">
-                Preflight checkout done today
-              </span>
-              <span className="text-green-800/80 dark:text-green-200/80">
-                {" "}
-                — signed off by {lastPreflight!.user.name}.
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="font-semibold text-amber-900 dark:text-amber-200">
-                No preflight checkout signed off today
-              </span>
-              <span className="text-amber-900/80 dark:text-amber-200/80">
-                {lastPreflight
-                  ? ` — the last one was ${formatDay(lastPreflight.completedAt!)} by ${
-                      lastPreflight.user.name
-                    }. Walk the airplane before you start it.`
-                  : " — walk the airplane before you start it."}
-              </span>
-            </>
-          )}
-        </p>
-      </Card>
-
+      {/* No banner about the preflight up here any more. The card's own first
+          before-start item IS "Preflight — complete" (see `preflightRow`): the
+          app answers it, and the row itself goes green with who signed it or red
+          with what's missing and a link to the walk. A banner saying the same
+          thing a few inches above the row it's about was one fact in two places,
+          and the row is the one that can't be scrolled past — it has to be
+          passed to finish the card. */}
       <CheckoutList
         checkout={RUNWAY_CHECKOUT}
         answers={answers}
@@ -358,11 +333,28 @@ export default function RunwayPage() {
         values={values}
         onValuesChange={setValues}
         derived={preflightRow}
+        // Everything about the SAVED STATE of this run, including Reset. It
+        // rides in the sticky progress bar so it travels down the card with the
+        // step counts rather than scrolling off the top of the page.
+        status={
+          <CheckoutDraftBar
+            savedAt={draft.savedAt}
+            serverSynced={draft.serverId !== null && !draft.deviceOnly}
+            deviceOnly={draft.deviceOnly}
+            storageBlocked={draft.storageBlocked}
+            resume={draft.resume}
+            dirty={draft.dirty}
+            onReset={resetCard}
+            busy={busy}
+          />
+        }
+        resumed={draft.resume !== null}
         resetKey={resetKey}
       />
 
       {/* A runup is where a lot of squawks are actually found — a mag drop out
-          of limits, an ammeter that won't charge. File it before you fly. */}
+          of limits, an alternator light that stays on. File it before you
+          fly. */}
       <Card className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Squawks from this checkout</h2>
@@ -423,17 +415,16 @@ export default function RunwayPage() {
             with <span className="font-medium">{remaining[0]?.label}</span>.
           </p>
         )}
-        {/* One button — saving is automatic now, so this one means only "this
-            run is done and I'm putting my name to it". See the preflight page. */}
+        {/* One button, never disabled by the state of the card — an incomplete
+            one is confirmed in a modal that names what's missing. See the
+            preflight page. */}
         <div className="flex flex-col gap-2 sm:flex-row-reverse">
-          <Button
-            size="lg"
-            onClick={signOff}
-            disabled={busy || !complete}
-            className="w-full sm:w-auto"
-          >
-            {busy ? <LoadingDots size="sm" /> : "Sign off"}
-          </Button>
+          <CompleteCheckoutButton
+            title={RUNWAY_CHECKOUT.title}
+            remaining={remaining}
+            busy={busy}
+            onComplete={completeRun}
+          />
         </div>
       </div>
 

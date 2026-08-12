@@ -100,7 +100,7 @@ describe("calendarMonthsFrom", () => {
 // gets displayed. See lib/dates.ts.
 describe("clubTimeNow", () => {
   it("gives the clock at the field, 24-hour, ready for a time input", () => {
-    // 20:30 UTC in August is 13:30 at KBFI (PDT, UTC-7).
+    // 20:30 UTC in August is 13:30 at KTOA (PDT, UTC-7).
     expect(clubTimeNow(new Date("2026-08-08T20:30:00Z"))).toBe("13:30");
   });
 
@@ -116,12 +116,12 @@ describe("clubTimeNow", () => {
   });
 });
 
-// "Was the airplane walked today?" is a question about KBFI. It gates the
+// "Was the airplane walked today?" is a question about KTOA. It gates the
 // runway sign-off, so it must not depend on where the pilot's phone thinks
 // it is.
 describe("clubDateKey", () => {
   it("gives the flying day at the field, not in UTC", () => {
-    // 03:00 UTC on the 9th is still the evening of the 8th at KBFI.
+    // 03:00 UTC on the 9th is still the evening of the 8th at KTOA.
     expect(clubDateKey("2026-08-09T03:00:00Z")).toBe("2026-08-08");
     expect(clubDateKey("2026-08-09T16:00:00Z")).toBe("2026-08-09");
   });

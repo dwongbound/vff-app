@@ -15,7 +15,7 @@ export const CLUB_SHORT_NAME = "VFF";
  * time already. This constant is for the other direction: a clock reading
  * being written DOWN in the browser, which would otherwise come out in
  * whatever zone the member's phone happens to be set to. A time written on
- * N8318B's card means field time at KBFI, not the time in the seat 30,000 ft
+ * N8318B's card means field time at KTOA, not the time in the seat 30,000 ft
  * above it, so those readings are stamped from here rather than from the
  * device. See `clubTimeNow` in lib/dates.ts.
  */

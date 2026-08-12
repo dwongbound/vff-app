@@ -242,7 +242,7 @@ function AircraftCard({ aircraft }: { aircraft: ApiAircraft }) {
           label="Home base"
           value={homeBase}
           onChange={(e) => setHomeBase(e.target.value)}
-          placeholder="KBFI"
+          placeholder="KTOA"
         />
       </div>
 
@@ -402,7 +402,7 @@ function AddAircraftCard({
           label="Home base"
           value={homeBase}
           onChange={(e) => setHomeBase(e.target.value)}
-          placeholder="KBFI"
+          placeholder="KTOA"
         />
       </div>
 

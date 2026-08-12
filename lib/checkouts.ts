@@ -13,12 +13,19 @@
 //   TURNOFF_CHECKOUT — the back of the same card: after landing, shutdown, and
 //     outside parking. Answered on the post-flight form, hours later.
 //
-// The cards are the spine; the club adds exactly three things to them, each
-// marked `club: true` so it's obvious which items came off the airplane and
-// which came out of VFF-OR-A: I'M SAFE at the top of the preflight, the open
-// squawks review beside it, and the 5 Ps at the end of the runup. (Plus one
-// housekeeping line at the parking end, which is what sets the flight log's
-// "cabin clean" flag.) Everything else is on a card.
+// The cards are the spine; everything the club adds to them is marked
+// `club: true`, so it's obvious which items came off the airplane and which
+// came out of VFF-OR-A or out of the club's own practice: I'M SAFE at the top
+// of the preflight, the open squawks review beside it, the 5 Ps at the end of
+// the runup, the closing walkaround, the tach/Hobbs reading, the tail controls
+// moving freely, the starter crank that ends the cold-start pre-lube, and the
+// housekeeping line at the parking end that sets the flight log's "cabin clean"
+// flag. Everything else is on a card.
+//
+// The reverse also happens: a line comes OFF when the card asks for something
+// this airframe can't be asked. Both brake items lost "pads" — N8318B wears
+// wheel fairings — and the starting flow lost its master switch line, which the
+// before-start beacon item had already required.
 //
 // What is NOT here: takeoff, climb, cruise and descent. Those are read in the
 // air with the app in somebody's pocket, so they live in lib/inflightReference
@@ -317,31 +324,6 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
         why: "The clock reading you start from. Written down here, it can't be reconstructed wrongly in the car park afterwards.",
       },
       {
-        id: "cockpit.meters",
-        label: "Tach & Hobbs — recorded",
-        fields: [
-          {
-            id: "cockpit.meters.tach",
-            label: "Tach start",
-            unit: "hrs",
-            kind: "number",
-            step: 0.1,
-            min: 0,
-          },
-          {
-            id: "cockpit.meters.hobbs",
-            label: "Hobbs start",
-            unit: "hrs",
-            kind: "number",
-            step: 0.1,
-            min: 0,
-          },
-        ],
-        detail: "Prefilled from the last filed flight — correct them against the panel",
-        why: "The club's addition, not the card's: read the meters while you're sitting in front of them. Prefilled from where the last flight left the airplane, so the common case is confirming two numbers — and a reading that DISAGREES with the prefill is worth chasing, because it usually means somebody flew and didn't file.",
-        club: true,
-      },
-      {
         id: "cockpit.brake-chocks",
         label: "Parking brake, chocks & tie-downs — checked",
         why: "Know what's still holding the airplane before you start it. Adding power against a chock or taxiing against a rope is an expensive way to find out.",
@@ -365,6 +347,35 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
         id: "cockpit.master-on",
         label: "Master switch — ON",
         why: "Just for the checks below. Everything from here to the second master item runs on the battery, so work through it without dawdling.",
+      },
+      {
+        // Deliberately AFTER the master switch, though it's the club's own item
+        // rather than the card's: the Hobbs is electric and reads nothing with
+        // the master off, so asking for both meters before the switch is
+        // asking for a number that isn't on the panel yet.
+        id: "cockpit.meters",
+        label: "Tach & Hobbs — recorded",
+        fields: [
+          {
+            id: "cockpit.meters.tach",
+            label: "Tach start",
+            unit: "hrs",
+            kind: "number",
+            step: 0.1,
+            min: 0,
+          },
+          {
+            id: "cockpit.meters.hobbs",
+            label: "Hobbs start",
+            unit: "hrs",
+            kind: "number",
+            step: 0.1,
+            min: 0,
+          },
+        ],
+        detail: "Prefilled from the last filed flight — correct them against the panel",
+        why: "The club's addition, not the card's: read the meters while you're sitting in front of them, with the master on so the Hobbs is alive. Prefilled from where the last flight left the airplane, so the common case is confirming two numbers — and a reading that DISAGREES with the prefill is worth chasing, because it usually means somebody flew and didn't file.",
+        club: true,
       },
       {
         id: "cockpit.stall-warning",
@@ -462,8 +473,11 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
       },
       {
         id: "left.brake",
-        label: "Brake — pads, leaks, disc",
-        why: "Brakes are what stop you on a short field. Look at the pad thickness and the disc face, not just the general area.",
+        // No pads on this line, on purpose: N8318B wears wheel fairings, and
+        // the pad stack is behind them. A card that asks for a check nobody
+        // can make teaches members to tick things they haven't looked at.
+        label: "Brake — leaks, disc",
+        why: "Brakes are what stop you on a short field. The fairings hide the pads on this airplane, so what you have is the disc face and any wet spot around the caliper — take both seriously.",
       },
     ],
   },
@@ -551,8 +565,9 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
       },
       {
         id: "right.brake",
-        label: "Brake — pads, leaks, disc",
-        why: "One weak brake is worse than two: it's what turns you off the centreline when you need the pedals most.",
+        // Same reason as the left one: the pads are behind the fairing.
+        label: "Brake — leaks, disc",
+        why: "One weak brake is worse than two: it's what turns you off the centreline when you need the pedals most. Compare this disc and caliper against the left main — a difference between the two is the thing you can see without pulling a fairing.",
       },
     ],
   },
@@ -583,13 +598,25 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
       },
       {
         id: "empennage.elevator",
-        label: "Elevator — counterweights, nuts, cotter pins",
-        why: "Elevator hardware is single-point: there is no second elevator. Look at the nuts and the pins, not just the movement.",
+        // The trim tab hangs off the elevator and is inspected in the same
+        // reach, so it's the same line rather than one more thing to walk to.
+        label: "Elevator and trim tab — counterweights, nuts, cotter pins",
+        why: "Elevator hardware is single-point: there is no second elevator. Look at the nuts and the pins, not just the movement — and give the trim tab the same look, including its own actuator rod and hinge.",
       },
       {
         id: "empennage.rudder",
         label: "Rudder — nuts, cotter pins",
-        why: "Last item of the walk and the same rule as the elevator. A jammed or disconnected rudder found on the roll is not recoverable at low speed.",
+        why: "The same rule as the elevator. A jammed or disconnected rudder found on the roll is not recoverable at low speed.",
+      },
+      {
+        // The club's own line, and it follows the two hardware checks above on
+        // purpose: those say everything is still attached, this says nothing is
+        // binding. Two different failures, and looking at a hinge tells you
+        // nothing about the second one — you have to move the surface.
+        id: "empennage.controls-free",
+        club: true,
+        label: "Elevator, trim and rudder — move freely",
+        why: "Move each one by hand through its full travel and let it go. Stiffness, a catch at one end, or a surface that won't come back is something binding behind the skin — and the takeoff roll is a bad place to discover which control you haven't got.",
       },
     ],
   },
@@ -730,7 +757,7 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
       {
         id: "start.preflight",
         label: "Preflight — complete",
-        detail: "The preflight checkout, signed off",
+        detail: "The preflight checkout, completed",
         why: "The card's own first item, and the hinge between the two checkouts: the airplane has been walked and signed for before anything electrical goes on.",
       },
       {
@@ -791,6 +818,15 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
         label: "Propeller area — clear, prop pulled through by hand",
         why: "Overnight the oil drains off the cylinder walls. Turning it through by hand gets oil moving before the starter spins a dry engine.",
       },
+      {
+        // Last of the pre-lube, and the reason the three items above it are
+        // where they are: mixture cut and mags OFF is what makes it legal to
+        // spin the engine without it starting.
+        id: "prelube.crank",
+        club: true,
+        label: "Crank engine — ~2 full propeller rotations",
+        why: "The starter turns the oil pump, which the hand pull doesn't. Two turns puts pressure back on the bearings before the first cold start of the day fires — with the mixture still cut, so it turns without catching.",
+      },
     ],
   },
   {
@@ -836,11 +872,10 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
         detail: "Look, call “CLEAR PROP”, then wait a beat",
         why: "The person walking up behind the wing can't see what you're about to do, and the pause is what gives them time to answer.",
       },
-      {
-        id: "starting.master",
-        label: "Master switch — ON",
-        why: "Now, and not before: everything downstream was switched off in the before-start flow so the starter has the battery to itself.",
-      },
+      // No master switch line here. The before-start flow above already has
+      // "Beacon — ON", which can't be done with the master off — so by the time
+      // anyone reaches the starter the switch is on, and a line asking for it
+      // is a box ticked from memory rather than from the panel.
       {
         id: "starting.starter",
         label: "Starter — engage",
@@ -857,25 +892,28 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
         why: "If the needle hasn't come off the peg within a few seconds, shut it down. An engine running without oil pressure is destroying itself while you watch.",
       },
       {
+        // The panel's alternator warning light rather than an ammeter needle:
+        // it's what this airplane actually has to tell you about its charging
+        // system, and it reads the same way in sun as it does at night.
         id: "starting.ammeter",
-        label: "Ammeter — normal charge",
-        why: "It should show the battery being replaced after the start. A discharge here means you're flying on a clock you can't see.",
+        label: "Alternator light — not lit",
+        why: "Lit means the alternator isn't carrying the load and everything electrical is coming out of the battery — a clock you can't see running down. It should go out once the engine is running; if it doesn't, it's a squawk before you taxi, not something to watch.",
       },
       {
         id: "starting.radios",
-        label: "Radios — on / set / check",
+        label: "Radios — on / set / check (headsets on)",
         why: "Now that the spike is behind you. Set the frequencies you'll actually need before you start moving, not while taxiing.",
       },
       {
         id: "starting.transponder",
-        label: "Transponder — standby",
-        why: "Standby on the ground keeps you off everyone's screen as ground clutter. It goes to ALT in the pre-takeoff flow.",
+        label: "Transponder — ALT",
+        why: "On and altitude-reporting from the moment the engine is running, so the airplane is visible to everyone looking for it — including the traffic systems watching the ramp — rather than only from the hold-short line. The pre-takeoff flow still verifies the code.",
       },
-      {
-        id: "starting.instruments",
-        label: "Flight instruments — altimeter, HI set",
-        why: "Set the altimeter to the field setting and check it reads field elevation; swing the HI to the compass while you're sitting still and it can settle.",
-      },
+      // No flight-instruments line here: setting the altimeter and swinging
+      // the HI belongs where the airplane is stopped and level for a minute,
+      // which is the runup — and `runup.instruments` is that line. Asking
+      // twice got the HI set while the airplane was about to taxi and then
+      // re-set anyway, which teaches that the first one didn't count.
       {
         id: "starting.flaps",
         label: "Flaps — UP",
@@ -910,8 +948,8 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
       },
       {
         id: "runup.oil-temp-green",
-        label: "Oil temperature — above 100 °F",
-        why: "Cold oil is thick oil. Running it up before the temperature comes up is how you find out what a cold-worn engine sounds like.",
+        label: "Oil temperature — above 75 °F",
+        why: "Cold oil is thick oil. Running it up before the temperature comes up is how you find out what a cold-worn engine sounds like. 75 °F is the club's gate for putting runup power through it, and it's the only oil-temperature gate on the ground — what the gauge does after that is a cruise instrument, not a box to tick.",
       },
       {
         id: "runup.mixture",
@@ -928,65 +966,33 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
         label: "Oil pressure — 30 to 40 psi minimum",
         why: "The last look at the oil system before you commit to a takeoff. Below the minimum, this flight is over.",
       },
+      // No second oil-temperature line. `runup.oil-temp-green` above already
+      // asks the only question that decides anything on the ground — is it warm
+      // enough to run up — and asking again a few items later, in a band, made
+      // the first one look provisional.
       {
-        id: "runup.oil-temp",
-        label: "Oil temperature — 100 to 180 °F",
-        why: "In the band the card gives. High before you've even taken off suggests cooling trouble that a full-power climb will make worse.",
-      },
-      {
+        // Same instrument as `starting.ammeter`, so the same wording: this
+        // airplane reports its charging system with a light.
         id: "runup.ammeter",
-        label: "Ammeter — normal charge",
-        why: "Second look, under load. A charging system that was fine at idle and isn't now is a squawk, not a maybe.",
+        label: "Alternator light — not lit",
+        why: "Second look, under load and with the radios on. A charging system that was happy at idle and isn't now is a squawk, not a maybe.",
       },
+      // Magnetos before carb heat, which is the order the mag check is actually
+      // flown: L–BOTH–R–BOTH and back, then hot air. And neither records its
+      // RPM drop any more — the numbers were three boxes to fill in while
+      // holding 1600 RPM, and what the card asks for is a judgement made at the
+      // tachometer ("is it inside the limit"), not a figure transcribed
+      // afterwards. Anything outside the limits is a squawk, which is a place
+      // the number can be written down in words.
       {
-        id: "runup.annunciators",
-        label: "Annunciator lights — check",
-        why: "Check them here and you know which lights are dark because nothing is wrong, and which are dark because the bulb is dead.",
+        id: "runup.mags",
+        label: "Magnetos — max 100 RPM drop, and both drop",
+        why: "Some drop on each is the point: no drop at all means a magneto is live when you think it's off, and that propeller can start the engine on its own.",
       },
       {
         id: "runup.carb-heat",
-        fields: [
-          {
-            id: "runup.carb-heat.drop",
-            label: "Drop",
-            unit: "RPM",
-            kind: "number",
-            step: 10,
-            min: 0,
-            expected: {
-              min: 50,
-              max: 100,
-              note: "The card expects a 50–100 RPM drop. No drop means the carb heat isn't working.",
-            },
-          },
-        ],
         label: "Carb heat — 50 to 100 RPM drop",
         why: "The drop is how you know hot air is actually reaching the carburettor — the one defence this engine has against carb ice. No drop means it isn't working.",
-      },
-      {
-        id: "runup.mags",
-        fields: [
-          {
-            id: "runup.mags.left",
-            label: "Left drop",
-            unit: "RPM",
-            kind: "number",
-            step: 10,
-            min: 0,
-            expected: { max: 100, note: "Over the card's 100 RPM maximum." },
-          },
-          {
-            id: "runup.mags.right",
-            label: "Right drop",
-            unit: "RPM",
-            kind: "number",
-            step: 10,
-            min: 0,
-            expected: { max: 100, note: "Over the card's 100 RPM maximum." },
-          },
-        ],
-        label: "Magnetos — max 100 RPM drop, and both drop",
-        why: "Some drop on each is the point: no drop at all means a magneto is live when you think it's off, and that propeller can start the engine on its own.",
       },
       {
         id: "runup.idle",
@@ -1007,33 +1013,41 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
   },
   {
     id: "pretakeoff",
-    title: "Pre-takeoff",
+    // The club's own name for this one. It's the mnemonic members already say
+    // out loud at the hold-short line, so the section header says it too rather
+    // than making them map "Pre-takeoff" onto it.
+    title: "Pre-takeoff (Lights, Camera, Action)",
     subtitle: "Holding short",
+    // Item order IS the mnemonic, and each line says which word it answers.
+    // Lights, then Camera (the transponder — what makes you visible to the
+    // people who can't see you out of a window), then the three Action items
+    // that configure the airplane, ending on mixture rich: the last thing
+    // touched before the power comes in.
     items: [
       {
-        id: "pretakeoff.mixture",
-        label: "Mixture — rich",
-        why: "Confirmed once more with the runway in front of you, because a lean mixture on a full-power climb is a very short flight.",
-      },
-      {
-        id: "pretakeoff.trim",
-        label: "Elevator trim — takeoff",
-        why: "Set wrong, the airplane either fights you off the ground or leaps off it before you're ready. Takeoff setting, every time.",
-      },
-      {
-        id: "pretakeoff.flaps",
-        label: "Flaps — as required",
-        why: "Decide it here and set it here. A flap setting changed on the roll is a distraction you chose to give yourself.",
-      },
-      {
         id: "pretakeoff.lights",
-        label: "Lights — as required",
+        label: "Lights — as required (Lights)",
         why: "Landing and strobe lights on the runway make you visible to the traffic on final that hasn't seen you yet.",
       },
       {
         id: "pretakeoff.transponder",
-        label: "Transponder — verify code, ALT",
+        label: "Transponder — verify code, ALT (Camera)",
         why: "The code you were given, and out of standby. Nobody chases you for it until it's the reason a controller couldn't see you.",
+      },
+      {
+        id: "pretakeoff.trim",
+        label: "Elevator trim — takeoff (Action)",
+        why: "Set wrong, the airplane either fights you off the ground or leaps off it before you're ready. Takeoff setting, every time.",
+      },
+      {
+        id: "pretakeoff.flaps",
+        label: "Flaps — as required (Action)",
+        why: "Decide it here and set it here. A flap setting changed on the roll is a distraction you chose to give yourself.",
+      },
+      {
+        id: "pretakeoff.mixture",
+        label: "Mixture — rich (Action)",
+        why: "Confirmed once more with the runway in front of you, because a lean mixture on a full-power climb is a very short flight. Last of the Action items, and the last thing you touch before the throttle.",
       },
     ],
   },
@@ -1069,11 +1083,6 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
         id: "after-landing.carb-heat",
         label: "Carb heat — cold",
         why: "Back to cold puts the air filter back in the loop for the taxi, and leaves the control where the next start expects it.",
-      },
-      {
-        id: "after-landing.transponder",
-        label: "Transponder — standby",
-        why: "Off everyone's screen as soon as you're down and rolling.",
       },
     ],
   },
@@ -1127,6 +1136,10 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
       },
       {
         id: "shutdown.tach",
+        // Both meters, the same pair the preflight card's `cockpit.meters`
+        // asks for at the other end of the flight. Recording only the tach
+        // here meant the Hobbs end had to be typed again into the meter card
+        // below — the one number on this page that was asked for twice.
         fields: [
           {
             id: "shutdown.tach.hours",
@@ -1136,9 +1149,17 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
             step: 0.1,
             min: 0,
           },
+          {
+            id: "shutdown.tach.hobbs",
+            label: "Hobbs",
+            unit: "hrs",
+            kind: "number",
+            step: 0.1,
+            min: 0,
+          },
         ],
-        label: "Tach — record time in flight log",
-        why: "The tach is what bills, and what the next pilot's start reading is checked against. It goes in the log entry you're filling in right now.",
+        label: "Tach & Hobbs — record time in flight log",
+        why: "The tach is what bills, and what the next pilot's start reading is checked against. Read both before you get out — they go straight into the log entry you're filling in right now, so the meter card below fills itself.",
       },
       {
         id: "shutdown.flight-plan",
@@ -1166,11 +1187,6 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
         id: "parking.chocks",
         label: "Wheel chocks — in place",
         why: "Belt and braces with the tie-downs, and the reason the airplane is still where you left it.",
-      },
-      {
-        id: "parking.cowl-plugs",
-        label: "Cowl plugs — installed",
-        why: "Birds build nests in a warm cowling remarkably fast, and the next pilot may not find it on the walk.",
       },
       {
         id: "parking.cover",
@@ -1211,7 +1227,18 @@ export const PREFLIGHT_CHECKOUT: Checkout = {
   // because nobody recorded one. It also added the `walkaround` section, whose
   // four items are NEW ids, so a v5 run is legitimately missing them rather
   // than having failed them.
-  version: 6,
+  //
+  // v7 is the club reading its own card against the airplane it actually has.
+  // The two brake lines lost "pads" — N8318B wears wheel fairings, so the pads
+  // can't be seen without pulling one, and a line asking for a check nobody can
+  // make is a line that gets ticked anyway. The elevator line gained the trim
+  // tab (same reach, same hardware check), and a new `empennage.controls-free`
+  // asks that the elevator, trim and rudder MOVE — the hardware items say
+  // "attached", which is a different question from "not binding". Both brake
+  // ids and the elevator id are unchanged: same physical checks, reworded, so
+  // old runs keep their meaning. The bump is what discards half-walked drafts
+  // written against a card with one item fewer.
+  version: 7,
   sections: PREFLIGHT_SECTIONS,
 };
 
@@ -1219,7 +1246,30 @@ export const RUNWAY_CHECKOUT: Checkout = {
   kind: "RUNWAY",
   title: "Runway checkout",
   tagline: "Sitting down to holding short: passengers, start, runup, pre-takeoff.",
-  version: 1,
+  // v2 is the club reading the card against how it actually flies N8318B.
+  //
+  // Added: `prelube.crank`, ending the cold-start pre-lube — the hand pull
+  // moves oil off the cylinder walls, but only the starter turns the pump.
+  // Retired: `starting.master`, which asked for a switch the before-start
+  // beacon item has already required; `starting.instruments`, because the
+  // altimeter and HI are set where the airplane is stopped and level, which is
+  // the runup — and `runup.instruments` was already asking for exactly that;
+  // `runup.oil-temp`, the second oil-temperature line, which asked in a band
+  // what `runup.oil-temp-green` had already gated a few items earlier; and
+  // `runup.annunciators`. Three FIELDS went too, rather than items — the
+  // magneto L/R drops and the carb-heat drop — so those items keep their ids
+  // and their history and simply have no numbers hanging off them any more.
+  // Reordered: magnetos before carb heat, the order the check is actually
+  // flown. Reworded, same ids and same checks: `starting.transponder` goes to ALT
+  // rather than standby (visible from the moment the engine is running, not
+  // from the hold-short line), both ammeter lines read the alternator light
+  // this airplane actually has, and the runup's oil temperature is the card's
+  // own 75 °F.
+  //
+  // A new id is legitimately missing from a v1 run rather than failed by it; a
+  // retired one is dropped from an old run's answers by `parseAnswers`. Both
+  // are exactly what the version stamp is there to explain.
+  version: 2,
   sections: RUNWAY_SECTIONS,
 };
 
@@ -1227,7 +1277,12 @@ export const TURNOFF_CHECKOUT: Checkout = {
   kind: "TURNOFF",
   title: "Turn-off checkout",
   tagline: "Clear of the runway to walking away: after landing, shutdown, parking.",
-  version: 2,
+  // v3 retired `after-landing.transponder`. The club now flies with the
+  // transponder in ALT from the moment the engine is running (see
+  // `starting.transponder` on the runway card), so putting it back to standby
+  // while rolling clear isn't the club's procedure any more — and shutdown
+  // switches it off a couple of items later regardless.
+  version: 3,
   sections: TURNOFF_SECTIONS,
 };
 

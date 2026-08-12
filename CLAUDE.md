@@ -96,8 +96,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 - **Checkout** — one run of ONE of the airplane's cards. `kind` is
   `PREFLIGHT | RUNWAY` (the third, TURNOFF, lives on Flight — it belongs to
   that flight, not to a standalone row). `answers` JSON `{ itemId: true }`
-  against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 6,
-  continuing the old checklist's v3; TURNOFF at 2; RUNWAY starts at 1);
+  against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 7,
+  continuing the old checklist's v3; TURNOFF at 2; RUNWAY at 2);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
   `withInstructor` (selects the third column of the operating rules);
@@ -158,7 +158,18 @@ flight checkouts — separate pages with separate sign-offs, because they're
 walked at different times and an interrupted member must never re-tick the
 airplane. Both AUTOSAVE (no Save button — see `lib/checkoutDraft.ts`), so their
 one remaining submit means exactly one thing: this walk is done and I'm putting
-my name to it. The turn-off checkout is a card on `postflight`.
+my name to it. The button says **Complete** and is NEVER disabled by the state
+of the card: a member who genuinely can't answer an item — a check this airframe
+doesn't allow, a fault already squawked — must still be able to file the walk
+they DID do, so an incomplete card is confirmed in a modal
+(`CompleteCheckoutButton`) rather than met with a button that won't press and no
+explanation. Completing one card opens the NEXT: preflight → `/runway` →
+`/postflight`, because the walk ends at the cabin door, the runway card starts
+in the seat, and the flight ends at the form. The runway
+page carries no "preflight done today" banner: the card's own `start.preflight`
+row is the app's answer to that and can't be scrolled past. The turn-off
+checkout is a card on `postflight`, and that page AUTOSAVES too (device only —
+see `lib/postflightDraft.ts`).
 `layout.tsx` = pre-hydration theme script + `AppShell`; `AppShell` = top bar +
 nav rail + content column + swipe pager, and is a CLIENT component only because
 the column reserves the rail's width (`md:pl-60`) and `/login` — which has no
@@ -177,8 +188,12 @@ owns the only splash in the app.
 - `signup-codes` (GET/POST, admin) · `signup-codes/[id]` (PATCH to retire /
   relabel, DELETE only while `uses` is 0). The code STRING is deliberately not
   editable: somebody is holding a slip of paper with it on.
-- `checkouts` (GET `?kind=PREFLIGHT|RUNWAY`, POST; `complete:true` requires
-  every REQUIRED item ticked — optional sections/items excluded). An
+- `checkouts` (GET `?kind=PREFLIGHT|RUNWAY`, POST; `complete:true` with items
+  still unticked is ALLOWED, but only with `acknowledgeIncomplete:true` — the
+  member's own call, made in a modal that names what's missing, and without the
+  flag it's still a 400 so a stale client can't file a half-walked card by
+  accident. The answers column records exactly which items were left, so
+  "completed" never means more than it should). An
   unrecognised `kind` is a 400, never a silent "show me everything".
   Two housekeeping rules ride on this route, and they exist because the pages
   AUTOSAVE: an open run is now created a couple of seconds after the first tick
@@ -265,6 +280,19 @@ owns the only splash in the app.
   draft for a member who has done nothing) and `savedAgo`. Nothing here touches
   `window`: every entry point takes its store, which is what makes it testable
   under vitest's node environment. ✅tested
+- `postflightDraft.ts` — the same promise for the POST-FLIGHT form, which is
+  filled in standing at the tail and used to lose everything if you walked away.
+  ONE store rather than two, and that's the whole difference: a post-flight
+  entry has no server row to sync to, because the turn-off answers belong to a
+  `Flight` that doesn't exist until the form is filed — so the bar says "on this
+  device" and means it. Keeps the form's fields as the STRINGS the inputs hold
+  (a half-typed "150" on its way to 1506.1 is a state you're entitled to walk
+  away from) plus the turn-off ticks and which meter boxes were hand-edited.
+  Does NOT keep files: photos are `File` handles that don't survive a reload, so
+  a squawk's TEXT is kept and `hadPhotos` records that pictures were attached,
+  which is what lets the bar say "attach those again" instead of leaving the
+  member to assume. Swept by the same `pruneDrafts` at the same age — the key
+  prefixes live together in `checkoutDraft.ts` for exactly that reason. ✅tested
 - `checkoutCleanup.ts` — the db half of the above. See the `checkouts` API
   bullet: `supersedeOpenRuns` + `sweepAbandonedRuns`, sharing
   `ABANDONED_DRAFT_DAYS` with the device's own sweep so the two stores can't
@@ -284,16 +312,20 @@ owns the only splash in the app.
   cold-start pre-lube) and so may an ITEM (the card's IFR-only VOR/GPS line):
   stored when ticked, never counted toward sign-off. Items the club adds to the
   cards are flagged `club: true` and render a "club" chip. Three are whole
-  SECTIONS (I'M SAFE, the 5 Ps, the closing walkaround) and three are single
+  SECTIONS (I'M SAFE, the 5 Ps, the closing walkaround) and five are single
   lines inside a card's own section (the open-squawks review, the tach/Hobbs
-  reading, the cabin clean-out); a test asserts nothing else creeps in. Two
+  reading, the tail controls moving freely, the starter crank at the end of the
+  cold-start pre-lube, the cabin clean-out); a test asserts nothing else creeps
+  in. Two of the airplane's own lines are deliberately NOT transcriptions any
+  more: both brake items dropped "pads", because N8318B wears wheel fairings and
+  a card asking for a check nobody can make is a line that gets ticked anyway. Two
   more rules about FIELDS: a `defaultNow` time field opens at the club's
   current clock via `initialValues` (a default, never a stamp — and it does NOT
   tick its item, because opening a page confirms nothing), and the fuel dip is
   recorded per WING, with `deriveFuelOil` summing the two into the
   `fuelOnBoardGal` column. ✅tested
 - `inflightReference.ts` — the card's takeoff/climb/cruise/descent phases and
-  the KBFI frequency block, as read-only data. Deliberately NOT checkout items:
+  the KTOA (Zamperini Field, the club's home) frequency block, as read-only data. Deliberately NOT checkout items:
   nothing ticked in the air, nothing blocking a sign-off. Airspeeds are MPH.
   Rendered at the foot of the RUNWAY page (it's the next thing you read).
 - `weightBalance.ts` — the loading stations and CG envelope as data, plus the
@@ -406,7 +438,10 @@ full-width top bar — club name at the left, then airplane chip /
 replay-the-tour / settings gear / profile menu along the right — with a fixed
 LEFT-hand rail hanging BELOW it from `md` up, holding only the vertical tabs
 with Checkouts expanding inline; below `md`, the rail is replaced by the
-floating bottom pill), `SwipePager`/`SwipeProvider`
+floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
+rather than centred on the pill — a menu is the answer to the thing you just
+touched, and on a five-tab bar "centred" is a different tab entirely),
+`SwipePager`/`SwipeProvider`
 (phone tab swipe), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
 sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
@@ -417,28 +452,55 @@ there is no honest way to answer them a fortnight later), `MaintenancePanel` (Pl
 countdown bar per clock, and — with `maintenance:manage` — Mark done / Edit /
 Add), `CheckoutDraftBar` +
 `useCheckoutDraft` (autosave: everything about the SAVED STATE of a walk, and
-the only place Reset lives. Deliberately NOT folded into the sticky bar —
-Reset destroys a walk, and the sticky bar is the one thing parked under a
-member's thumb for the whole card. It absorbed the old `ResumedRun` banner as
-one of its states, and Reset confirms in a modal that says what goes),
+the only place Reset lives. It renders INSIDE `CheckoutList`'s sticky bar, as
+that component's `status` slot — how far down the card you are and whether that
+work is kept are one glance, in the one strip that follows you down the card.
+The old objection to putting it there was Reset: it destroys a walk, and the
+sticky bar is parked under a member's thumb for the whole card. Answered rather
+than dropped — Reset is ghost weight at the bar's far edge and still confirms in
+a modal that says what goes. It absorbed the old `ResumedRun` banner as one of
+its states, and that one is a GREETING: "picking up where you left off" gives
+way to the ordinary saved line on the first tick, or a permanent amber
+two-liner would tax the height of every screen of the card),
+`PostflightDraftBar` +
+`usePostflightDraft` (the same, for the post-flight form — deliberately NOT
+CheckoutDraftBar, which has a whole vocabulary for the gap between the device
+and the server that would be a lie here),
 `CheckoutList` (the collapsible
 section renderer shared by the preflight and runway pages — one section open at
 a time, sticky progress bar showing WHICH STEP you're on and your place in that
 section (scrolled into a 15-item section with its header off screen, a bare
 percentage tells you neither), with a segmented gauge whose segments are as wide
-as their sections are long; it is deliberately not a `role="status"` live region
+as their sections are long AND are buttons that jump to their section — it's the
+one control on screen the whole way down the card, so the obvious thing for it
+to do when tapped is take you there (which is also why the bar is no longer
+`aria-hidden`: you can't hide a row of buttons from a keyboard); it is deliberately not a `role="status"` live region
 — that would re-announce the whole thing on every tap — "next section"
 affordance, and opening a section
-scrolls it to the top of the column so it can't expand below the fold. Two
+scrolls it to the top of the column so it can't expand below the fold. It opens
+on section one EXCEPT when a walk is resumed (`resumed`, flipped by the page when
+`draft.resume` lands): coming back mid-card it opens the first section with
+required work left in it, since on a resumed card section one is usually the
+finished one. Once only — after that the accordion is the member's. Three
 optional props: `hints` puts a muted note under a FIELD — the preflight page
 uses it for "last recorded 6 qts on Tue by Alex Rivera" under the oil box, a hint and
 never a prefill — `derived` marks an ITEM the app answers for itself, and `itemNotes` puts a
-TONED live note under one — used for the preflight card's open-squawks line,
-which carries the airplane's current squawks and goes red for grounded/in-work,
-amber for anything untriaged, green otherwise. The item still has to be TICKED
-by the pilot: the app knows the list, it can't know you read it), `TurnoffCheckout`
+TONED live note under one, optionally with a link out (rendered OUTSIDE the tick
+button — an `<a>` inside it is the same invalid nesting as the (i)). The
+open-squawks line is what both exist for: with nothing open it's `derived`
+(green, ticked by the app, untappable — there is no list to read), and otherwise
+it's a note counting them — "3 open squawks — 1 being worked, 1 not yet
+reviewed" — plus a link to `/status/squawks` for the wording. RED IS RESERVED
+FOR GROUNDED there; in-work and untriaged are amber, because "reviewed — in
+work" is a flyable airplane and painting it like a grounding teaches members to
+read past the colour that stops a flight. With anything open the item is still
+TICKED by the pilot: the app knows the list, it can't know you read it),
+`TurnoffCheckout`
 (post-flight turn-off ticks — flat, no collapsing, because you're working down
-a list you've just done rather than navigating one), `InflightReference`
+a list you've just done rather than navigating one, but with the same segmented
+gauge as the other two cards: 21 items is too many to count by eye. No "step N
+of M" and not sticky — with nothing collapsed there is no step you're on, and it
+lives inside a longer form whose scroll it must not fight), `InflightReference`
 (collapsed card at the foot of the runway page), `WeightBalanceChart` (the CG
 envelope as inline SVG — plotted against CG in INCHES rather than the POH's
 moment axis so the limits can be checked against the printed numbers by eye,
@@ -451,11 +513,17 @@ that SPOTLIGHTS live nav controls — each step names `data-tour` keys, the nav
 stamps them on both the rail and the pill via `tourKey`, and the tour takes
 whichever copy is on screen and measures it; a step whose keys match nothing
 visible falls back to a centred card), `OperatingRules`
-(`MyLimitsCard` on preflight / `RulesModal` off the log's currency card /
+(`MyLimitsCard` on preflight — COLLAPSED to its verdict by default, because it
+sits above the card the member came to walk; the solo-or-instructor banner is on
+it at every state, the minimums and the reasoning are behind the disclosure / `RulesModal` off the log's currency card /
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
 DateTimeField Dropdown InfoTip Input Modal Select Textarea LoadingDots
-LoadingScreen`. Prefer extending these. `DateTimeField` = native picker on
+LoadingScreen`. Prefer extending these. `Input` DEFAULTS `inputMode` to
+"decimal" for `type="number"`, so a numeric field opens the number pad on a
+phone without every call site remembering to say so; a field that counts things
+(landings) still passes `inputMode="numeric"` for a pad with no decimal point.
+`DateTimeField` = native picker on
 touch, themed popover on desktop; `InfoTip` = the (i) marker (hover opens,
 click pins); `ChipSelect` = a select whose options are COLOURED CHIPS, for the
 small vocabularies where the colour is half the meaning (the squawk status
@@ -491,6 +559,16 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   while the Vercel project's **Build Command is left on its default** — an
   explicit Build Command in the dashboard overrides package.json and silently
   restores the original bug.
+- **`output: "standalone"` is for Docker only and must stay OFF on Vercel.**
+  Vercel does its own file tracing and ends every build by reading
+  `.next/next-server.js.nft.json`; standalone output writes the traced tree
+  into `.next/standalone` and never emits that manifest, so the build gets all
+  the way through "Finalizing page optimization" and then dies inside Vercel's
+  `onBuildComplete` with a bare `ENOENT: … next-server.js.nft.json` — an error
+  about a file the app never mentions, from a step the app doesn't run.
+  `next.config.js` therefore spreads the option in only when `VERCEL` is unset
+  (Vercel sets `VERCEL=1` in every build environment), which leaves the
+  Dockerfile's `COPY /app/.next/standalone` exactly as it was.
 - To apply migrations to a Neon database BY HAND (recovery, or a database that
   predates the above), don't use compose — its `env_file` would override
   `DATABASE_URL` with the dev one. Pass it explicitly, and don't mount the
@@ -614,7 +692,7 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   booby trap for the next one.** A resumed half-ticked card turns "Check all"
   into "Clear" and makes a bare `0 of N checked` assertion fail for reasons
   that have nothing to do with the test. `clearCheckoutDrafts(page)` in
-  `tests/e2e/helpers.ts` is the fix and belongs in the `beforeEach` of any spec
+  `tests/e2e/helpers.ts` is the fix (it sweeps the post-flight family too) and belongs in the `beforeEach` of any spec
   that walks a card. It has to clear BOTH stores: clearing only localStorage
   leaves the server's copy to be resumed, and clearing only the server leaves
   the device's — which wins a tie anyway. The symptom when it's missing is not
@@ -642,7 +720,10 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   the ids, and `parseAnswers` silently drops any it doesn't recognise, so a
   rename turns old runs into blank ones. Reusing an id for the SAME physical
   check reworded is fine (bump the checkout's `version`); reusing one for a
-  DIFFERENT check is what must never happen.
+  DIFFERENT check is what must never happen. REORDERING items needs no bump at
+  all — answers are keyed by id, not position — and a bump would be actively
+  wrong there, since `parseDraft` discards on a version mismatch and every
+  half-walked card in the club would be thrown away for a cosmetic move.
 - The checkout rename (`preflight_checks` → `checkouts`, `checklistVersion` →
   `checkoutVersion`, `Flight.secureAnswers` → `turnoffAnswers`,
   `preflightId` → `checkoutId`) went through `db push`, which for a rename is a

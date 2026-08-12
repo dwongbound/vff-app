@@ -94,9 +94,16 @@ export async function clearCheckoutDrafts(page: Page) {
 
   // Needs a document on the origin to reach its localStorage; signIn leaves us
   // on /reservations, which is the same one.
+  //
+  // Both draft families: the post-flight form autosaves to the device too (see
+  // lib/postflightDraft.ts), and a spec that fills half of it in leaves the
+  // next one opening a form with somebody else's tach reading in it.
   await page.evaluate(() => {
     for (const key of Object.keys(window.localStorage)) {
-      if (key.startsWith("vff:checkout-draft:")) {
+      if (
+        key.startsWith("vff:checkout-draft:") ||
+        key.startsWith("vff:postflight-draft:")
+      ) {
         window.localStorage.removeItem(key);
       }
     }

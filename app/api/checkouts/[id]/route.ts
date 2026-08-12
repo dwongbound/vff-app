@@ -95,12 +95,14 @@ export async function PATCH(
   const values = parseValues(kind, body.values);
   const complete = body.complete === true;
 
-  if (complete && !isComplete(kind, answers)) {
+  // Same rule as POST: an incomplete card may be completed, but only when the
+  // client says the member confirmed it. See the comment there.
+  if (complete && !isComplete(kind, answers) && body.acknowledgeIncomplete !== true) {
     return NextResponse.json(
       {
-        error: `Every item has to be checked before you can sign off the ${checkoutFor(
+        error: `Every item has to be checked to complete the ${checkoutFor(
           kind
-        ).title.toLowerCase()}.`,
+        ).title.toLowerCase()}, or the incomplete card has to be confirmed.`,
       },
       { status: 400 }
     );

@@ -11,6 +11,7 @@
 //
 // Every row carries an (i) explaining what the limit is protecting against;
 // the rules are only useful if people understand them.
+import { useState } from "react";
 import Badge from "./common/Badge";
 import Card from "./common/Card";
 import InfoTip from "./common/InfoTip";
@@ -38,6 +39,13 @@ import { formatHours } from "@/lib/hours";
  * headline — computed from the member's declared total time plus the club's
  * own flight log. Below it are the minimums that actually apply to them, not
  * all three columns.
+ *
+ * COLLAPSED by default, showing the verdict and nothing else. It sits at the
+ * top of the preflight page, above the card the member came here to walk, and
+ * expanded it was most of a screen of table between them and the first item —
+ * read once, scrolled past every day after. The verdict is the part that
+ * changes and the part that decides something; the minimums are reference, and
+ * reference belongs behind a disclosure you open when you have the question.
  */
 export function MyLimitsCard({
   eligibility,
@@ -48,20 +56,46 @@ export function MyLimitsCard({
 }) {
   const { tier, daySolo, nightSolo, dayBlockers, nightBlockers, recentHours } =
     eligibility;
+  const [open, setOpen] = useState(false);
 
   return (
     <Card className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* The whole header is the toggle: on a phone held one-handed, a 7px
+          chevron is not the target, the row is. */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+      >
         <h2 className="text-sm font-semibold">
           Can you fly today?
           <span className="ml-2 font-normal text-gray-500 dark:text-gray-400">
             {RULES_ID} · {RULES_REVISION}
           </span>
         </h2>
-        <Badge tone={tier === "BUILDING" ? "amber" : "green"}>
-          {TIER_LABELS[tier]}
-        </Badge>
-      </div>
+        <span className="flex items-center gap-2">
+          <Badge tone={tier === "BUILDING" ? "amber" : "green"}>
+            {TIER_LABELS[tier]}
+          </Badge>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+            className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            <path
+              d="M6 8l4 4 4-4"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      </button>
 
       {/* The headline. Failing your column's currency doesn't ground you — the
           rules' third column is "fly with an approved instructor". */}
@@ -95,6 +129,19 @@ export function MyLimitsCard({
         </p>
       </div>
 
+      {/* Everything below is the disclosure — where the verdict came from, and
+          the limits that apply once you have it. The verdict itself, banner and
+          all, stays on the card at every state: a collapsed card that hid
+          "you need an instructor for this flight" would be a collapsed card
+          that gets somebody airborne who shouldn't be.
+          Unmounted rather than hidden with a class, so nothing in here is in
+          the tab order or read out while it's shut. */}
+      {!open ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Tap for the reasoning and your minimums today.
+        </p>
+      ) : (
+        <>
       {/* Prose, not metadata: four lines of running text explaining where the
           numbers came from and what to do about them. `text-xs` is the app's
           chip/label size — at paragraph length it reads as fine print, which
@@ -140,6 +187,8 @@ export function MyLimitsCard({
       <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900 dark:bg-indigo-900/30 dark:text-indigo-200">
         {CANCELLATION_POLICY}
       </p>
+        </>
+      )}
     </Card>
   );
 }

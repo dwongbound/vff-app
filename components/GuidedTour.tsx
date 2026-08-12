@@ -79,7 +79,7 @@ const STEPS: Step[] = [
     where: "Checkouts",
     icon: ICONS.clipboard,
     title: "Preflight checkout",
-    body: "N8318B's own preflight card: I'M SAFE, the homework, the consumables, the cockpit, and the walk around the airplane. Tap a row to tick it; tap the (i) beside it to learn why the item is on the card. Sign off when every item is done — the club has a record that you did.",
+    body: "N8318B's own preflight card: I'M SAFE, the homework, the consumables, the cockpit, and the walk around the airplane. Tap a row to tick it; tap the (i) beside it to learn why the item is on the card. Complete it when you're done — the club has a record that you walked it.",
   },
   {
     targets: ["runway", "checkouts"],
