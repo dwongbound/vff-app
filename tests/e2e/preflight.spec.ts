@@ -13,20 +13,33 @@ test.beforeEach(async ({ page }) => {
   await clearCheckoutDrafts(page);
 });
 
-test("the preflight checkout tracks progress and gates sign-off", async ({ page }) => {
+test("the preflight checkout tracks progress and asks before filing a partial card", async ({
+  page,
+}) => {
   await gotoTab(page, "/preflight", "Preflight");
 
-  // Nothing checked yet: sign-off is unavailable and the page says what's next.
-  const signOff = page.getByRole("button", { name: "Sign off" });
-  await expect(signOff).toBeDisabled();
+  // Nothing checked yet. Complete is still pressable — a member who genuinely
+  // can't answer an item must be able to file the walk they DID do — and the
+  // page says what's outstanding.
+  const complete = page.getByRole("button", { name: "Complete", exact: true });
+  await expect(complete).toBeEnabled();
   await expect(page.getByText(/items left, starting with/)).toBeVisible();
 
   // Check off the whole first section in one tap; the counter follows.
   await page.getByRole("button", { name: "Check all" }).click();
   await expect(page.getByText(/Step \d+ of \d+ · \d+ of \d+ checked/)).toBeVisible();
 
-  // Still incomplete → still gated.
-  await expect(signOff).toBeDisabled();
+  // Still incomplete, so pressing it asks rather than files: the modal NAMES
+  // what isn't ticked, which is the whole point of asking.
+  await complete.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/aren't ticked/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Complete anyway" })).toBeVisible();
+
+  // Backing out changes nothing.
+  await dialog.getByRole("button", { name: "Keep checking" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(/items left, starting with/)).toBeVisible();
 });
 
 // The sticky bar's job is "where am I", which on a card walked one-handed is a
@@ -207,9 +220,10 @@ test("a walk saves itself and comes back after a reload", async ({ page }) => {
   await expect(main.getByText(/progress saves automatically/i)).toBeVisible();
   await expect(main.getByRole("button", { name: "Reset" })).toHaveCount(0);
 
+  // Section one, complete. (The card opens on it, so "Check all" fills it.)
   await main.getByRole("button", { name: "Check all" }).click();
   const step = main.getByText(/^Step \d+ of \d+ · \d+ of \d+ checked$/);
-  const before = await step.textContent();
+  const tally = (await step.textContent())!.split("·")[1].trim();
   await waitForCheckoutSaved(page);
 
   await page.reload();
@@ -223,7 +237,12 @@ test("a walk saves itself and comes back after a reload", async ({ page }) => {
   // Scoped to main: LoadingScreen is a `role="status"` too ("Loading…"), and
   // on a fresh reload the splash can still be up when this first evaluates.
   await expect(main.getByRole("status")).toHaveText(/Picking up where you left off/);
-  await expect(step).toHaveText(before!);
+  await expect(step).toHaveText(new RegExp(`· ${tally}$`));
+
+  // …and it opens where the WORK is, not where the card starts. Section one is
+  // finished, so coming back to it would make the member's first act scrolling
+  // past their own ticks to find the place they got to.
+  await expect(step).toHaveText(/^Step 2 of /);
 });
 
 // Reset is destructive and irreversible, so it asks — and taking the "no" has
@@ -289,8 +308,8 @@ test("a flight can be added to the log by hand", async ({ page }) => {
   expect(tachStart).not.toBe("");
   await modal.getByLabel("Tach end").fill((Number(tachStart) + 2.3).toFixed(1));
   await modal.getByLabel("Landings", { exact: true }).fill("4");
-  await modal.getByLabel("From", { exact: true }).fill("KBFI");
-  await modal.getByLabel("To", { exact: true }).fill("KWVI");
+  await modal.getByLabel("From", { exact: true }).fill("KTOA");
+  await modal.getByLabel("To", { exact: true }).fill("KCMA");
 
   // The same arithmetic the log will show, before you commit to it.
   await expect(modal.getByText("2.3 tach hours")).toBeVisible();
@@ -299,7 +318,7 @@ test("a flight can be added to the log by hand", async ({ page }) => {
   await expect(modal).toBeHidden({ timeout: 60_000 });
 
   // …and it's a log line like any other, meters advanced with it.
-  await expect(page.getByText("KBFI → KWVI").first()).toBeVisible({
+  await expect(page.getByText("KTOA → KCMA").first()).toBeVisible({
     timeout: 30_000,
   });
   await expect(

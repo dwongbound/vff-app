@@ -16,16 +16,24 @@ test("the preflight tab answers solo-or-instructor, with the matching minimums",
   await expect(page.getByText("Can you fly today?")).toBeVisible();
   // The verdict is one of exactly two answers — which one depends on what the
   // log holds at this point in the run, so assert the shape, then drive a
-  // deterministic one below.
+  // deterministic one below. It is on the card at every state, collapsed or
+  // not: a card that hid "you need an instructor" would be a card that gets
+  // somebody airborne who shouldn't be.
   await expect(
     page.getByText(
       /(Cleared to fly solo or as PIC by day\.|You need an approved flight instructor)/
     )
   ).toBeVisible();
+  await expect(page.getByText("Building time (solo or PIC)")).toBeVisible();
+
+  // …and the minimums are NOT, until asked for. The card opens collapsed
+  // because it sits above the checkout the member came here to walk.
+  await expect(page.getByText("10 sm", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Can you fly today/ }).click();
 
   // The seeded admin has no declared total time, so the tighter column applies:
   // 2 hours of fuel reserve, 10 sm visibility.
-  await expect(page.getByText("Building time (solo or PIC)")).toBeVisible();
   await expect(page.getByText("2 h", { exact: true })).toBeVisible();
   await expect(page.getByText("10 sm", { exact: true })).toBeVisible();
 

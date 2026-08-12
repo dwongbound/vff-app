@@ -66,17 +66,34 @@ export const INFLIGHT_PHASES: ReferencePhase[] = [
   },
 ];
 
-/** The frequency block from the corner of the card. */
+/**
+ * The club's home field, as the frequency block in the corner of the card.
+ *
+ * KTOA — Zamperini Field, Torrance — which is where the airplane lives. (The
+ * card this file was first transcribed from carried Boeing Field's block, a
+ * different airplane's card in a different state.)
+ *
+ * The tower is split north/south, so both are here: 124.0 is the south tower
+ * and is also the CTAF when the tower is closed, which is the number a member
+ * wants at dusk. SoCal is split by runway — 124.3 for the 11s inbound and the
+ * 29s outbound, 127.2 the other way round — so each entry says which.
+ *
+ * Transcribed from the FAA chart supplement data published by AirNav and
+ * SkyVector (both agreeing) rather than from memory. Verify against the current
+ * supplement before trusting any of it in the air: this is a convenience copy,
+ * not a source of truth, and the airport is entitled to change a frequency
+ * without telling this file.
+ */
 export const FIELD_FREQUENCIES = {
-  field: "Boeing Field (KBFI)",
+  field: "Zamperini Field (KTOA)",
   entries: [
-    { label: "ATIS", value: "127.75" },
-    { label: "Ground", value: "121.9" },
-    { label: "Tower (VFR E)", value: "118.3" },
-    { label: "Tower (IFR)", value: "120.6" },
-    { label: "Seattle App (N)", value: "120.4" },
-    { label: "Seattle VOR", value: "116.80" },
-    { label: "Seattle FSS", value: "122.5" },
+    { label: "ATIS", value: "125.6" },
+    { label: "Ground", value: "120.9" },
+    { label: "Tower (S) / CTAF", value: "124.0" },
+    { label: "Tower (N)", value: "133.075" },
+    { label: "SoCal (11s in, 29s out)", value: "124.3" },
+    { label: "SoCal (29s in, 11s out)", value: "127.2" },
+    { label: "UNICOM", value: "122.95" },
     { label: "Emergency", value: "121.5" },
   ],
 } as const;

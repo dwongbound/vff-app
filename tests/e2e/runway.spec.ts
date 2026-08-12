@@ -15,11 +15,13 @@ test.beforeEach(async ({ page }) => {
   await clearCheckoutDrafts(page);
 });
 
-test("the runway checkout gates its own sign-off", async ({ page }) => {
+test("the runway checkout asks before filing a partial card", async ({ page }) => {
   await gotoTab(page, "/runway", "Runway");
 
-  const signOff = page.getByRole("button", { name: "Sign off" });
-  await expect(signOff).toBeDisabled();
+  // `exact`: the card's own "Preflight — complete" row is a button too, and
+  // Playwright matches accessible names by SUBSTRING unless told otherwise.
+  const complete = page.getByRole("button", { name: "Complete", exact: true });
+  await expect(complete).toBeEnabled();
   await expect(page.getByText(/items left, starting with/)).toBeVisible();
 
   // The card's first section is Passengers, not the walkaround.
@@ -27,7 +29,12 @@ test("the runway checkout gates its own sign-off", async ({ page }) => {
 
   await page.getByRole("button", { name: "Check all" }).click();
   await expect(page.getByText(STEP_LINE)).toBeVisible();
-  await expect(signOff).toBeDisabled();
+
+  // Still incomplete → the confirm modal, not a filed run.
+  await complete.click();
+  await expect(page.getByRole("dialog").getByText(/aren't ticked/)).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Keep checking" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
 });
 
 // "Preflight — complete" is answered by the app, so it's already ticked before
@@ -74,7 +81,7 @@ test("the preflight row cannot be ticked without a signed-off preflight", async 
   const row = page.getByRole("button", { name: /^Preflight — complete/ });
   await expect(row).toBeDisabled();
   await expect(
-    page.getByText(/No preflight (checkout has been )?signed off/).first()
+    page.getByText(/No preflight (checkout has been )?completed/).first()
   ).toBeVisible();
   await expect(page.getByRole("link", { name: /Walk the preflight/ })).toBeVisible();
 
@@ -112,15 +119,46 @@ test("signing off the preflight ticks the row for you", async ({ page }) => {
   const row = page.getByRole("button", { name: /^Preflight — complete/ });
   await expect(row).toHaveAttribute("aria-pressed", "true");
   await expect(row).toBeDisabled();
-  await expect(page.getByText(/Signed off today by/).first()).toBeVisible();
+  await expect(page.getByText(/Completed today by/).first()).toBeVisible();
   await expect(page.getByRole("link", { name: /Walk the preflight/ })).toHaveCount(0);
 });
 
-test("the runway page says whether the airplane has been walked today", async ({
+// The banner this used to assert on ("Preflight checkout done today …") is
+// gone: it said the same thing as the card's own "Preflight — complete" row a
+// few inches below it, and the row is the copy that can't be scrolled past.
+// The two tests above cover both halves of that row, satisfied and not.
+
+
+// The server's half of "Complete" — the UI asks in a modal, and this is what
+// the answer travels as. Last in the file on purpose: it files a completed
+// runway run, and the tests above are about a day with none.
+test("an incomplete card is filed only when the member confirms it", async ({
   page,
 }) => {
   await gotoTab(page, "/runway", "Runway");
-  await expect(
-    page.getByText(/(No p|P)reflight checkout (signed off today|done today)/)
-  ).toBeVisible();
+  const [aircraft] = await (await page.request.get("/api/aircraft")).json();
+
+  // Nothing ticked and no acknowledgement: refused, so a stale client can't
+  // file a half-walked card as done by accident.
+  const refused = await page.request.post("/api/checkouts", {
+    data: { aircraftId: aircraft.id, kind: "RUNWAY", answers: {}, complete: true },
+  });
+  expect(refused.status()).toBe(400);
+  expect(await refused.text()).toMatch(/has to be confirmed/i);
+
+  // With it: filed as it stands. The answers column records what was left, so
+  // "completed" still doesn't claim the items were ticked.
+  const filed = await page.request.post("/api/checkouts", {
+    data: {
+      aircraftId: aircraft.id,
+      kind: "RUNWAY",
+      answers: {},
+      complete: true,
+      acknowledgeIncomplete: true,
+    },
+  });
+  expect(filed.ok()).toBeTruthy();
+  const run = await filed.json();
+  expect(run.completedAt).toBeTruthy();
+  expect(run.answers).toEqual({});
 });

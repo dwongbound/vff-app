@@ -67,7 +67,12 @@ test("a fill-up is not a flight", async ({ page }) => {
   await gotoTab(page, "/servicing", "Add Fuel");
   await page.getByLabel("Oil added").fill("1");
   await page.getByRole("button", { name: "Record", exact: true }).click();
-  await expect(page.getByText(/^Recorded/)).toBeVisible({ timeout: 60_000 });
+  // `exact`, not /^Recorded/: the club-card radio's own description starts
+  // "Recorded, but nobody is owed anything", so the loose match is ambiguous
+  // with the confirmation banner. Oil with no cost is the plain confirmation.
+  await expect(page.getByText("Recorded.", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
 
   // No hours were flown, so the log and the meters are exactly where they were.
   await gotoTab(page, "/log", "Flight log");

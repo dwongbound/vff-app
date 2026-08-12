@@ -64,6 +64,14 @@ export interface DerivedItem {
 export interface ItemNote {
   tone: "green" | "amber" | "red";
   children: ReactNode;
+  /**
+   * Where to read the whole story. The note is a SUMMARY — a member standing at
+   * the wing wants "2 open squawks, one being worked", not four paragraphs of
+   * defect history — so anything longer than that lives on its own page and the
+   * row links to it.
+   */
+  href?: string;
+  linkLabel?: string;
 }
 
 const NOTE_INK: Record<ItemNote["tone"], string> = {
@@ -81,6 +89,8 @@ export default function CheckoutList({
   hints,
   derived,
   itemNotes,
+  status,
+  resumed = false,
   /** Bump this to collapse back to the first section (after a sign-off). */
   resetKey = 0,
 }: {
@@ -95,6 +105,22 @@ export default function CheckoutList({
   derived?: Record<string, DerivedItem>;
   /** Live notes under an item, by item id — see ItemNote. */
   itemNotes?: Record<string, ItemNote>;
+  /**
+   * A last line INSIDE the sticky bar, under the step counts.
+   *
+   * The pages put CheckoutDraftBar here — how far down the card you are and
+   * whether that work is safe are the two things a member wants without
+   * hunting, so they travel together rather than one of them scrolling off the
+   * top. Kept as an opaque slot: this component knows about a checkout and
+   * nothing about drafts, autosave or what Reset would delete.
+   */
+  status?: ReactNode;
+  /**
+   * A half-walked card was picked up — `answers` is somebody's work in
+   * progress rather than a fresh start. Flips false→true once, when the resume
+   * lands, and that edge is what re-aims the accordion (see below).
+   */
+  resumed?: boolean;
   resetKey?: number;
 }) {
   const [openSection, setOpenSection] = useState<string>(
@@ -130,12 +156,31 @@ export default function CheckoutList({
   useEffect(() => {
     if (scrolledFor.current === openSection) return;
     scrolledFor.current = openSection;
-    // "" is the all-collapsed state, which has nothing to scroll to.
-    const el = openSection ? sectionRefs.current[openSection] : null;
+    scrollToSection(openSection);
+  }, [openSection]);
+
+  /** Put a section's header at the top of the column. "" collapses everything
+   *  and has nothing to scroll to. */
+  function scrollToSection(id: string) {
+    const el = id ? sectionRefs.current[id] : null;
     if (!el) return;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     el.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
-  }, [openSection]);
+  }
+
+  /**
+   * Jump to a section from the gauge.
+   *
+   * Opening a different one is enough — the effect above scrolls it. Tapping
+   * the segment you're ALREADY on has to scroll by hand, because nothing
+   * changed and that effect won't run: on a long section the member is usually
+   * somewhere in the middle of it, and "take me back to the top of this one" is
+   * exactly what they meant by tapping their own segment.
+   */
+  function jumpToSection(id: string) {
+    if (id === openSection) scrollToSection(id);
+    else setOpenSection(id);
+  }
 
   const total = totalItems(checkout.kind);
   const checked = countChecked(checkout.kind, answers);
@@ -149,6 +194,33 @@ export default function CheckoutList({
     const done = countSectionChecked(section, answers);
     return { section, done, complete: done === section.items.length };
   });
+
+  // Coming back to a half-walked card, open the section that still has work in
+  // it rather than section 1 — which on a resumed card is usually the one
+  // that's finished, so the member's first act is scrolling past their own
+  // ticks to find where they got to.
+  //
+  // Only on the resume EDGE. After that the accordion belongs to the member,
+  // and a list that re-aims itself every time a section fills up would move
+  // under the thumb of somebody working down it out of order.
+  //
+  // Optional sections and optional items don't count as work left: a card signs
+  // off without them, so counting them would park every July resume on the
+  // cold-start pre-lube.
+  const [seenResume, setSeenResume] = useState(resumed);
+  if (resumed !== seenResume) {
+    setSeenResume(resumed);
+    const next = resumed
+      ? sectionState.find(
+          ({ section }) =>
+            !section.optional &&
+            section.items.some((item) => !item.optional && !answers[item.id])
+        )
+      : undefined;
+    // A card with nothing left is left where it is: it's about to be signed
+    // off, and the sign-off is below the list anyway.
+    if (next) setOpenSection(next.section.id);
+  }
 
   // Which step the member is ON.
   //
@@ -214,8 +286,10 @@ export default function CheckoutList({
           whole "step 3 of 8, Consumables, 4 of 6, 26%" on EVERY tap, over the
           top of the checkbox's own state change. The numbers are plain text in
           reading order, which is what a screen reader wants; the live region on
-          this page is the draft bar, which changes when nobody touched
-          anything. */}
+          this page is the draft bar — which now sits INSIDE this strip as
+          `status`, and is a live region because it changes when nobody touched
+          anything. Nesting one inside a non-live container is fine: `aria-live`
+          isn't inherited, so only the save line announces. */}
       <div className="sticky top-0 z-10 -mx-4 bg-gray-50/95 px-4 py-2 backdrop-blur dark:bg-gray-900/95">
         <div className="flex items-baseline justify-between gap-3 text-sm">
           <span className="min-w-0 truncate font-semibold">
@@ -229,33 +303,58 @@ export default function CheckoutList({
         {/* One segment per section, each as wide as the section is long, so the
             gauge is a true picture of the card rather than eight equal boxes
             that make the 3-item briefing look like the 15-item cockpit. The
-            section you're on is outlined — that's the "you are here". */}
-        <div className="mt-1.5 flex gap-1" aria-hidden>
+            section you're on is outlined — that's the "you are here".
+            Each segment is also the way BACK to its section: it's the one
+            control that's on screen the whole way down the card, so the thing
+            it most obviously ought to do when tapped is take you there.
+            The bar itself is therefore no longer `aria-hidden` — you can't
+            hide a row of buttons from a keyboard or a screen reader — and each
+            one carries the name and count that its shape is drawing. */}
+        <nav className="mt-1.5 flex gap-1" aria-label={`${checkout.title} sections`}>
           {sectionState.map(({ section, done, complete: sectionComplete }) => {
             const fill =
               section.items.length === 0
                 ? 100
                 : Math.round((done / section.items.length) * 100);
+            const here = section.id === current.section.id;
             return (
-              <div
+              <button
                 key={section.id}
+                onClick={() => jumpToSection(section.id)}
                 style={{ flexGrow: section.items.length }}
-                className={`h-2 basis-0 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700 ${
-                  section.id === current.section.id
-                    ? "ring-2 ring-indigo-500 ring-offset-1 ring-offset-gray-50 dark:ring-offset-gray-900"
-                    : ""
-                }`}
+                // The bar is 8px tall, which is a fine thing to LOOK at and a
+                // poor thing to hit with a thumb on a ramp. The padding gives
+                // it a 24px target and the negative margin hands the layout
+                // back its 8px, so nothing below moves.
+                className="-my-2 basis-0 py-2"
+                // "Go to" first, and not just for politeness: a section title
+                // is often also a FIELD label on the card ("Left wing" is a
+                // section AND the fuel box in it), and a segment labelled with
+                // the bare title makes `getByLabel(/^Left wing/)` — which is
+                // how anything finds that box — ambiguous. The prefix says
+                // what the control does and keeps the two apart.
+                aria-label={`Go to ${section.title} — ${done} of ${section.items.length} checked`}
+                aria-current={here ? "step" : undefined}
+                title={section.title}
               >
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    sectionComplete ? "bg-green-500" : "bg-indigo-600"
+                <span
+                  className={`block h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700 ${
+                    here
+                      ? "ring-2 ring-indigo-500 ring-offset-1 ring-offset-gray-50 dark:ring-offset-gray-900"
+                      : ""
                   }`}
-                  style={{ width: `${fill}%` }}
-                />
-              </div>
+                >
+                  <span
+                    className={`block h-full rounded-full transition-all duration-300 ${
+                      sectionComplete ? "bg-green-500" : "bg-indigo-600"
+                    }`}
+                    style={{ width: `${fill}%` }}
+                  />
+                </span>
+              </button>
             );
           })}
-        </div>
+        </nav>
 
         <div className="mt-1 flex items-baseline justify-between gap-3 text-xs">
           <span className="text-gray-500 dark:text-gray-400">
@@ -272,6 +371,16 @@ export default function CheckoutList({
             {complete ? "Ready to sign off" : `${progress}%`}
           </span>
         </div>
+
+        {/* The save state, hairlined off from the counts above it — same strip,
+            different question ("where am I" vs "is this kept"). The rule for
+            what may go here is the height: this bar follows the member down the
+            whole card, so anything added to it is paid for on every screen. */}
+        {status && (
+          <div className="mt-1.5 border-t border-gray-200 pt-1.5 dark:border-gray-700">
+            {status}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">
@@ -286,10 +395,12 @@ export default function CheckoutList({
               ref={(el) => {
                 sectionRefs.current[section.id] = el;
               }}
-              // Scroll target for the effect above. `scroll-mt-16` is what
-              // keeps the sticky progress bar from parking on top of the
-              // header it just scrolled to.
-              className="scroll-mt-16 p-0"
+              // Scroll target for the effect above. The margin is what keeps
+              // the sticky progress bar from parking on top of the header it
+              // just scrolled to, so it has to clear the bar's HEIGHT — which
+              // grew when the save state moved inside (roughly 100px now, and
+              // ~115 while the two-line resume line is up).
+              className="scroll-mt-28 p-0"
             >
               <button
                 onClick={() => setOpenSection(expanded ? "" : section.id)}
@@ -446,6 +557,16 @@ export default function CheckoutList({
                               className="mt-3 shrink-0 text-xs font-semibold text-red-700 underline dark:text-red-400"
                             >
                               {fact.linkLabel ?? "Fix this"} →
+                            </Link>
+                          )}
+                          {/* Same reason, and the same place: a note's link is
+                              how the summary stays a summary. */}
+                          {note?.href && (
+                            <Link
+                              href={note.href}
+                              className={`mt-3 shrink-0 text-xs font-semibold underline ${NOTE_INK[note.tone]}`}
+                            >
+                              {note.linkLabel ?? "Read them"} →
                             </Link>
                           )}
                           <span className="mt-4 shrink-0">

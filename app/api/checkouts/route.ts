@@ -127,10 +127,19 @@ export async function POST(req: Request) {
   const complete = body.complete === true;
   const checkout = checkoutFor(kind);
 
-  if (complete && !isComplete(kind, answers)) {
+  // Completing a card with items still unticked is ALLOWED, and it is the
+  // member's call rather than the app's — an item that doesn't apply, or a
+  // check that couldn't be made today, shouldn't leave the club with no record
+  // of the walk that did happen. What it isn't is accidental: the client has to
+  // say it meant it, having asked the member in a modal that lists what's
+  // missing. Without that flag this is still the old 400, so a stale client (or
+  // a bug) can't quietly file a half-walked card as done. The answers column
+  // records exactly which items were left, so "completed" never means more than
+  // it should.
+  if (complete && !isComplete(kind, answers) && body.acknowledgeIncomplete !== true) {
     return NextResponse.json(
       {
-        error: `Every item has to be checked before you can sign off the ${checkout.title.toLowerCase()}.`,
+        error: `Every item has to be checked to complete the ${checkout.title.toLowerCase()}, or the incomplete card has to be confirmed.`,
       },
       { status: 400 }
     );

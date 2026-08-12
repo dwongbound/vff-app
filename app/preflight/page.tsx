@@ -11,16 +11,16 @@
 // walkaround found (fuel and oil), and any squawks it raised. The airplane's
 // EXISTING open squawks hang off the card's own "open squawks" item, which is
 // where the pilot is asked to confirm they've read them.
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
-import Input from "@/components/common/Input";
-import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
 import CheckoutList, { type ItemNote } from "@/components/CheckoutList";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
 import CheckoutDraftBar from "@/components/CheckoutDraftBar";
+import CompleteCheckoutButton from "@/components/CompleteCheckoutButton";
 import { useCheckoutDraft } from "@/components/useCheckoutDraft";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { MyLimitsCard } from "@/components/OperatingRules";
@@ -37,17 +37,22 @@ import {
   type Values,
 } from "@/lib/checkouts";
 import { formatDay } from "@/lib/dates";
-import {
-  SQUAWK_STATUS_SHORT,
-  isAwaitingReview,
-  isGrounding,
-  isInMaintenance,
-} from "@/lib/squawks";
+import { isAwaitingReview, isGrounding, isInMaintenance } from "@/lib/squawks";
 import { soloEligibility } from "@/lib/operatingRules";
 import { useMe } from "@/components/MeProvider";
 import type { ApiCheckout, ApiFlightSummary, ApiSquawk } from "@/lib/types";
 
+/**
+ * Items this page answers on the pilot's behalf (see CheckoutList's
+ * DerivedItem) — and only while it CAN: the open-squawks row is the app's to
+ * answer on an airplane with a clean sheet and the pilot's the moment anything
+ * is filed. Module-level so its identity is stable across renders, since the
+ * autosave hook holds it in a ref.
+ */
+const DERIVED_ITEM_IDS = ["homework.squawks"] as const;
+
 export default function PreflightPage() {
+  const router = useRouter();
   const { selected, loading: fleetLoading } = useAircraft();
   // Fetches key off the ID, not the aircraft object: the provider hands back a
   // fresh object on every refresh, so depending on it would re-run this page's
@@ -63,7 +68,10 @@ export default function PreflightPage() {
   const [squawkDrafts, setSquawkDrafts] = useState<SquawkDraft[]>([]);
   const [squawkModalOpen, setSquawkModalOpen] = useState(false);
   const [recent, setRecent] = useState<ApiCheckout[] | null>(null);
-  const [openSquawks, setOpenSquawks] = useState<ApiSquawk[]>([]);
+  // Null until the fetch lands, and the distinction matters: "no open squawks"
+  // is an answer this page ACTS on (it ticks the row for you), so it must never
+  // be the empty array the page happens to start life holding.
+  const [openSquawks, setOpenSquawks] = useState<ApiSquawk[] | null>(null);
   // My own flights, for the experience/currency half of the operating rules.
   const [myFlights, setMyFlights] = useState<ApiFlightSummary[]>([]);
   const { me } = useMe();
@@ -141,6 +149,36 @@ export default function PreflightPage() {
     [selected, photos, squawkDrafts, refresh]
   );
 
+  // What the airplane's open squawks add up to, counted once. Up here rather
+  // than beside the row it draws, because the autosave hook below needs to know
+  // whether the squawk row is the app's answer or the pilot's.
+  const squawkSummary = useMemo(() => {
+    const rows = openSquawks ?? [];
+    return {
+      loaded: openSquawks !== null,
+      grounded: rows.filter((s) => isGrounding(s.status)).length,
+      inWork: rows.filter((s) => isInMaintenance(s.status)).length,
+      untriaged: rows.filter((s) => isAwaitingReview(s.status)).length,
+      open: rows.length,
+    };
+  }, [openSquawks]);
+
+  /**
+   * Nothing open at all is the one case the APP can answer.
+   *
+   * Everywhere else this row stays the pilot's to tick: the app knows the list,
+   * it can't know you've read it, and that tick is you saying you did. But
+   * there is nothing to read on an airplane with a clean sheet, so asking for
+   * the tick is asking a member to confirm an empty list — which is how a row
+   * becomes one people tick without looking at it.
+   */
+  const noOpenSquawks = squawkSummary.loaded && squawkSummary.open === 0;
+
+  /** A clean card — carrying whatever the app answers for itself. */
+  function freshAnswers(): Answers {
+    return noOpenSquawks ? { "homework.squawks": true } : {};
+  }
+
   // Autosave. Every tick lands on the device immediately and reaches the club's
   // server a couple of seconds later; there is no longer anything for the
   // member to press. See components/useCheckoutDraft.ts.
@@ -151,6 +189,12 @@ export default function PreflightPage() {
     answers,
     values,
     notes,
+    // Only while the app is the one answering it. On an airplane with an open
+    // squawk this row is a real tick by a real member and counts as progress
+    // like any other; on a clean-sheet airplane it's written by the effect
+    // above, and counting it would create a server row — and a resume prompt —
+    // for somebody who has done nothing but open the page.
+    derivedIds: noOpenSquawks ? DERIVED_ITEM_IDS : undefined,
     onResume: useCallback((picked) => {
       setAnswers(picked.answers);
       // Saved values win, but anything the run never recorded keeps its
@@ -171,7 +215,10 @@ export default function PreflightPage() {
       setError(result.error ?? "Could not discard the saved checkout.");
       return;
     }
-    setAnswers({});
+    // The open-squawks row keeps the app's own answer, where there is one — the
+    // effect below would put it back anyway, and seeding it here avoids a frame
+    // where the row looks unticked.
+    setAnswers(freshAnswers());
     setValues(initialValues("PREFLIGHT"));
     setPhotos([]);
     setSquawkDrafts([]);
@@ -214,10 +261,18 @@ export default function PreflightPage() {
   const fuelOil = useMemo(() => deriveFuelOil(values), [values]);
 
   /**
-   * Sign the walk off. The only submit on this page now — saving happens by
-   * itself, so this button means one thing rather than two.
+   * Complete the walk. The only submit on this page — saving happens by itself,
+   * so this button means one thing rather than two.
+   *
+   * `acknowledgeIncomplete` is the member having been asked, in a modal that
+   * named the unticked items, and having said yes anyway. The API refuses an
+   * incomplete card without it (see CompleteCheckoutButton).
    */
-  async function signOff() {
+  async function completeRun({
+    acknowledgeIncomplete,
+  }: {
+    acknowledgeIncomplete: boolean;
+  }) {
     if (!selected) return;
     setError(null);
     setSaved(null);
@@ -236,6 +291,7 @@ export default function PreflightPage() {
       values,
       notes: notes.trim() || null,
       complete: true,
+      acknowledgeIncomplete,
     };
 
     // Autosave has almost certainly created the row already; PATCH it so one
@@ -273,90 +329,142 @@ export default function PreflightPage() {
 
     setBusy(false);
     setSaved(
-      "Preflight checkout signed off. Next: the runway checkout, once you're sitting in it."
+      "Preflight checkout completed. Next: the runway checkout, once you're sitting in it."
     );
 
     // Start clean for the next run — clean meaning "a fresh card", which
     // includes a fresh clock reading rather than the one from the run that was
     // just signed off.
-    setAnswers({});
+    setAnswers(freshAnswers());
     setValues(initialValues("PREFLIGHT"));
     setNotes("");
     setResetKey((k) => k + 1);
 
     await refresh();
+
+    // And take them there. The walk ends at the cabin door and the runway card
+    // starts in the seat, so "what now" has exactly one answer — one this page
+    // was previously only willing to describe. The message above still gets
+    // written first: the runway page opens with "Preflight — complete" already
+    // ticked and green, which is the same news arriving in the place it's
+    // useful.
+    router.push("/runway");
   }
 
   /**
-   * The squawk item's own traffic light, and the list that justifies it.
+   * The squawk item's own traffic light, and the one line that justifies it.
    *
    * The colour is decided by what the club's statuses MEAN (lib/squawks.ts),
-   * not by how many there are:
+   * and RED IS RESERVED FOR GROUNDED. That's the whole point of the club having
+   * one status vocabulary: "reviewed — in work" says the Safety Officer has
+   * looked at it and the airplane may still be flown, so painting it the same
+   * red as a grounding taught members to read past the colour that actually
+   * stops a flight.
    *
-   *   red   — the airplane is grounded, or it's in the shop. Either way this
-   *           is not a "note the defect and go" morning.
-   *   amber — something is filed that nobody qualified has looked at yet.
-   *           Untriaged is not the same as fine.
+   *   red   — grounded. Do not fly, and no amount of reading changes that.
+   *   amber — something open that isn't settled: in the shop, or not yet
+   *           triaged. Flyable, but know what you're taking.
    *   green — nothing open, or only squawks already reviewed as okay to fly.
    *
-   * Note what does NOT happen: the item never ticks itself. The app knows the
-   * list; it can't know that you read it, and that tick is the pilot saying
-   * they did.
+   * The note is a COUNT, not a transcript. It used to inline every open squawk
+   * with its description, which put four or five lines of maintenance history
+   * under one tick row and buried the sentence that mattered. The detail is a
+   * tap away on the Squawks page, which is where it can be read properly (and
+   * where the Safety Officer works from).
    */
-  const squawkNote = useMemo<Record<string, ItemNote>>(() => {
-    const grounded = openSquawks.filter((s) => isGrounding(s.status));
-    const inWork = openSquawks.filter((s) => isInMaintenance(s.status));
-    const untriaged = openSquawks.filter((s) => isAwaitingReview(s.status));
+  const squawkNote = useMemo((): Record<string, ItemNote> => {
+    // Answered by the app — the derived row below draws it instead. And say
+    // nothing at all until the list has actually arrived: a note that reads
+    // "0 open squawks" for a moment and then contradicts itself is worse than
+    // one that appears a beat late.
+    if (!squawkSummary.loaded || noOpenSquawks) return {};
+
+    const { grounded, inWork, untriaged, open } = squawkSummary;
     const tone: ItemNote["tone"] =
-      grounded.length > 0 || inWork.length > 0
-        ? "red"
-        : untriaged.length > 0
-          ? "amber"
-          : "green";
+      grounded > 0 ? "red" : inWork > 0 || untriaged > 0 ? "amber" : "green";
+
+    // "3 open squawks — 1 being worked, 1 not yet reviewed." Only the parts
+    // that are true get a clause, so the common single-squawk morning reads as
+    // one short sentence.
+    const parts = [
+      grounded > 0 && `${grounded} grounding`,
+      inWork > 0 && `${inWork} being worked`,
+      untriaged > 0 && `${untriaged} not yet reviewed`,
+    ].filter(Boolean) as string[];
 
     return {
       "homework.squawks": {
         tone,
-        children:
-          openSquawks.length === 0 ? (
-            <>Nothing open on {selected?.tailNumber}.</>
-          ) : (
-            <>
-              {/* The headline says what the colour means, in words. */}
-              <span className="block">
-                {grounded.length > 0
-                  ? `Do not fly — ${grounded.length} grounding ${
-                      grounded.length === 1 ? "squawk" : "squawks"
-                    }.`
-                  : inWork.length > 0
-                    ? "In maintenance — check with the Safety Officer before you fly it."
-                    : untriaged.length > 0
-                      ? `${untriaged.length} not yet reviewed by the Safety Officer.`
-                      : "All reviewed as okay to fly."}
-              </span>
-              <span className="mt-1 block space-y-0.5">
-                {openSquawks.map((s) => (
-                  <span key={s.id} className="block">
-                    <span className="opacity-70">
-                      {SQUAWK_STATUS_SHORT[s.status]}
-                    </span>{" "}
-                    — {s.title}
-                    {s.description ? ` — ${s.description}` : ""}
-                  </span>
-                ))}
-              </span>
-              {/* The club's own rule, for the members it applies to. */}
-              {eligibility.tier === "BUILDING" && (
-                <span className="mt-1 block">
-                  Club rules: call the VFF Safety Officer to discuss before
-                  flying with an open squawk.
+        href: "/status/squawks",
+        linkLabel: "Read them",
+        children: (
+          <>
+            <span className="block">
+              {open} open {open === 1 ? "squawk" : "squawks"}
+              {parts.length > 0 ? ` — ${parts.join(", ")}.` : ", all reviewed okay to fly."}
+            </span>
+            {/* What the colour means, for the two cases where the count alone
+                doesn't say it. */}
+            {grounded > 0 ? (
+              <span className="block">Do not fly.</span>
+            ) : (
+              inWork > 0 && (
+                <span className="block">
+                  In maintenance is not a grounding — the airplane may still be
+                  flown.
                 </span>
-              )}
-            </>
-          ),
+              )
+            )}
+            {/* The club's own rule, for the members it applies to. */}
+            {eligibility.tier === "BUILDING" && (
+              <span className="block">
+                Club rules: call the VFF Safety Officer before flying with an
+                open squawk.
+              </span>
+            )}
+          </>
+        ),
       },
     };
-  }, [openSquawks, eligibility.tier, selected?.tailNumber]);
+  }, [noOpenSquawks, squawkSummary, eligibility.tier]);
+
+  /**
+   * The clean-sheet case, ticked by the app. See `noOpenSquawks`.
+   *
+   * `satisfied` is always true because this row only exists when it is: the
+   * moment a squawk is filed the row goes back to being the pilot's, note and
+   * all, rather than turning into a red derived row nobody can clear.
+   */
+  const squawkRow = useMemo(
+    () =>
+      noOpenSquawks
+        ? {
+            "homework.squawks": {
+              satisfied: true,
+              message: `Nothing open on ${selected?.tailNumber ?? "this airplane"}.`,
+            },
+          }
+        : undefined,
+    [noOpenSquawks, selected?.tailNumber]
+  );
+
+  // The app's own answer, written into `answers` so it counts toward the
+  // sign-off exactly like a ticked item. Deliberately one-way: if a squawk is
+  // filed mid-walk — quite possibly by this member, from this page — the row
+  // becomes theirs again but the tick stands, because unticking something a
+  // member watched go green is how an app loses their trust in it.
+  //
+  // `answers` is in the deps because a resume REPLACES it wholesale: a walk
+  // saved while the airplane had a squawk, picked up after it was closed, would
+  // otherwise come back with the row untickable and unticked.
+  useEffect(() => {
+    if (!noOpenSquawks) return;
+    setAnswers((current) =>
+      current["homework.squawks"]
+        ? current
+        : { ...current, "homework.squawks": true }
+    );
+  }, [noOpenSquawks, answers]);
 
   // Everything above this line is a hook, and everything below it may not be.
   //
@@ -405,24 +513,12 @@ export default function PreflightPage() {
           {selected.tailNumber} · {selected.model}
           {lastRun && (
             <>
-              {" · last signed off "}
+              {" · last completed "}
               {formatDay(lastRun.completedAt!)} by {lastRun.user.name}
             </>
           )}
         </p>
       </header>
-
-      {/* Everything about the SAVED STATE of this walk, including Reset. */}
-      <CheckoutDraftBar
-        savedAt={draft.savedAt}
-        serverSynced={draft.serverId !== null && !draft.deviceOnly}
-        deviceOnly={draft.deviceOnly}
-        storageBlocked={draft.storageBlocked}
-        resume={draft.resume}
-        dirty={draft.dirty}
-        onReset={resetCard}
-        busy={busy}
-      />
 
       {/* The club's limits for THIS member, before anything else — they decide
           whether the flight happens at all. */}
@@ -444,7 +540,24 @@ export default function PreflightPage() {
         values={values}
         onValuesChange={setValues}
         hints={fieldHints}
+        derived={squawkRow}
         itemNotes={squawkNote}
+        // Everything about the SAVED STATE of this walk, including Reset. It
+        // rides in the sticky progress bar so it travels down the card with the
+        // step counts rather than scrolling off the top of the page.
+        status={
+          <CheckoutDraftBar
+            savedAt={draft.savedAt}
+            serverSynced={draft.serverId !== null && !draft.deviceOnly}
+            deviceOnly={draft.deviceOnly}
+            storageBlocked={draft.storageBlocked}
+            resume={draft.resume}
+            dirty={draft.dirty}
+            onReset={resetCard}
+            busy={busy}
+          />
+        }
+        resumed={draft.resume !== null}
         resetKey={resetKey}
       />
 
@@ -539,8 +652,9 @@ export default function PreflightPage() {
         )}
       </Card>
 
-      {/* Submit. "Sign off" is gated on a complete checkout and says exactly
-          what's missing when it isn't — never a silently disabled button. */}
+      {/* Submit. "Complete" is never disabled by the state of the card — an
+          incomplete one is confirmed in a modal that names what's missing,
+          rather than met with a button that won't press and no explanation. */}
       <div className="space-y-2 pb-2">
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
@@ -564,14 +678,12 @@ export default function PreflightPage() {
             automatic now, so the remaining button means exactly one thing:
             this walk is done and I am putting my name to it. */}
         <div className="flex flex-col gap-2 sm:flex-row-reverse">
-          <Button
-            size="lg"
-            onClick={signOff}
-            disabled={busy || !complete}
-            className="w-full sm:w-auto"
-          >
-            {busy ? <LoadingDots size="sm" /> : "Sign off"}
-          </Button>
+          <CompleteCheckoutButton
+            title={PREFLIGHT_CHECKOUT.title}
+            remaining={remaining}
+            busy={busy}
+            onComplete={completeRun}
+          />
         </div>
       </div>
 

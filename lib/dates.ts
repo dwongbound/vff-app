@@ -98,7 +98,7 @@ export function joinLocalDateTime(date: string, time: string): string {
  *
  * Explicitly in `CLUB_TIME_ZONE` rather than the device's: this stamps a
  * reading being written onto the airplane's card, and "14:05" on a preflight
- * means 14:05 at KBFI. A member whose laptop is still on Eastern from last
+ * means 14:05 at KTOA. A member whose laptop is still on Eastern from last
  * week's trip would otherwise silently record a time three hours out, and
  * nothing downstream could tell.
  *
@@ -120,7 +120,7 @@ export function clubTimeNow(now: Date = new Date()): string {
  *
  * For comparing two instants for same-day-ness where the day that matters is
  * the flying day at the field — "was the airplane walked today?" is a question
- * about KBFI, and answering it in the device's zone means a member whose phone
+ * about KTOA, and answering it in the device's zone means a member whose phone
  * is an hour ahead can be told the morning's preflight was yesterday's.
  */
 export function clubDateKey(iso: string | Date): string {

@@ -428,10 +428,6 @@ export default function Navbar() {
   const groupExpanded = (item: NavGroup) =>
     openGroups[item.label] ?? item.children.some((c) => isActive(c.href));
 
-  // The group whose phone sheet is showing, if any.
-  const openGroup =
-    nav.filter(isGroup).find((g) => g.label === openSheet) ?? null;
-
   // The avatar menu's contents, shared by the rail and the phone top bar.
   const accountMenu = session?.user && (
     <>
@@ -685,21 +681,58 @@ export default function Navbar() {
             );
 
             // A group can't hover on a phone, so it taps open a sheet above the
-            // bar. Rendered from the bar itself so it tracks the pill's width.
+            // bar. The sheet is rendered HERE, inside the tab it belongs to,
+            // and centred on it: a menu is an answer to the thing you just
+            // touched, so it has to come out of that thing. Centred on the
+            // whole pill instead — which is what this did — it appeared over
+            // the middle of the bar with no relationship to the tab under the
+            // thumb, and on a five-tab pill that's a different tab entirely.
             if (isGroup(item)) {
+              const sheetOpen = openSheet === item.label;
               return (
-                <button
-                  key={item.label}
-                  onClick={() =>
-                    setOpenSheet((open) => (open === item.label ? null : item.label))
-                  }
-                  aria-expanded={openSheet === item.label}
-                  data-tour={groupTourKey(item)}
-                  className={bottomTabClassName(active)}
-                >
-                  <TabIcon d={item.icon} />
-                  {label}
-                </button>
+                <div key={item.label} className="relative flex flex-1">
+                  <button
+                    onClick={() =>
+                      setOpenSheet((open) => (open === item.label ? null : item.label))
+                    }
+                    aria-expanded={sheetOpen}
+                    data-tour={groupTourKey(item)}
+                    className={bottomTabClassName(active)}
+                  >
+                    <TabIcon d={item.icon} />
+                    {label}
+                  </button>
+
+                  {sheetOpen && (
+                    <div
+                      // `max-w` rather than a plain width: centred on a tab near
+                      // the edge of a 402px phone, a fixed 12rem would hang off
+                      // the screen. The pill is already inset 1rem each side.
+                      className="absolute bottom-full left-1/2 mb-2 w-48 max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-fade-in-up rounded-xl border border-gray-200/60 bg-white/90 p-1 shadow-lg backdrop-blur-xl dark:border-gray-700/60 dark:bg-gray-800/90"
+                      role="menu"
+                    >
+                      {item.children.map((child) => (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          onClick={() => {
+                            setOpenSheet(null);
+                            handleTabClick(child.href);
+                          }}
+                          data-tour={tourKey(child.href)}
+                          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+                            leafActive(child.href)
+                              ? "bg-indigo-50 font-semibold text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300"
+                              : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                          }`}
+                        >
+                          <TabIcon d={child.icon} />
+                          {child.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             }
 
@@ -721,34 +754,6 @@ export default function Navbar() {
           })}
         </div>
 
-        {/* The open group's sheet, above the pill and inside the same fixed
-            container so it moves with it. */}
-        {openGroup && (
-          <div
-            className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 animate-fade-in-up rounded-xl border border-gray-200/60 bg-white/90 p-1 shadow-lg backdrop-blur-xl dark:border-gray-700/60 dark:bg-gray-800/90"
-            role="menu"
-          >
-            {openGroup.children.map((child) => (
-              <Link
-                key={child.href}
-                href={child.href}
-                onClick={() => {
-                  setOpenSheet(null);
-                  handleTabClick(child.href);
-                }}
-                data-tour={tourKey(child.href)}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
-                  leafActive(child.href)
-                    ? "bg-indigo-50 font-semibold text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-700"
-                }`}
-              >
-                <TabIcon d={child.icon} />
-                {child.label}
-              </Link>
-            ))}
-          </div>
-        )}
       </nav>
     </>
   );
