@@ -694,6 +694,14 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   basis is a modern basic empty weight that already includes its 8 quarts, so
   entering the dipstick reading again would double-count 15 lb at the furthest
   forward station. The recorded oil is shown UNDER the box instead.
+  An UNFILED dip beats a filed one: the page reads this member's own PREFLIGHT
+  draft off `localStorage` (`readDraft` + `deriveFuelOil`) and prefers it to
+  anything `/api/checkouts` returns, because the half-walked card in somebody's
+  pocket is today's tanks while a filed preflight is some previous flight's.
+  That's the case `checkoutDraft.ts` letting the device run AHEAD of the server
+  is for. The note under the box always says which it is, since the whole risk
+  is a number nobody knows the age of. The preflight card links here from its
+  own W&B item (`CheckoutItem.link`), which is the walk that makes this happen.
 - Nothing in the nav carries a permanent tint any more. Reservations used to,
   as the app's call to action, and it competed with the one mark that actually
   changes — which tab you're on.

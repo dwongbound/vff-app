@@ -110,6 +110,21 @@ export interface CheckoutItem {
   optional?: boolean;
   /** Not on the card — the club's own addition. Rendered with a marker. */
   club?: boolean;
+  /**
+   * The page in this app that DOES this item's work.
+   *
+   * A few of these checks are arithmetic the app already knows how to do, and
+   * a member standing at the wing with the card open shouldn't have to
+   * remember which tab it was on. Static, and part of the card rather than of
+   * a run: unlike the toned notes a page passes in as `itemNotes`, this says
+   * nothing about today's airplane, so it lives here with the item.
+   *
+   * It never ticks anything and it never blocks a sign-off — the pilot still
+   * confirms the row, because the app can compute the numbers and cannot know
+   * you looked at them. (Rendered by CheckoutList only; TurnoffCheckout is
+   * deliberately flat and drops `detail` for the same reason.)
+   */
+  link?: { href: string; label: string };
 }
 
 export interface CheckoutSection {
@@ -185,6 +200,12 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
         id: "homework.wb",
         label: "Weight and balance — within limits for this load",
         why: "Four adults and full fuel does not fit in a 172. Aft CG is the loading that will actually hurt you, and it's the one that feels fine until the flare.",
+        // The tool holds this airframe's own basis off its latest signed W&B
+        // revision, so the answer it gives is N8318B's rather than a generic
+        // 172's. Linked from here because this is where the question gets
+        // asked — and it's also the row where somebody who did the numbers at
+        // home wants to check the load that changed in the car park.
+        link: { href: "/tools/weight-balance", label: "Run the numbers" },
       },
       {
         id: "homework.performance",

@@ -569,6 +569,20 @@ export default function CheckoutList({
                               {note.linkLabel ?? "Read them"} →
                             </Link>
                           )}
+                          {/* The page in the app that does this item's work
+                              (lib/checkouts.ts). Outside the button for the
+                              same reason as the two links above, and neutral
+                              rather than toned: a red or amber link means
+                              something is wrong with the airplane today, and
+                              this one is just a tool. */}
+                          {item.link && (
+                            <Link
+                              href={item.link.href}
+                              className="mt-3 shrink-0 text-xs font-semibold text-indigo-600 underline dark:text-indigo-400"
+                            >
+                              {item.link.label} →
+                            </Link>
+                          )}
                           <span className="mt-4 shrink-0">
                             <InfoTip label={item.label}>{item.why}</InfoTip>
                           </span>
