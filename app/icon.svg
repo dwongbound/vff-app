@@ -23,8 +23,11 @@
     agree read as a mistake, where one that's plainly the brand reads as the
     brand. Change it here and in components/Logo.tsx together.
 
-    Next.js App Router serves this as the favicon; components/Logo.tsx is the
-    same drawing on the same grid for the top bar. Change one, change the other.
+    Next.js App Router serves this as the favicon. The same drawing on the same
+    grid lives in TWO other places: components/Logo.tsx (the top bar) and
+    public/icons/icon-square.svg (the home-screen icon, which drops the disc
+    and bleeds to the edges of a tile the phone is going to mask itself).
+    Change one, change all three.
   -->
   <defs>
     <clipPath id="disc">

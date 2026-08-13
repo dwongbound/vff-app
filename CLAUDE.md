@@ -603,6 +603,28 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   `import { env } from "prisma/config"` and Node resolves that from the config
   file's own directory — left in `/app` every boot dies with "Cannot find
   module 'prisma/config'".
+- **The home-screen icon is a different file from the favicon, on purpose.**
+  `app/icon.svg` draws its own disc on a transparent field, which is right for
+  a tab strip and wrong for a phone: iOS composites transparency onto BLACK and
+  rounds the corners itself, Android masks to the launcher's silhouette — so
+  the disc installs as a circle inside a circle with black corners behind it.
+  `public/icons/icon-square.svg` is the same two bands with the disc clip and
+  the rim taken away, bleeding to all four edges of an opaque white square. It
+  is the SOURCE; what phones install is `app/apple-icon.png` (180px, which the
+  App Router turns into the `apple-touch-icon` link) and
+  `public/icons/icon-{192,512}.png` (what `app/manifest.ts` points at). Those
+  PNGs are COMMITTED, and re-rasterising them by hand after a change to the
+  mark is the price: nothing in `next build` rasterises an SVG, and a phone
+  installing the site needs bytes at a stable URL. The recipe is in a comment
+  at the top of the square SVG. iOS ignores an SVG apple-touch-icon completely
+  and falls back to a SCREENSHOT of the page, which is the symptom to
+  recognise. The mark now lives in THREE files (favicon,
+  `components/Logo.tsx`, square) — change one, change all three.
+- **There is a `public/` now, and Next's standalone output does not trace it.**
+  It holds the manifest's icons and nothing else so far. The Dockerfile needs
+  its own `COPY /app/public ./public` beside the `.next/static` one for exactly
+  the same reason; miss it and the app boots fine while "Add to Home Screen"
+  404s on its icon.
 - `npm ci` and `next build` both need `DATABASE_URL` set even though neither
   opens a connection: `postinstall` runs `prisma generate`, which loads
   `prisma.config.ts`, which resolves `env("DATABASE_URL")` eagerly. The
