@@ -15,6 +15,26 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#F9FAFB", // matches bg-gray-50
     theme_color: "#F9FAFB",
-    icons: [{ src: "/icon.svg", type: "image/svg+xml", sizes: "any" }],
+    // The installed icon, and deliberately NOT the favicon: /icon.svg draws
+    // its own disc on a transparent field, which a launcher then masks a
+    // second time — a circle inside a circle, ringed by dead space. These are
+    // the full-bleed square mark rasterised from /icons/icon-square.svg, which
+    // is committed beside them, so the tile IS the mark, edge to edge.
+    //
+    // The 512 is listed TWICE, same file, once per purpose. That says two
+    // things about it: it's a complete icon, AND its edges are safe to crop to
+    // whatever silhouette the launcher uses — which holds because the swoosh
+    // crosses the middle and the corners are plain white field. (The manifest
+    // spec would take `purpose: "any maskable"` on one entry; Next's own
+    // Manifest type only types the single values, so it's two entries.)
+    //
+    // Listing /icon.svg here as well would undo the whole point: its
+    // `sizes: "any"` outranks a fixed size, so it would be the one picked, and
+    // installed with its transparent corners.
+    icons: [
+      { src: "/icons/icon-192.png", type: "image/png", sizes: "192x192", purpose: "any" },
+      { src: "/icons/icon-512.png", type: "image/png", sizes: "512x512", purpose: "any" },
+      { src: "/icons/icon-512.png", type: "image/png", sizes: "512x512", purpose: "maskable" },
+    ],
   };
 }

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    The club mark FULL BLEED — the same drawing as app/icon.svg, with the disc
+    taken away so the artwork runs to all four edges of a square tile.
+
+    This is the home-screen icon, and it is a separate file from the favicon
+    for one reason: a home-screen icon is already a shape. iOS rounds it, and
+    Android masks it to whatever the launcher's silhouette is, so a mark that
+    draws its OWN disc lands as a circle inside a circle with a ring of dead
+    space (or, worse on iOS, black corners where the SVG was transparent).
+    Dropping the disc clip and the rim is what makes the tile the mark rather
+    than a picture of the mark.
+
+    It is otherwise a transcription: same 512 grid, same two cubic-fanned
+    bands, same #c64912. THREE files carry this drawing now — app/icon.svg
+    (favicon), components/Logo.tsx (top bar) and this one. Change one, change
+    all three.
+
+    The white field is a rect rather than the disc's circle, so the tile is
+    fully opaque — iOS composites a transparent icon onto BLACK.
+
+    This file is the SOURCE. What phones install is the PNGs beside it, which
+    are committed because nothing in `next build` rasterises an SVG and a phone
+    installing the site needs bytes at a stable URL. Regenerate all three after
+    editing this file — three sizes, square, alpha flattened onto white:
+
+      app/apple-icon.png          180  (the App Router's apple-touch-icon)
+      public/icons/icon-192.png   192  (the web manifest)
+      public/icons/icon-512.png   512  (ditto + Android's splash screen)
+
+    Any rasteriser will do; sharp in a node:24-alpine container is the short
+    way, since there is no Node on the host. One thing to watch if you go that
+    route: install sharp somewhere OTHER than the repo. Resolved from here it
+    finds the host's darwin-built copy under node_modules, which cannot load
+    on linux.
+
+    Flattening is not optional. An icon that keeps an alpha channel is
+    composited onto BLACK by iOS, and black corners on the tile is the exact
+    bug this file exists to avoid.
+  -->
+
+  <!-- White field: the fuselage/fin the stripes are painted on, edge to edge. -->
+  <rect width="512" height="512" fill="#ffffff"/>
+
+  <!-- Orange band: top edge out, then back along the bottom edge. -->
+  <path fill="#c64912" d="M-30 316
+    C 140 316, 170 214, 300 158
+    C 410 110, 470 84, 545 72
+    L 545 182
+    C 470 196, 410 226, 300 254
+    C 170 316, 140 356, -30 356
+    Z"/>
+  <!-- Black band trailing below it, same curve, a thin white gap between. -->
+  <path fill="#1b1b1e" d="M-30 368
+    C 140 368, 180 314, 300 286
+    C 410 262, 470 246, 545 240
+    L 545 310
+    C 470 318, 410 336, 300 352
+    C 180 384, 140 390, -30 390
+    Z"/>
+</svg>
