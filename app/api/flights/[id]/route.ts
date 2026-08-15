@@ -21,6 +21,11 @@ import {
   parseValues,
 } from "@/lib/checkouts";
 import { syncFlightCharges } from "@/lib/ledger";
+import {
+  fuelCostCentsFrom,
+  landingFeeCentsFrom,
+  mentionsLandingFee,
+} from "@/lib/flights";
 import { resolveInstructor, resolutionFailed } from "@/lib/instructors";
 
 export async function GET(
@@ -103,8 +108,16 @@ export async function PATCH(
   for (const field of ["route", "notes"] as const) {
     if (field in body) data[field] = body[field] ? String(body[field]).trim() : null;
   }
-  for (const field of ["fuelAddedGal", "oilAddedQts", "fuelCostCents"] as const) {
+  for (const field of ["fuelAddedGal", "oilAddedQts"] as const) {
     if (field in body) data[field] = num(body[field]);
+  }
+  // The two money fields go through the same readers the POST route uses, so a
+  // form that sends dollars is understood by both. See lib/flights.ts.
+  if ("fuelCostCents" in body || "fuelCostDollars" in body) {
+    data.fuelCostCents = fuelCostCentsFrom(body);
+  }
+  if (mentionsLandingFee(body)) {
+    data.landingFeeCents = landingFeeCentsFrom(body);
   }
   if ("nightLandings" in body) {
     data.nightLandings = Math.max(0, Math.round(num(body.nightLandings) ?? 0));
@@ -175,6 +188,8 @@ export async function PATCH(
       tachEnd: updated.tachEnd,
       flownOn: updated.flownOn,
       fuelCostCents: updated.fuelCostCents,
+      landingFeeCents: updated.landingFeeCents,
+      arrival: updated.arrival,
       aircraft,
     });
   }

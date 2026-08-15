@@ -146,6 +146,7 @@ export interface ApiFlightSummary {
   route: string | null;
   fuelAddedGal: number | null;
   fuelCostCents: number | null;
+  landingFeeCents: number | null;
   oilAddedQts: number | null;
   tiedDown: boolean;
   cabinClean: boolean;

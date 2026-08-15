@@ -8,7 +8,12 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeFlight, serializeFlightSummary } from "@/lib/serialize";
-import { FLIGHT_DETAIL_INCLUDE, FLIGHT_LIST_SELECT } from "@/lib/flights";
+import {
+  FLIGHT_DETAIL_INCLUDE,
+  FLIGHT_LIST_SELECT,
+  fuelCostCentsFrom,
+  landingFeeCentsFrom,
+} from "@/lib/flights";
 import { validateMeters } from "@/lib/hours";
 import {
   TURNOFF_CHECKOUT,
@@ -25,23 +30,6 @@ function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
-}
-
-/**
- * What the fuel cost, in whole cents.
- *
- * The post-flight form asks for dollars (that's what the receipt says) while
- * the column stores cents, so both spellings are accepted here rather than
- * making the client do money arithmetic.
- */
-function fuelCostCents(body: Record<string, unknown>): number | null {
-  const cents = num(body.fuelCostCents);
-  if (cents != null) return Math.round(cents);
-
-  const dollars = num(body.fuelCostDollars);
-  if (dollars != null) return Math.round(dollars * 100);
-
-  return null;
 }
 
 export async function GET(req: Request) {
@@ -200,7 +188,8 @@ export async function POST(req: Request) {
       arrival: body.arrival ? String(body.arrival).trim().toUpperCase() : null,
       route: body.route ? String(body.route).trim() : null,
       fuelAddedGal: num(body.fuelAddedGal),
-      fuelCostCents: fuelCostCents(body),
+      fuelCostCents: fuelCostCentsFrom(body),
+      landingFeeCents: landingFeeCentsFrom(body),
       oilAddedQts: num(body.oilAddedQts),
       tiedDown: answeredTurnoff ? putAway.tiedDown : body.tiedDown !== false,
       cabinClean: answeredTurnoff ? putAway.cabinClean : body.cabinClean !== false,
@@ -236,6 +225,8 @@ export async function POST(req: Request) {
     tachEnd: created.tachEnd,
     flownOn: created.flownOn,
     fuelCostCents: created.fuelCostCents,
+    landingFeeCents: created.landingFeeCents,
+    arrival: created.arrival,
     aircraft: {
       tailNumber: aircraft.tailNumber,
       hourlyRateCents: aircraft.hourlyRateCents,

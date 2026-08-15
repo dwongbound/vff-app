@@ -51,6 +51,10 @@ const KIND_TONES: Record<ChargeKind, "gray" | "indigo" | "green" | "amber"> = {
   FLIGHT: "gray",
   FUEL_CREDIT: "green",
   ONE_OFF: "amber",
+  // Gray with FLIGHT: both are what it cost to go flying, derived from the same
+  // log entry. A colour of its own would imply the member has to do something
+  // about it.
+  LANDING_FEE: "gray",
 };
 
 export default function FinancesPage() {

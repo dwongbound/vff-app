@@ -100,20 +100,28 @@ test("a squawk raised on the walk is filed with the checkout", async ({
     )
     .toBe(true);
 
-  // It now shows in the airplane's open-squawk list on the log tab. The squawk
-  // list is a fact about the AIRPLANE, so it lives on the Club half of the
-  // switch — and the page opens on Mine.
-  await gotoTab(page, "/log", "Flight log");
-  await page.getByRole("button", { name: "Club", exact: true }).click();
-  await expect(page.getByText("Nav light flickering")).toBeVisible();
+  // It now shows on the airplane's squawk sheet. That's Plane Status › Squawks
+  // and nowhere else: the flight log used to carry a second copy of this list
+  // under its Club half, and two lists of the same rows meant two places to
+  // look and two places to be out of date.
+  await page.goto("/status/squawks");
+  await expect(
+    page.getByRole("main").getByText("Nav light flickering")
+  ).toBeVisible({ timeout: 60_000 });
 });
 
 test("filing a flight adds it to the log and advances the tach", async ({ page }) => {
   await gotoTab(page, "/postflight", "Post-flight");
 
   // Tach start prefills from the airplane; fly 1.5 hours.
+  //
+  // Two decimals, because a tach reading has two: the club's own log records
+  // 1489.98 and 1499.42, and the seeded airplane is currently sitting on
+  // 1507.05. Rounding the END to one place turns "fly 1.5 hours" into 1.55 and
+  // the page — correctly — says 1.6, which is a test asserting its own
+  // arithmetic rather than the app's.
   const tachStart = await page.getByLabel("Tach start").inputValue();
-  const end = (Number(tachStart) + 1.5).toFixed(1);
+  const end = (Number(tachStart) + 1.5).toFixed(2);
   await page.getByLabel("Tach end").fill(end);
   await page.getByLabel("Landings", { exact: true }).fill("2");
   await page.getByLabel("Night landings").fill("1");
@@ -170,6 +178,29 @@ test("fuel is dipped a wing at a time, and the tires record nothing", async ({
   // The two wings total into the airplane's fuel on the "what you found" card.
   await right.fill("17");
   await expect(page.getByText(/34\.5/).first()).toBeVisible();
+});
+
+// The card asks whether the load fits; the app can already work that out. The
+// link is on the row that asks, rather than left to a member to remember which
+// tab the calculator was on.
+test("the weight and balance item links out to the tool", async ({ page }) => {
+  await gotoTab(page, "/preflight", "Preflight");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: /Homework.*\d+\/\d+$/ }).click();
+
+  // Anchored, or the (i) beside it ("Why: Weight and balance …") matches too.
+  const row = main.getByRole("button", { name: /^Weight and balance/ });
+  await expect(row).toHaveAttribute("aria-pressed", "false");
+
+  // Beside the tick, not part of it: the app can compute the numbers, it can't
+  // know you looked at them, so following the link ticks nothing.
+  const link = main.getByRole("link", { name: /Run the numbers/ });
+  await expect(link).toBeVisible();
+  await link.click();
+
+  await expect(
+    page.getByRole("heading", { name: "Weight & Balance", exact: true })
+  ).toBeVisible({ timeout: 60_000 });
 });
 
 // A club addition, and the only section on the card with no list: the step

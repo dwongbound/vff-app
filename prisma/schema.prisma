@@ -126,6 +126,11 @@ enum ChargeKind {
   FLIGHT // tach hours x the aircraft's hourly rate
   FUEL_CREDIT // gas the member paid for, refunded (stored negative)
   ONE_OFF // anything the Finance Officer adds by hand
+  // What the field charged to land there, passed through to whoever flew.
+  // Appended rather than slotted in beside FLIGHT: Postgres sorts an enum in
+  // DECLARATION order, so renumbering the existing values is the destructive
+  // change (see the squawk-status migration) while appending is safe.
+  LANDING_FEE
 }
 
 model User {
@@ -443,6 +448,19 @@ model Flight {
   fuelAddedGal  Float?
   fuelCostCents Int?
   oilAddedQts   Float?
+
+  // What the destination charged to land, in whole cents, billed on to the
+  // pilot as its own statement line (lib/finance.ts `landingFeeCharge`).
+  //
+  // Stored per flight rather than looked up on read, because the table in
+  // lib/landingFees.ts is only what the club EXPECTS to pay: the form opens
+  // the box at that figure and the pilot corrects it to what the desk actually
+  // took. Deriving it on read would restate every historic flight the next
+  // time a field changed its rate.
+  //
+  // Null = no fee recorded, which is what most flights are. Zero is a
+  // different and legitimate answer — "they waived it" — and bills nothing.
+  landingFeeCents Int?
 
   // Did the airplane get put away properly? Nags in the flight log when false.
   // Derived from `turnoffAnswers` when the pilot works the turn-off checkout

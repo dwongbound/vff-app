@@ -73,13 +73,19 @@ export function recentPeriods(count: number, now: Date = new Date()): Period[] {
   return Array.from({ length: count }, (_, i) => shiftPeriod(current, -i));
 }
 
-export type ChargeKind = "DUES" | "FLIGHT" | "FUEL_CREDIT" | "ONE_OFF";
+export type ChargeKind =
+  | "DUES"
+  | "FLIGHT"
+  | "FUEL_CREDIT"
+  | "ONE_OFF"
+  | "LANDING_FEE";
 
 export const CHARGE_KIND_LABELS: Record<ChargeKind, string> = {
   DUES: "Dues",
   FLIGHT: "Flight time",
   FUEL_CREDIT: "Fuel credit",
   ONE_OFF: "Charge",
+  LANDING_FEE: "Landing fee",
 };
 
 /** The shape the totals below need — a subset of a Charge row. */
@@ -170,6 +176,14 @@ export interface BillableFlight {
   tachEnd: number;
   flownOn: Date;
   fuelCostCents: number | null;
+  /**
+   * What the destination charged to land, as recorded on the flight. Optional
+   * so every caller that predates landing fees still type-checks and bills
+   * exactly what it billed before — absent and null are both "no fee".
+   */
+  landingFeeCents?: number | null;
+  /** Where it landed, so the statement line can name the field. */
+  arrival?: string | null;
 }
 
 export interface DerivedCharge {
@@ -237,6 +251,38 @@ export function fuelCredit(
 }
 
 /**
+ * What the field charged to land, passed on to the pilot.
+ *
+ * A pass-through rather than a lookup: the amount billed is the one recorded on
+ * the flight, which is what the pilot says they were actually charged. The
+ * table in lib/landingFees.ts only decides what the form OPENS at — see the
+ * note there about why the two are deliberately different jobs.
+ *
+ * Per flight, not per landing. Eight touch-and-goes is one visit to one desk.
+ *
+ * A recorded ZERO is meaningful and bills nothing: "they waived it" is a real
+ * answer, and it should leave no line on the statement rather than a $0.00 one.
+ */
+export function landingFeeCharge(
+  flight: BillableFlight,
+  tailNumber: string
+): DerivedCharge | null {
+  const fee = flight.landingFeeCents;
+  if (!fee || fee <= 0) return null;
+  // The field is what a reader wants to see on a statement; the tail number is
+  // the fallback, so the line still says which airplane put it there.
+  const where = flight.arrival?.trim() || tailNumber;
+  return {
+    kind: "LANDING_FEE",
+    amountCents: fee,
+    description: `Landing fee — ${where}`,
+    incurredOn: flight.flownOn,
+    period: periodOf(flight.flownOn),
+    flightId: flight.id,
+  };
+}
+
+/**
  * What the club owes a member for a standalone fill-up.
  *
  * The same credit `fuelCredit` produces for a flight, for fuel that had no
@@ -269,7 +315,11 @@ export interface BillableServicing {
   paidPersonally: boolean;
 }
 
-/** Both of a flight's derived lines, in statement order. */
+/**
+ * All of a flight's derived lines, in statement order: what it cost to fly,
+ * what it cost to land, and what the club owes back for fuel. Debits before the
+ * credit, so a statement reads as the bill it is.
+ */
 export function chargesForFlight(
   flight: BillableFlight,
   hourlyRateCents: number | null | undefined,
@@ -277,6 +327,7 @@ export function chargesForFlight(
 ): DerivedCharge[] {
   return [
     flightCharge(flight, hourlyRateCents, tailNumber),
+    landingFeeCharge(flight, tailNumber),
     fuelCredit(flight, tailNumber),
   ].filter((c): c is DerivedCharge => c !== null);
 }

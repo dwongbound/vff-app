@@ -27,6 +27,7 @@ import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { initialValues, type Answers, type Values } from "@/lib/checkouts";
 import { clubDateKey, formatDay, formatTimeRange, toDateInputValue } from "@/lib/dates";
+import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
 import {
   flightCostCents,
   formatCents,
@@ -64,6 +65,7 @@ export default function PostflightPage() {
   const [fuelAdded, setFuelAdded] = useState("");
   const [fuelCost, setFuelCost] = useState("");
   const [oilAdded, setOilAdded] = useState("");
+  const [landingFee, setLandingFee] = useState("");
   // The turn-off checkout replaces the old "tied down"/"cabin clean" toggles:
   // the API derives both flags from these answers, so the log records what the
   // pilot confirmed rather than a default nobody moved.
@@ -177,6 +179,7 @@ export default function PostflightPage() {
     tachEnd: false,
     hobbsStart: false,
     hobbsEnd: false,
+    landingFee: false,
   });
 
   // START, first choice: what today's preflight walk actually read off the
@@ -212,6 +215,19 @@ export default function PostflightPage() {
     }
   }, [recordedHobbs, edited.hobbsEnd]);
 
+  // The landing fee follows the airport you say you landed at, by the same
+  // "mirrors until you type in it" rule as the meters above. It's a DEFAULT and
+  // not a stamp: the table in lib/landingFees.ts is what the club expects KTOA
+  // to charge, while what gets billed is whatever the pilot leaves in the box.
+  //
+  // Clearing back to "" when the airport has no fee on file is deliberate. Fly
+  // KTOA → KCMA and the $6 that appeared for the home field must go away again,
+  // or an untouched box would bill a fee for a field that never charged one.
+  useEffect(() => {
+    if (edited.landingFee) return;
+    setLandingFee(landingFeeInputFor(arrival));
+  }, [arrival, edited.landingFee]);
+
   // ── Autosave ────────────────────────────────────────────────────────────
   //
   // The same promise the checkout cards make: leave the page, come back, your
@@ -240,6 +256,7 @@ export default function PostflightPage() {
       fuelAdded,
       fuelCost,
       oilAdded,
+      landingFee,
       notes,
       turnoffAnswers,
       turnoffValues,
@@ -270,6 +287,7 @@ export default function PostflightPage() {
       fuelAdded,
       fuelCost,
       oilAdded,
+      landingFee,
       notes,
       turnoffAnswers,
       turnoffValues,
@@ -300,6 +318,7 @@ export default function PostflightPage() {
       setFuelAdded(stored.fuelAdded);
       setFuelCost(stored.fuelCost);
       setOilAdded(stored.oilAdded);
+      setLandingFee(stored.landingFee);
       setNotes(stored.notes);
       setTurnoffAnswers(stored.turnoffAnswers);
       // Saved values win, but a field the draft never recorded keeps its
@@ -332,6 +351,7 @@ export default function PostflightPage() {
       tachEnd: false,
       hobbsStart: false,
       hobbsEnd: false,
+      landingFee: false,
     });
     setLandings("1");
     setNightLandings("0");
@@ -343,6 +363,7 @@ export default function PostflightPage() {
     setFuelAdded("");
     setFuelCost("");
     setOilAdded("");
+    setLandingFee("");
     setTurnoffAnswers({});
     setTurnoffValues(initialValues("TURNOFF"));
     setNotes("");
@@ -433,6 +454,7 @@ export default function PostflightPage() {
       fuelAddedGal: fuelAdded === "" ? null : Number(fuelAdded),
       fuelCostDollars: fuelCost === "" ? null : Number(fuelCost),
       oilAddedQts: oilAdded === "" ? null : Number(oilAdded),
+      landingFeeDollars: landingFee === "" ? null : Number(landingFee),
       turnoffAnswers,
       turnoffValues,
       notes: notes.trim() || null,
@@ -482,6 +504,10 @@ export default function PostflightPage() {
       tachEnd: false,
       hobbsStart: true,
       hobbsEnd: false,
+      // Back to following the airport, which is about to be blank: the next leg
+      // may well land somewhere else, and carrying this one's fee across would
+      // bill the member for a field they haven't reached yet.
+      landingFee: false,
     });
     setLandings("1");
     setNightLandings("0");
@@ -493,6 +519,7 @@ export default function PostflightPage() {
     setFuelAdded("");
     setFuelCost("");
     setOilAdded("");
+    setLandingFee("");
     setTurnoffAnswers({});
     setTurnoffValues(initialValues("TURNOFF"));
     setNotes("");
@@ -639,6 +666,17 @@ export default function PostflightPage() {
                 <span className="font-semibold tabular">{formatCents(cost)}</span>
               </span>
             )}
+            {/* Its own figure rather than folded into "Est. cost": that number
+                is the tach reading times the rate, and a member checking the
+                arithmetic against the meters has to be able to. */}
+            {Number(landingFee) > 0 && (
+              <span>
+                <span className="text-gray-500 dark:text-gray-400">Landing fee </span>
+                <span className="font-semibold tabular">
+                  {formatCents(Math.round(Number(landingFee) * 100))}
+                </span>
+              </span>
+            )}
           </div>
         )}
       </Card>
@@ -703,6 +741,25 @@ export default function PostflightPage() {
             onChange={(e) => setArrival(e.target.value)}
             placeholder="KTOA"
             className="uppercase"
+          />
+          {/* Beside "To" rather than down in Servicing: it's a consequence of
+              where you landed, and the member can see the box fill in as they
+              type the airport. Servicing is what went back INTO the airplane. */}
+          <Input
+            label="Landing fee"
+            type="number"
+            step="0.01"
+            min="0"
+            value={landingFee}
+            onChange={(e) => {
+              setEdited((prev) => ({ ...prev, landingFee: true }));
+              setLandingFee(e.target.value);
+            }}
+            hint={
+              landingFeeFor(arrival) != null && !edited.landingFee
+                ? `${arrival.trim().toUpperCase()}'s usual fee — change it if you paid something else`
+                : "dollars, billed to you"
+            }
           />
         </div>
         <Input

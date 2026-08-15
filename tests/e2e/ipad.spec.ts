@@ -57,7 +57,7 @@ test("the rail expands only the group you're in", async ({ page }) => {
 
   // Now that Preflight IS the page, its group stays open on its own and the
   // other group stays shut.
-  await expect(page.getByRole("link", { name: "Runway" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Taxi & Runway" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Squawks" })).toBeHidden();
 });
 

@@ -65,7 +65,7 @@ const FUEL_ICON =
   "M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.007-1.875 2.25-1.875s2.25.84 2.25 1.875c0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 0 1-.61-.58v0Z";
 const PLANE_ICON =
   "M6 12L3.269 3.125A59.769 59.769 0 0121.485 12 59.768 59.768 0 013.27 20.875L5.999 12zm0 0h7.5";
-// Runway: the departing-aircraft glyph, for the checkout that ends at the
+// Taxi & Runway: the departing-aircraft glyph, for the checkout that ends at the
 // hold-short line.
 const RUNWAY_ICON =
   "M3.75 19.5h16.5M4.5 15.75l3.75-1.5m0 0 8.379-3.352a2.25 2.25 0 1 0-1.671-4.177L3.75 11.25l1.5 3.75 3-1.5Zm0 0 2.25 4.5";
@@ -130,7 +130,7 @@ const NAV: NavItem[] = [
     icon: CLIPBOARD_ICON,
     children: [
       { href: "/preflight", label: "Preflight", mobileLabel: "Preflight", icon: CLIPBOARD_ICON },
-      { href: "/runway", label: "Runway", mobileLabel: "Runway", icon: RUNWAY_ICON },
+      { href: "/runway", label: "Taxi & Runway", mobileLabel: "Taxi", icon: RUNWAY_ICON },
       { href: "/postflight", label: "Post-flight", mobileLabel: "Post", icon: GAUGE_ICON },
       // Not a checkout — nothing is ticked and nothing is signed off — but it
       // belongs here anyway: it's the other thing you do standing at the
@@ -643,8 +643,12 @@ export default function Navbar() {
         {grounded.length > 0 && !groundedDismissed && (
           <Banner
             tone="red"
-            href="/log?squawks=open"
-            onLinkClick={() => handleTabClick("/log")}
+            // The squawk sheet, which is where a grounding is read and lifted.
+            // It used to point at the flight log, which carried a second copy
+            // of the list; that copy is gone, and this is the page that owns
+            // the answer to "why is it grounded and who is fixing it".
+            href="/status/squawks"
+            onLinkClick={() => handleTabClick("/status/squawks")}
             onDismiss={() => setGroundedDismissed(true)}
           >
             <span className="font-semibold">

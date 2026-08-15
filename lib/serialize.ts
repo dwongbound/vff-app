@@ -364,6 +364,7 @@ interface FlightRow {
   route: string | null;
   fuelAddedGal: number | null;
   fuelCostCents: number | null;
+  landingFeeCents: number | null;
   oilAddedQts: number | null;
   tiedDown: boolean;
   cabinClean: boolean;
@@ -405,6 +406,7 @@ function serializeFlightFields(
     route: f.route,
     fuelAddedGal: f.fuelAddedGal,
     fuelCostCents: f.fuelCostCents,
+    landingFeeCents: f.landingFeeCents,
     oilAddedQts: f.oilAddedQts,
     tiedDown: f.tiedDown,
     cabinClean: f.cabinClean,

@@ -62,6 +62,12 @@ export interface PostflightForm {
   fuelAdded: string;
   fuelCost: string;
   oilAdded: string;
+  /**
+   * The landing fee, in dollars as typed. Prefilled from the arrival airport
+   * (lib/landingFees.ts) until the member types in the box, which is why the
+   * flag below sits alongside the meters' rather than in the typed-field list.
+   */
+  landingFee: string;
   notes: string;
   turnoffAnswers: Answers;
   turnoffValues: Values;
@@ -78,6 +84,13 @@ export interface PostflightForm {
     tachEnd: boolean;
     hobbsStart: boolean;
     hobbsEnd: boolean;
+    /**
+     * Whether the member typed their own landing fee. Same job as the meters
+     * above: without it, restoring a draft would let the airport's default
+     * overwrite a figure the member had deliberately corrected — the $6 the
+     * table expects silently replacing the $12 the desk actually took.
+     */
+    landingFee: boolean;
   };
   squawks: PostflightDraftSquawk[];
   /** Photos were attached to the flight itself and could not be kept. */
@@ -194,6 +207,7 @@ export function parsePostflightDraft(
     fuelAdded: str(row.fuelAdded),
     fuelCost: str(row.fuelCost),
     oilAdded: str(row.oilAdded),
+    landingFee: str(row.landingFee),
     notes: str(row.notes),
     // Through the card itself, so an id this build no longer knows is dropped
     // here exactly as the API would drop it.
@@ -204,6 +218,7 @@ export function parsePostflightDraft(
       tachEnd: bool(edited.tachEnd),
       hobbsStart: bool(edited.hobbsStart),
       hobbsEnd: bool(edited.hobbsEnd),
+      landingFee: bool(edited.landingFee),
     },
     squawks: squawks(row.squawks),
     hadPhotos: bool(row.hadPhotos),

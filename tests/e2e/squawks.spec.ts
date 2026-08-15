@@ -204,3 +204,53 @@ test("in work reads as maintenance, not as a grounding", async ({ page }) => {
     await setStatus(page, title, /^Closed/);
   }
 });
+
+// Filing one by hand, from the sheet itself.
+//
+// Every squawk used to arrive attached to a checkout or a flight, which covers
+// the fault you find while walking the airplane — but not the one somebody
+// notices in the clubhouse, remembers two days later, or is told about over the
+// phone. Those had nowhere to go, and a fault with nowhere to go doesn't get
+// written down.
+test("a squawk can be filed straight from the sheet, and lands as New", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/status/squawks");
+
+  const title = `E2E clubhouse report ${Date.now()}`;
+  await page.getByRole("button", { name: "Add a squawk" }).click();
+  await page.getByLabel("What's wrong?").fill(title);
+  // `exact` matters: a loose "Add" also matches "Add a squawk" behind the modal.
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+
+  const row = rowFor(page, title);
+  await expect(row).toBeVisible({ timeout: 60_000 });
+  // Reporting is not triaging: it starts at New however it was filed, and the
+  // API refuses to read a status off the body at all.
+  //
+  // Read off the PICKER's accessible name rather than the row's text: an
+  // officer's row says "New" twice — once on the badge, once as the chip
+  // picker's current value — and a bare text match is a strict-mode violation.
+  await expect(statusPicker(row)).toHaveAccessibleName(/New/);
+});
+
+// Reporting is open to every member, not just the Safety Officer — the
+// capability gates TRIAGE, and a member who can't report a fault is a member
+// who flies with it.
+test("an ordinary member can file one too, but still cannot triage it", async ({
+  page,
+}) => {
+  await signIn(page, PLAIN_MEMBER);
+  await page.goto("/status/squawks");
+
+  const title = `E2E member report ${Date.now()}`;
+  await page.getByRole("button", { name: "Add a squawk" }).click();
+  await page.getByLabel("What's wrong?").fill(title);
+  // `exact` matters: a loose "Add" also matches "Add a squawk" behind the modal.
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+
+  const row = rowFor(page, title);
+  await expect(row).toBeVisible({ timeout: 60_000 });
+  await expect(statusPicker(row)).toHaveCount(0);
+});
