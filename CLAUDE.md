@@ -600,6 +600,19 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   while the Vercel project's **Build Command is left on its default** — an
   explicit Build Command in the dashboard overrides package.json and silently
   restores the original bug.
+- **Only `main` and `staging` deploy to Vercel; everything else is off.**
+  `vercel.json` sets `git.deploymentEnabled` to `false` for `*` and `**` and
+  back to `true` for those two branches — Vercel resolves a branch matching
+  several rules by deploying if ANY match is `true`, so listing the two by name
+  is what re-enables them. Both wildcards are listed on purpose: minimatch's
+  `*` does not cross a `/`, so `*` alone would let a `feature/x` branch through.
+  This is what stops a push to `dev` (and every PR preview) from building.
+  It is deliberately the same `main | staging` gate `scripts/vercel-build.sh`
+  already applies to migrations — those two branches are the only ones that own
+  a database, and now the only ones that deploy. The file sets ONLY `git`:
+  adding a `buildCommand` here would override package.json and silently stop
+  `vercel-build` running, which is the migration bug described below.
+
 - **`output: "standalone"` is for Docker only and must stay OFF on Vercel.**
   Vercel does its own file tracing and ends every build by reading
   `.next/next-server.js.nft.json`; standalone output writes the traced tree
