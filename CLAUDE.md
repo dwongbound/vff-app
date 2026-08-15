@@ -60,8 +60,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `instructorId` is the CFI a lesson is booked with — only ever set when
   `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
   rather than leaving a stale name on a booking that changed.
-- **Flight** — tach/Hobbs in-out, landings, route, fuel/oil, `tiedDown`,
-  `cabinClean`. `reservationId` is `@unique` (one filed flight per booking).
+- **Flight** — tach/Hobbs in-out, landings, route, fuel/oil, `landingFeeCents`,
+  `tiedDown`, `cabinClean`. `reservationId` is `@unique` (one filed flight per booking).
   `turnoffAnswers` + `turnoffCheckoutVersion` hold the TURN-OFF checkout
   (`TURNOFF_CHECKOUT`), and `tiedDown`/`cabinClean` are DERIVED from it in the
   API (`derivePutAway`) whenever it's been answered — they mean "confirmed",
@@ -97,7 +97,7 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `PREFLIGHT | RUNWAY` (the third, TURNOFF, lives on Flight — it belongs to
   that flight, not to a standalone row). `answers` JSON `{ itemId: true }`
   against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 7,
-  continuing the old checklist's v3; TURNOFF at 2; RUNWAY at 2);
+  continuing the old checklist's v3; RUNWAY at 3; TURNOFF at 4);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
   `withInstructor` (selects the third column of the operating rules);
@@ -119,7 +119,9 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   screen and carrying a capability (`flight:sign`).
 - **RecurringCharge** — the RULE for a standing monthly charge (dues). Editing
   it never restates months already billed.
-- **Charge** — one statement line, positive = owed, negative = credit.
+- **Charge** — one statement line, positive = owed, negative = credit. Kinds:
+  `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE` (the last appended, the
+  safe kind of enum change).
   `paidAt`/`paidById` is SETTLED and is deliberately not `voided`: a voided
   line should never have stood, a paid one stood and has been met, so paying
   leaves the month's totals alone and only moves `outstandingCents`. `period`
@@ -312,11 +314,11 @@ owns the only splash in the app.
   cold-start pre-lube) and so may an ITEM (the card's IFR-only VOR/GPS line):
   stored when ticked, never counted toward sign-off. Items the club adds to the
   cards are flagged `club: true` and render a "club" chip. Three are whole
-  SECTIONS (I'M SAFE, the 5 Ps, the closing walkaround) and five are single
+  SECTIONS (I'M SAFE, the 5 Ps, the closing walkaround) and seven are single
   lines inside a card's own section (the open-squawks review, the tach/Hobbs
   reading, the tail controls moving freely, the starter crank at the end of the
-  cold-start pre-lube, the cabin clean-out); a test asserts nothing else creeps
-  in. Two of the airplane's own lines are deliberately NOT transcriptions any
+  cold-start pre-lube, the CO detector ON before the start and OFF after the
+  master, the cabin clean-out); a test asserts nothing else creeps in. Two of the airplane's own lines are deliberately NOT transcriptions any
   more: both brake items dropped "pads", because N8318B wears wheel fairings and
   a card asking for a check nobody can make is a line that gets ticked anyway. Two
   more rules about FIELDS: a `defaultNow` time field opens at the club's
@@ -402,12 +404,25 @@ owns the only splash in the app.
   reports what it cost),
   `flightCharge`/`fuelCredit`, `ruleAppliesTo`/`membersBilledBy`,
   money parsing/formatting. ✅tested
+- `landingFees.ts` — what a field charges to land: the fee TABLE (KTOA $6) and
+  `landingFeeFor` / `landingFeeInputFor`. Only a DEFAULT — what the club bills is
+  `Flight.landingFeeCents`, the figure the pilot left in the box, because rates
+  change and fees get waived. Per FLIGHT, not per landing: eight touch-and-goes
+  is one visit to one desk. ✅tested
 - `ledger.ts` — the db half. `syncFlightCharges` rebuilds a flight's two derived
   lines on every file/correct (skipping any an officer has voided);
   `ensureRecurringCharges` materialises a month's dues, idempotent via the
   unique index, never for a future month.
 - `aircraft.ts` — `normalizeTailNumber` (upper-case, space-free),
   `tailNumberError`, `modelError`. ✅tested
+- `offline.ts` — the difference between a card the club REFUSED and one that
+  never reached it. `completionOutcome` sorts a `sendJson` result into
+  `filed | unsent | refused`, keying on `status === null` (the fetch threw, so
+  the server can hold no opinion) rather than on the prose of an error message;
+  `unsentNotice` is the copy for the `unsent` case, in two versions because the
+  useful sentence changes the moment signal returns and the member is not
+  looking at the screen when it does. Neither version says "error": the walk is
+  whole and on the device, and the only missing ingredient is signal. ✅tested
 - `dates.ts` — formatting, `toLocalInputValue`, `calendarMonthsFrom`.
 - `constants.ts` — club name, purposes/severities + tones, policy limits.
 - `auth.ts` — `authOptions`, `getSessionUser()`, `getAdminUser()` (re-reads db).
@@ -423,6 +438,20 @@ owns the only splash in the app.
 - `theme.ts` (light/dark/system) · `navDirection.ts` (swipe slide direction).
 
 ## Components
+
+The flight log no longer carries a squawk panel: Plane Status › Squawks is the
+one sheet, and two lists of the same rows meant two places to look and two to be
+out of date. A squawk still appears in the log where it BELONGS to something —
+on the entry it came from, in the detail modal — and links through with
+`/status/squawks#<id>`, which that page scrolls to and rings. The Navbar's
+grounded banner points there too.
+`FlightDetailModal` reads in two modes: VIEW (the record) and EDIT (the
+correction), gated on `canEdit` — your own entry or an admin, the same rule
+PATCH enforces. Same modal rather than a separate screen, because a correction
+is made while looking at the thing that's wrong. Delete is `danger` red and
+hides while editing. Est. cost carries an (i) that writes the sum out, and it
+exists because the headline and the money round differently: the title says
+"1.2 hours" while the bill is 1.19 tach hr × the rate, plus any landing fee.
 
 The flight log's Club/Mine switch changes what the page is about, not just the
 rows, and it OPENS on Mine (the same way Finances opens on your own statement): Club = the airplane (hours this month, club totals, everyone's flights,
@@ -466,6 +495,16 @@ two-liner would tax the height of every screen of the card),
 `usePostflightDraft` (the same, for the post-flight form — deliberately NOT
 CheckoutDraftBar, which has a whole vocabulary for the gap between the device
 and the server that would be a lie here),
+`usePrefetchRoutes` (the checkouts run in a fixed order with a FLIGHT in the
+middle of it, so each card pulls the ones downstream into the router cache while
+the clubhouse wifi is still in reach — preflight fetches `/runway` and
+`/postflight`, runway fetches `/postflight`. What it buys is that the
+client-side navigation at the end of a card needs no network; what it can't buy
+is a hard reload, which still fetches the document — see the offline gotcha),
+`useOnline` (`navigator.onLine` plus its two events, and it is only ever allowed
+to EXPLAIN a failure that already happened, never to stop a request being tried:
+it reports a network interface, not reachability, so a captive-portal wifi reads
+as online),
 `CheckoutList` (the collapsible
 section renderer shared by the preflight and runway pages — one section open at
 a time, sticky progress bar showing WHICH STEP you're on and your place in that
@@ -496,11 +535,13 @@ work" is a flyable airplane and painting it like a grounding teaches members to
 read past the colour that stops a flight. With anything open the item is still
 TICKED by the pilot: the app knows the list, it can't know you read it),
 `TurnoffCheckout`
-(post-flight turn-off ticks — flat, no collapsing, because you're working down
-a list you've just done rather than navigating one, but with the same segmented
-gauge as the other two cards: 21 items is too many to count by eye. No "step N
-of M" and not sticky — with nothing collapsed there is no step you're on, and it
-lives inside a longer form whose scroll it must not fight), `InflightReference`
+(a THIN WRAPPER over `CheckoutList` — all three cards now share one layout,
+because a member meets the turn-off card minutes after walking the other two and
+a checklist that changes shape between screens has to be re-learned each time.
+It used to render flat; consistency beat the "you're working down a list you've
+just done" argument. The one difference it keeps is `sticky={false}`: this card
+is a section of a longer form, so a pinned bar would follow the member down past
+the meters and the servicing fields still counting turn-off items), `InflightReference`
 (collapsed card at the foot of the runway page), `WeightBalanceChart` (the CG
 envelope as inline SVG — plotted against CG in INCHES rather than the POH's
 moment axis so the limits can be checked against the printed numbers by eye,
@@ -718,6 +759,29 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   then `getByRole("option", …)`), never `selectOption`. Its accessible name is
   "Status" followed by the current value, which is why specs match on the
   prefix.
+- **The app degrades offline; it is NOT an offline app, and the line between
+  those runs through the service worker it doesn't have.** What works with no
+  signal: every tick (localStorage, synchronously), and a client-side
+  navigation to a card that was prefetched while there still was signal
+  (`usePrefetchRoutes`). What does not: a HARD RELOAD, because the document
+  itself still comes off the network and there is nowhere else for it to come
+  from — so an airplane out of range is one pull-to-refresh away from a blank
+  page, with the drafts intact underneath it. The pages' own API reads fail too,
+  but degrade quietly: `fetchJsonArray` returns `[]`, so the card renders
+  without being able to say what the last recorded oil was. Adding a service
+  worker is what would move this line; until then don't describe the checkouts
+  as working offline without saying which half.
+- **A failed Complete is two different things and the pages must not merge
+  them.** `completionOutcome` (lib/offline.ts) splits them: a REFUSAL is the
+  server's own message and belongs in the red error slot, while UNSENT — the
+  fetch never got a reply — is not an error at all and gets an amber notice
+  saying the walk is safe on the device and to press Complete again. Both paths
+  call `draft.thaw()`, which is what makes the retry work: autosave comes back
+  on, the card on screen is untouched, and Complete is still the button. The
+  taxi & runway card is the one where UNSENT is the ORDINARY case — it ends at
+  the hold-short line, well past the clubhouse wifi. Deliberately no auto-retry
+  on the `online` event: a member who kept ticking after the failed press would
+  have a half-edited card filed out from under them.
 - **The checkout pages autosave, so every e2e spec that ticks anything leaves a
   booby trap for the next one.** A resumed half-ticked card turns "Check all"
   into "Clear" and makes a bare `0 of N checked` assertion fail for reasons

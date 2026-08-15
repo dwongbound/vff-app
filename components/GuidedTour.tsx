@@ -85,7 +85,7 @@ const STEPS: Step[] = [
     targets: ["runway", "checkouts"],
     where: "Checkouts",
     icon: ICONS.runway,
-    title: "Runway checkout",
+    title: "Taxi & Runway checkout",
     body: "The other card, from sitting down to holding short: passengers, before start, the cold-start pre-lube, the start, the runup and pre-takeoff. Its own sign-off, because it's usually walked a while after the airplane was.",
   },
   {

@@ -100,12 +100,14 @@ test("a squawk raised on the walk is filed with the checkout", async ({
     )
     .toBe(true);
 
-  // It now shows in the airplane's open-squawk list on the log tab. The squawk
-  // list is a fact about the AIRPLANE, so it lives on the Club half of the
-  // switch — and the page opens on Mine.
-  await gotoTab(page, "/log", "Flight log");
-  await page.getByRole("button", { name: "Club", exact: true }).click();
-  await expect(page.getByText("Nav light flickering")).toBeVisible();
+  // It now shows on the airplane's squawk sheet. That's Plane Status › Squawks
+  // and nowhere else: the flight log used to carry a second copy of this list
+  // under its Club half, and two lists of the same rows meant two places to
+  // look and two places to be out of date.
+  await page.goto("/status/squawks");
+  await expect(
+    page.getByRole("main").getByText("Nav light flickering")
+  ).toBeVisible({ timeout: 60_000 });
 });
 
 test("filing a flight adds it to the log and advances the tach", async ({ page }) => {

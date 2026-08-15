@@ -29,6 +29,8 @@ export interface FlightForBilling {
   tachEnd: number;
   flownOn: Date;
   fuelCostCents: number | null;
+  landingFeeCents?: number | null;
+  arrival?: string | null;
   aircraft: { tailNumber: string; hourlyRateCents: number | null };
 }
 

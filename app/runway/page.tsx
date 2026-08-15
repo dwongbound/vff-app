@@ -1,5 +1,5 @@
 "use client";
-// Runway checkout — the front of N8318B's in-cockpit card.
+// Taxi & Runway checkout — the front of N8318B's in-cockpit card.
 //
 // Passengers, before starting, the cold-start pre-lube, starting, the runup and
 // pre-takeoff, bracketed at the end by the club's 5 Ps. It begins where the
@@ -27,7 +27,10 @@ import { GumpsCard } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
+import { useOnline } from "@/components/useOnline";
+import { usePrefetchRoutes } from "@/components/usePrefetchRoutes";
 import { fetchJsonArray, sendJson } from "@/lib/api";
+import { completionOutcome, unsentNotice } from "@/lib/offline";
 import {
   RUNWAY_CHECKOUT,
   initialValues,
@@ -77,6 +80,14 @@ export default function RunwayPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /** A Complete that never reached the club — see lib/offline. */
+  const [unsent, setUnsent] = useState(false);
+  const online = useOnline();
+
+  // This card is walked in the seat, with the engine running and the clubhouse
+  // wifi already behind you — so the post-flight form is fetched now rather
+  // than after the flight, when there may be nothing to fetch it over.
+  usePrefetchRoutes(["/postflight"]);
 
   const showSplash = fleetLoading || (selected !== null && recent === null);
   usePageLoading(showSplash);
@@ -173,6 +184,7 @@ export default function RunwayPage() {
   async function resetCard() {
     setError(null);
     setSaved(null);
+    setUnsent(false);
     const result = await draft.reset();
     if (!result.ok) {
       setError(result.error ?? "Could not discard the saved checkout.");
@@ -204,6 +216,7 @@ export default function RunwayPage() {
     if (!selected) return;
     setError(null);
     setSaved(null);
+    setUnsent(false);
     setBusy(true);
     // Stop autosaving for the duration. A debounced sync coming due while this
     // request is in flight would POST a fresh DRAFT a moment after the walk was
@@ -234,23 +247,33 @@ export default function RunwayPage() {
           ...payload,
         });
 
-    if (!result.ok || !result.data) {
+    const outcome = completionOutcome(
+      result,
+      "Could not save the taxi & runway checkout."
+    );
+
+    if (outcome.kind !== "filed") {
       setBusy(false);
       // The sign-off didn't take, so the walk is still live work — put autosave
       // back rather than leaving the member ticking into nothing.
       draft.thaw();
-      setError(result.error ?? "Could not save the runway checkout.");
+      // This is the card most likely to be signed off with no signal at all —
+      // it ends at the hold-short line. A dropped request is therefore the
+      // ordinary case here, not the exceptional one, and must not read as an
+      // error: the walk is on the device and Complete is still the button.
+      if (outcome.kind === "refused") setError(outcome.error);
+      else setUnsent(true);
       return;
     }
 
-    await flushAttachments(result.data.id);
+    await flushAttachments(outcome.data.id);
 
     // The row is the airplane's record now, not a draft — drop the device copy
     // so the next visit opens clean.
     draft.finish();
 
     setBusy(false);
-    setSaved("Runway checkout completed. Clear prop — have a good flight.");
+    setSaved("Taxi & Runway checkout completed. Clear prop — have a good flight.");
 
     setAnswers(preflightDone ? { "start.preflight": true } : {});
     setValues(initialValues("RUNWAY"));
@@ -307,7 +330,7 @@ export default function RunwayPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Runway</h1>
+        <h1 className="text-xl font-bold">Taxi &amp; Runway</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {selected.tailNumber} · {selected.model}
           {lastRun && (
@@ -399,6 +422,18 @@ export default function RunwayPage() {
       </Card>
 
       <div className="space-y-2 pb-2">
+        {/* Amber, not red, and above the error slot — the walk is whole and on
+            the device, it just hasn't reached the club. See the same block on
+            the preflight page. */}
+        {unsent && (
+          <p
+            role="status"
+            className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+          >
+            <span className="font-semibold">{unsentNotice(online).lead}</span>{" "}
+            {unsentNotice(online).body}
+          </p>
+        )}
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
             {error}

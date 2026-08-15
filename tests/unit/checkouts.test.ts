@@ -254,9 +254,14 @@ describe("the club's own additions", () => {
       // and rudder are ATTACHED, which is a different question from whether
       // they move.
       "empennage.controls-free",
+      // Switched on at the end of the before-start flow, and off again after
+      // the master on the turn-off card. The detector is the club's, not the
+      // airframe's, so neither line is printed on the laminated card.
+      "start.co-detector",
       // The starter turn at the end of the cold-start pre-lube: the card's
       // hand pull moves oil off the cylinder walls, the crank works the pump.
       "prelube.crank",
+      "shutdown.co-detector",
       "parking.cabin",
     ]);
   });

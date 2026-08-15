@@ -93,8 +93,16 @@ test("the meter card fills itself from the turn-off checkout", async ({ page }) 
   // — the gap is a CSS margin, and JSX drops the newline between them), and a
   // looser /^Tach/ would also catch "Tach start" and "Tach end" on this page.
   // The ids are the storage keys, so they're the most stable handle there is.
+  // The turn-off card renders through CheckoutList now, like the other two, so
+  // its sections COLLAPSE — and a collapsed section renders no items at all
+  // rather than hiding them. Shutdown has to be opened before its fields exist
+  // to be filled. (Header names start with a number badge and end with the
+  // section's count — see the CheckoutList e2e trap in CLAUDE.md.)
+  await page.getByRole("button", { name: /Shutdown.*\d+\/\d+$/ }).click();
+
   const cardTach = page.locator('[id="shutdown.tach.hours"]');
   const cardHobbs = page.locator('[id="shutdown.tach.hobbs"]');
+  await expect(cardTach).toBeVisible();
   await cardTach.fill(tach);
   await cardHobbs.fill("742.6");
 

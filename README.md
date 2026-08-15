@@ -6,19 +6,19 @@ on a phone at the tiedown or on a laptop at home.
 The airplane's three laminated cards are in here as three **checkouts**, each
 signed off on its own, in the order a flight actually happens:
 
-| Tab              | What it's for                                                                                |
-| ---------------- | -------------------------------------------------------------------------------------------- |
-| **Status**       | Overview (meters, fuel/oil, hours flown) and Squawks — the club's squawk sheet, read-only unless you're the Safety Officer |
-| **Preflight**    | The preflight card: I'M SAFE, homework, consumables, cockpit, and the walk around the airplane |
-| **Runway**       | The in-cockpit card: passengers, before start, pre-lube, start, runup, pre-takeoff, 5 Ps      |
-| **Post-flight**  | Tach/Hobbs in-out, landings, fuel, oil, and the turn-off checkout — one line of the club log  |
-| **Tools**        | Weight & balance for this airframe — its own empty weight already in it, checked at takeoff *and* on landing |
-| **Flight Log**   | Club view: the airplane's hours, everyone's flights, squawks. Mine: your totals and currency |
-| **Reservations** | Month calendar on desktop; upcoming list + a "+" button on phones                            |
-| **Members**      | The club roster and how to reach people; admins promote other admins here                    |
+| Tab               | What it's for |
+| ----------------- | ------------- |
+| **Status**        | Overview (meters, fuel/oil, hours flown) and Squawks — the club's squawk sheet, read-only unless you're the Safety Officer |
+| **Preflight**     | The preflight card: I'M SAFE, homework, consumables, cockpit, and the walk around the airplane |
+| **Taxi & Runway** | The in-cockpit card: passengers, before start, pre-lube, start, runup, pre-takeoff, 5 Ps |
+| **Post-flight**   | Tach/Hobbs in-out, landings, fuel, oil, and the turn-off checkout — one line of the club log |
+| **Tools**         | Weight & balance for this airframe — its own empty weight already in it, checked at takeoff *and* on landing |
+| **Flight Log**    | Club view: the airplane's hours, everyone's flights, squawks. Mine: your totals and currency |
+| **Reservations**  | Month calendar on desktop; upcoming list + a "+" button on phones |
+| **Members**       | The club roster and how to reach people; admins promote other admins here |
 
 Takeoff, climb, cruise and descent are deliberately NOT checkouts: nothing gets
-ticked in the air, so they're a read-only card at the foot of the Runway tab.
+ticked in the air, so they're a read-only card at the foot of the Taxi & Runway tab.
 
 Light and dark themes follow the OS by default. On phones the nav collapses to
 a floating bottom bar and you can swipe left/right between tabs.

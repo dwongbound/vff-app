@@ -3,7 +3,7 @@
 // the "+" FAB is how you book. Runs on real device presets (see
 // playwright.config.ts projects) rather than a narrow desktop window.
 import { expect, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { clearCheckoutDrafts, signIn } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -87,4 +87,44 @@ test("weight & balance stacks into one column on a phone", async ({ page }) => {
 
   await page.getByLabel("Pilot", { exact: true }).fill("170");
   await expect(page.getByText("Within limits", { exact: true })).toBeVisible();
+});
+
+// The landing fee on a phone. Worth its own leg rather than trusting the
+// desktop run: this is webkit, the box is prefilled by a React effect watching
+// another field, and the post-flight form is the one members really do fill in
+// one-handed standing at the tail.
+test("the landing fee prefills on a phone, and can be typed over", async ({
+  page,
+}) => {
+  await clearCheckoutDrafts(page);
+  await page.goto("/postflight");
+  const main = page.getByRole("main");
+
+  const fee = main.getByLabel("Landing fee");
+  await expect(fee).toHaveValue("", { timeout: 60_000 });
+
+  await main.getByLabel("To", { exact: true }).fill("KTOA");
+  await expect(fee).toHaveValue("6.00");
+
+  await fee.fill("9.00");
+  await main.getByLabel("To", { exact: true }).fill("KTOA");
+  await expect(fee).toHaveValue("9.00");
+});
+
+// The turn-off card renders through CheckoutList now, like the other two, so on
+// a phone it must COLLAPSE the same way — this is the regression that would
+// show up as a wall of 21 rows between the meters and the file button.
+test("the turn-off card collapses into sections on a phone", async ({ page }) => {
+  await clearCheckoutDrafts(page);
+  await page.goto("/postflight");
+  const main = page.getByRole("main");
+
+  const shutdown = main.getByRole("button", { name: /Shutdown.*\d+\/\d+$/ });
+  await expect(shutdown).toBeVisible({ timeout: 60_000 });
+
+  // Collapsed sections render no items at all, so the shutdown rows are absent
+  // until the header is tapped.
+  await expect(main.getByRole("button", { name: /^Master switch/ })).toHaveCount(0);
+  await shutdown.click();
+  await expect(main.getByRole("button", { name: /^Master switch/ })).toBeVisible();
 });

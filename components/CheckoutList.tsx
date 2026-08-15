@@ -2,11 +2,22 @@
 // One checkout, rendered as a run of collapsible sections with a sticky
 // progress bar above them.
 //
-// Shared by the preflight and runway pages, which are the same job on two
-// different cards — the only thing that differs is which `Checkout` gets
-// passed in. The turn-off checkout deliberately does NOT use this: it's
-// answered standing at the tail with the airplane still ticking, working down
-// a list you've just done, so it renders flat (see TurnoffCheckout).
+// Shared by ALL THREE checkouts — preflight, runway, and (through the thin
+// TurnoffCheckout wrapper) the turn-off card on the post-flight form. They are
+// the same job on three different cards, and the only thing that differs is
+// which `Checkout` gets passed in.
+//
+// The turn-off card used to render flat, on the reasoning that you're working
+// down a list you've just done rather than navigating one. In practice that
+// made the one card members meet at the end of every flight behave unlike the
+// two they'd just walked — different headers, no collapsing, a different idea
+// of where you were — and a checklist that changes shape between screens is
+// one you have to re-learn each time. Consistency won.
+//
+// What the turn-off card keeps is `sticky={false}`: it's a section of a longer
+// form rather than the whole page, so a bar that pinned itself to the top of
+// the column would follow the member down through the meters, the servicing
+// fields and the notes, describing a card they'd scrolled past.
 //
 // Design notes: this is used on a ramp, one-handed, often in sun. So big tap
 // targets (the whole row toggles), one section open at a time, a running
@@ -93,6 +104,7 @@ export default function CheckoutList({
   resumed = false,
   /** Bump this to collapse back to the first section (after a sign-off). */
   resetKey = 0,
+  sticky = true,
 }: {
   checkout: Checkout;
   answers: Answers;
@@ -115,6 +127,15 @@ export default function CheckoutList({
    * nothing about drafts, autosave or what Reset would delete.
    */
   status?: ReactNode;
+  /**
+   * Does the progress bar pin itself to the top of the column?
+   *
+   * True on the two pages that ARE a card. False when the card is one section
+   * of a longer form (the post-flight page): there the bar would outlive the
+   * thing it describes, sitting over the servicing fields still counting
+   * turn-off items.
+   */
+  sticky?: boolean;
   /**
    * A half-walked card was picked up — `answers` is somebody's work in
    * progress rather than a fresh start. Flips false→true once, when the resume
@@ -290,7 +311,13 @@ export default function CheckoutList({
           `status`, and is a live region because it changes when nobody touched
           anything. Nesting one inside a non-live container is fine: `aria-live`
           isn't inherited, so only the save line announces. */}
-      <div className="sticky top-0 z-10 -mx-4 bg-gray-50/95 px-4 py-2 backdrop-blur dark:bg-gray-900/95">
+      <div
+        className={
+          sticky
+            ? "sticky top-0 z-10 -mx-4 bg-gray-50/95 px-4 py-2 backdrop-blur dark:bg-gray-900/95"
+            : "-mx-4 px-4 py-2"
+        }
+      >
         <div className="flex items-baseline justify-between gap-3 text-sm">
           <span className="min-w-0 truncate font-semibold">
             {current.section.title}
