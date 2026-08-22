@@ -73,13 +73,21 @@ export function recentPeriods(count: number, now: Date = new Date()): Period[] {
   return Array.from({ length: count }, (_, i) => shiftPeriod(current, -i));
 }
 
-export type ChargeKind = "DUES" | "FLIGHT" | "FUEL_CREDIT" | "ONE_OFF";
+export type ChargeKind =
+  | "DUES"
+  | "FLIGHT"
+  | "FUEL_CREDIT"
+  | "ONE_OFF"
+  | "LANDING_FEE"
+  | "PAYBACK";
 
 export const CHARGE_KIND_LABELS: Record<ChargeKind, string> = {
   DUES: "Dues",
   FLIGHT: "Flight time",
   FUEL_CREDIT: "Fuel credit",
   ONE_OFF: "Charge",
+  LANDING_FEE: "Landing fee",
+  PAYBACK: "Monthly payback",
 };
 
 /** The shape the totals below need — a subset of a Charge row. */
@@ -166,10 +174,32 @@ export function parseDollars(input: unknown): number | null {
 /** The meter readings and money a flight contributes to the books. */
 export interface BillableFlight {
   id: string;
-  tachStart: number;
-  tachEnd: number;
+  /**
+   * Both ends are nullable now that a log entry can exist before the flight is
+   * over. An entry with either end unknown has no measurable span, so it bills
+   * no hours — see `flightCharge`. Fuel and landing fees are unaffected: those
+   * are receipts, and a receipt is owed whether or not the meters were read.
+   */
+  tachStart: number | null;
+  tachEnd: number | null;
   flownOn: Date;
   fuelCostCents: number | null;
+  /**
+   * Whose card that fuel went on. Optional and ABSENT-MEANS-TRUE, matching the
+   * column's own default: every flight recorded before there was a choice
+   * meant "the member paid", because recording a cost was the only way to
+   * claim it back. A caller that forgets the field therefore bills exactly
+   * what it billed before.
+   */
+  fuelPaidPersonally?: boolean;
+  /**
+   * What the destination charged to land, as recorded on the flight. Optional
+   * so every caller that predates landing fees still type-checks and bills
+   * exactly what it billed before — absent and null are both "no fee".
+   */
+  landingFeeCents?: number | null;
+  /** Where it landed, so the statement line can name the field. */
+  arrival?: string | null;
 }
 
 export interface DerivedCharge {
@@ -188,6 +218,13 @@ export interface DerivedCharge {
  * Billed on TACH time — engine hours, the club's stated basis — not Hobbs and
  * not block time. Returns null when the airplane has no rate set or the flight
  * logged no time, because a $0 line on a statement is noise.
+ *
+ * "Logged no time" now covers a third case: an entry whose span isn't KNOWN,
+ * because the airplane is still out or because nobody read the panel before
+ * they left. `tachHours` answers null for those, and a flight the club can't
+ * measure is one it can't bill — the member's statement gets the line the day
+ * the missing reading is filled in, from the same code, because every write to
+ * a flight re-runs this.
  */
 export function flightCharge(
   flight: BillableFlight,
@@ -199,7 +236,7 @@ export function flightCharge(
     tachStart: flight.tachStart,
     tachEnd: flight.tachEnd,
   });
-  if (!(hours > 0)) return null;
+  if (hours == null || !(hours > 0)) return null;
   const amountCents = Math.round(hours * hourlyRateCents);
   if (amountCents <= 0) return null;
   return {
@@ -224,12 +261,49 @@ export function fuelCredit(
   flight: BillableFlight,
   tailNumber: string
 ): DerivedCharge | null {
+  // Fuel on the CLUB's card is the club buying its own fuel: worth recording
+  // — the airplane got fuel, and the club paid for it — but nobody is owed
+  // anything, so there is no credit to write. Same rule `servicingCredit`
+  // already applies to a fill-up with no flight attached.
+  if (flight.fuelPaidPersonally === false) return null;
   const spent = flight.fuelCostCents;
   if (!spent || spent <= 0) return null;
   return {
     kind: "FUEL_CREDIT",
     amountCents: -spent,
     description: `Fuel bought for ${tailNumber}`,
+    incurredOn: flight.flownOn,
+    period: periodOf(flight.flownOn),
+    flightId: flight.id,
+  };
+}
+
+/**
+ * What the field charged to land, passed on to the pilot.
+ *
+ * A pass-through rather than a lookup: the amount billed is the one recorded on
+ * the flight, which is what the pilot says they were actually charged. The
+ * table in lib/landingFees.ts only decides what the form OPENS at — see the
+ * note there about why the two are deliberately different jobs.
+ *
+ * Per flight, not per landing. Eight touch-and-goes is one visit to one desk.
+ *
+ * A recorded ZERO is meaningful and bills nothing: "they waived it" is a real
+ * answer, and it should leave no line on the statement rather than a $0.00 one.
+ */
+export function landingFeeCharge(
+  flight: BillableFlight,
+  tailNumber: string
+): DerivedCharge | null {
+  const fee = flight.landingFeeCents;
+  if (!fee || fee <= 0) return null;
+  // The field is what a reader wants to see on a statement; the tail number is
+  // the fallback, so the line still says which airplane put it there.
+  const where = flight.arrival?.trim() || tailNumber;
+  return {
+    kind: "LANDING_FEE",
+    amountCents: fee,
+    description: `Landing fee — ${where}`,
     incurredOn: flight.flownOn,
     period: periodOf(flight.flownOn),
     flightId: flight.id,
@@ -269,7 +343,11 @@ export interface BillableServicing {
   paidPersonally: boolean;
 }
 
-/** Both of a flight's derived lines, in statement order. */
+/**
+ * All of a flight's derived lines, in statement order: what it cost to fly,
+ * what it cost to land, and what the club owes back for fuel. Debits before the
+ * credit, so a statement reads as the bill it is.
+ */
 export function chargesForFlight(
   flight: BillableFlight,
   hourlyRateCents: number | null | undefined,
@@ -277,6 +355,7 @@ export function chargesForFlight(
 ): DerivedCharge[] {
   return [
     flightCharge(flight, hourlyRateCents, tailNumber),
+    landingFeeCharge(flight, tailNumber),
     fuelCredit(flight, tailNumber),
   ].filter((c): c is DerivedCharge => c !== null);
 }
@@ -285,11 +364,37 @@ export function chargesForFlight(
 export interface RecurringRule {
   id: string;
   label: string;
+  /**
+   * POSITIVE is a monthly charge (dues); NEGATIVE is a monthly PAYBACK — a
+   * standing credit for the member who runs the website, mows the tiedown or
+   * keeps the books. Same rule shape either way, because it is the same rule:
+   * an amount, somebody to apply it to, a start and an optional end,
+   * materialised once a month and never restated.
+   */
   amountCents: number;
   memberId: string | null;
   startsOn: Date;
   endsOn: Date | null;
   active: boolean;
+}
+
+/**
+ * Which kind of statement line a rule writes, from the sign of its amount.
+ *
+ * The SIGN is the whole distinction, and keeping the kinds separate is what
+ * stops a payback reading as a negative due. A statement that showed the club
+ * paying somebody $50 under "Dues" would be wrong twice over: wrong on the
+ * line, and wrong in the dues half of every total that groups by kind.
+ */
+export function recurringKind(
+  rule: Pick<RecurringRule, "amountCents">
+): "DUES" | "PAYBACK" {
+  return rule.amountCents < 0 ? "PAYBACK" : "DUES";
+}
+
+/** True for a rule that pays a member rather than billing them. */
+export function isPayback(rule: Pick<RecurringRule, "amountCents">): boolean {
+  return rule.amountCents < 0;
 }
 
 /**

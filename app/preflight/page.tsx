@@ -26,7 +26,10 @@ import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModa
 import { MyLimitsCard } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
+import { useOnline } from "@/components/useOnline";
+import { usePrefetchRoutes } from "@/components/usePrefetchRoutes";
 import { fetchJsonArray, sendJson } from "@/lib/api";
+import { completionOutcome, unsentNotice } from "@/lib/offline";
 import {
   PREFLIGHT_CHECKOUT,
   isComplete,
@@ -78,6 +81,20 @@ export default function PreflightPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /**
+   * A Complete that never reached the club. Not an error — see lib/offline —
+   * so it gets its own state rather than a message in `error`: the walk is
+   * intact, the button still works, and the only thing to do is press it again
+   * with signal.
+   */
+  const [unsent, setUnsent] = useState(false);
+  const online = useOnline();
+
+  // The rest of the sequence, fetched while the clubhouse wifi is still in
+  // reach. The flight happens between this card and the next two, which is
+  // precisely when a first navigation to them would otherwise go looking for
+  // the network.
+  usePrefetchRoutes(["/runway", "/postflight"]);
 
   // See the reservations page for why this isn't just `recent === null`.
   const showSplash = fleetLoading || (selected !== null && recent === null);
@@ -210,6 +227,7 @@ export default function PreflightPage() {
   async function resetCard() {
     setError(null);
     setSaved(null);
+    setUnsent(false);
     const result = await draft.reset();
     if (!result.ok) {
       setError(result.error ?? "Could not discard the saved checkout.");
@@ -276,6 +294,7 @@ export default function PreflightPage() {
     if (!selected) return;
     setError(null);
     setSaved(null);
+    setUnsent(false);
     setBusy(true);
     // Stop autosaving for the duration. A debounced sync coming due while this
     // request is in flight would POST a fresh DRAFT a moment after the walk was
@@ -309,18 +328,27 @@ export default function PreflightPage() {
           ...payload,
         });
 
-    if (!result.ok || !result.data) {
+    const outcome = completionOutcome(
+      result,
+      "Could not save the preflight checkout."
+    );
+
+    if (outcome.kind !== "filed") {
       setBusy(false);
       // The sign-off didn't take, so the walk is still live work — put autosave
       // back rather than leaving the member ticking into nothing.
       draft.thaw();
-      setError(result.error ?? "Could not save the preflight checkout.");
+      // A refusal is something to read; a request that never landed is not.
+      // The card stays exactly as it is either way, so Complete remains the
+      // right button — see lib/offline for why these are told apart at all.
+      if (outcome.kind === "refused") setError(outcome.error);
+      else setUnsent(true);
       return;
     }
 
     // Anything still held on the page — a photo attached seconds ago, a squawk
     // raised on the last item — needs the row, so it goes up now.
-    await flushAttachments(result.data.id);
+    await flushAttachments(outcome.data.id);
 
     // The row has stopped being a draft: it's the airplane's record. Drop the
     // device copy so the next visit opens a clean card rather than offering to
@@ -328,8 +356,13 @@ export default function PreflightPage() {
     draft.finish();
 
     setBusy(false);
+    // The card has done two things, and the second is new enough to say out
+    // loud: signing off a preflight OPENS the flight's log entry, carrying the
+    // meters and the clock this walk just read. See lib/flightSession.ts.
     setSaved(
-      "Preflight checkout completed. Next: the runway checkout, once you're sitting in it."
+      outcome.data.flightId
+        ? "Preflight checkout completed, and this flight is now open in the log. Next: the runway checkout, once you're sitting in it."
+        : "Preflight checkout completed. Next: the runway checkout, once you're sitting in it."
     );
 
     // Start clean for the next run — clean meaning "a fresh card", which
@@ -656,6 +689,20 @@ export default function PreflightPage() {
           incomplete one is confirmed in a modal that names what's missing,
           rather than met with a button that won't press and no explanation. */}
       <div className="space-y-2 pb-2">
+        {/* Amber rather than red, and above the error slot rather than in it:
+            nothing has gone wrong with the walk. The card is whole and on the
+            device; it just hasn't been handed to the club yet. `role="status"`
+            because the wording changes on its own the moment signal returns,
+            while the member is looking at the airplane rather than the phone. */}
+        {unsent && (
+          <p
+            role="status"
+            className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+          >
+            <span className="font-semibold">{unsentNotice(online).lead}</span>{" "}
+            {unsentNotice(online).body}
+          </p>
+        )}
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
             {error}

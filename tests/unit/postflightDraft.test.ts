@@ -53,10 +53,17 @@ const EMPTY: PostflightForm = {
   fuelAdded: "",
   fuelCost: "",
   oilAdded: "",
+  landingFee: "",
   notes: "",
   turnoffAnswers: {},
   turnoffValues: {},
-  edited: { tachStart: false, tachEnd: false, hobbsStart: false, hobbsEnd: false },
+  edited: {
+    tachStart: false,
+    tachEnd: false,
+    hobbsStart: false,
+    hobbsEnd: false,
+    landingFee: false,
+  },
   squawks: [],
   hadPhotos: false,
 };
@@ -78,7 +85,13 @@ describe("round trip", () => {
       tachEnd: "1506.1",
       route: "KTOA → KCMA → KTOA",
       turnoffAnswers: { [allItemIds("TURNOFF")[0]]: true },
-      edited: { tachStart: false, tachEnd: true, hobbsStart: false, hobbsEnd: false },
+      edited: {
+        tachStart: false,
+        tachEnd: true,
+        hobbsStart: false,
+        hobbsEnd: false,
+        landingFee: false,
+      },
     });
 
     expect(writePostflightDraft(store, original)).toBe(true);

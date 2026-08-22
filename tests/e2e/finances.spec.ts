@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoTab, signIn } from "./helpers";
+import { clearOpenSessions, gotoTab, signIn } from "./helpers";
 
 // The club's books, end to end.
 //
@@ -197,6 +197,11 @@ test("filing a flight bills the tach hours and credits the fuel", async ({
       await page.request.delete(`/api/flights/${flight.id}`);
     }
   }
+
+  // An open session left by an earlier spec would be FINISHED by this POST
+  // rather than a fresh row being filed — same numbers, different id, and a
+  // test that reads as flaky. See clearOpenSessions.
+  await clearOpenSessions(page);
 
   const filed = await page.request.post("/api/flights", {
     data: {

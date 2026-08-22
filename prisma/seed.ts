@@ -3,6 +3,21 @@
 // flying, a statement with lines on it, squawks in every state of triage,
 // signed-off checkouts and a schedule.
 //
+// The bar it aims at is one STATE PER BRANCH, not one row per table. A demo
+// club where every charge is outstanding, every squawk stands on its own,
+// every endorsement carries the same name and every maintenance item is
+// comfortably in date exercises exactly one path through code that has four —
+// and the paths it skips are the ones nobody looks at until a member hits them.
+// So the seed deliberately includes the awkward states: a signature overtaken
+// by an edit, a walk somebody abandoned half way down, a rule that has stopped
+// billing, an item overdue without grounding anything, a line voided and a
+// month settled.
+//
+// Two states are left out on purpose, both for the same reason — they stop the
+// club dead and a database that opens that way teaches the wrong first lesson:
+// a squawk at REVIEWED_GROUNDED, and a legally-required maintenance item run
+// out. Each is one click away in the app.
+//
 // Idempotent — safe to re-run (docker compose runs it on every dev boot).
 // Rows are keyed by natural identifiers (email, tail number) and upserted;
 // the demo bookings/flights are only created when the log is empty, so a
@@ -14,7 +29,12 @@
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../lib/generated/prisma/client";
-import { chargesForFlight, periodOf, servicingCredit } from "../lib/finance";
+import {
+  chargesForFlight,
+  currentPeriod,
+  periodOf,
+  servicingCredit,
+} from "../lib/finance";
 import {
   PREFLIGHT_CHECKOUT,
   RUNWAY_CHECKOUT,
@@ -117,12 +137,22 @@ const MEMBERS: {
     positions: ["PRESIDENT"],
     certificate: "Commercial ASEL",
     totalTimeHours: 690,
+    // The one piece of paperwork dated RELATIVE to the seed run rather than
+    // fixed. Everything else here is history and must not slide, but the
+    // profile page's "your medical expires soon" reminder only exists inside a
+    // window — a fixed date means the reminder is dead on every database
+    // seeded after it passes, which is the same as not seeding it at all.
+    medicalExpiresOn: day(38, 12),
   },
   {
+    // Two offices at once, which the roster has to be able to say: a club this
+    // size runs out of people long before it runs out of jobs, and the members
+    // screen, the position chips and `capabilitiesFor` all have to hold more
+    // than one.
     name: "Morgan Ellis",
     email: "morgan@vffclub.test",
     phone: "(206) 555-0164",
-    positions: ["MAINTENANCE_OFFICER"],
+    positions: ["MAINTENANCE_OFFICER", "VICE_PRESIDENT"],
     certificate: "Private Pilot ASEL",
     totalTimeHours: 184,
   },
@@ -141,10 +171,18 @@ const MEMBERS: {
     name: "Taylor Brooks",
     email: "taylor@vffclub.test",
     phone: "(206) 555-0185",
+    positions: ["SECRETARY"],
     certificate: "Private Pilot ASEL",
     totalTimeHours: 97,
   },
 ];
+
+// Between them the roster now holds every value of the `Position` enum, which
+// is the point: an office nobody in the demo club holds is an office whose
+// chip, whose entry in the roles editor and whose row in lib/positions.ts have
+// never been looked at. PRESIDENT / VICE_PRESIDENT / SECRETARY carry no
+// capabilities today and are seeded for exactly that reason — the app has to
+// render an office that grants nothing without implying it grants something.
 
 /** The roster's plain member — no admin flag, no office. Used by the e2e suite. */
 const PLAIN_MEMBER = MEMBERS[0];
@@ -189,11 +227,41 @@ interface SeedFlight {
   nightLandings?: number;
   fuelGal?: number;
   fuelCents?: number;
+  oilQts?: number;
   departure?: string;
   arrival?: string;
-  /** Flown with the club's CFI, and (when signed) endorsed by her. */
+  /** The whole route as the pilot filed it, when it wasn't just A to B. */
+  route?: string;
+  /** Flown with a CFI, and (when signed) endorsed by them. */
   withInstructor?: boolean;
+  /**
+   * WHICH CFI, by roster email. Defaults to the club's visiting instructor —
+   * she teaches most of the lessons — but the club has two, and a log where
+   * every endorsement carries the same name never shows that `instructorId`
+   * is a real column rather than a flag.
+   */
+  instructor?: string;
   signed?: boolean;
+  /**
+   * Days after the flight that the ENTRY was corrected, stamping `editedAt`.
+   *
+   * Only interesting alongside `signed`: it is what produces the fourth
+   * signature state, SIGNED_THEN_EDITED (lib/flightSignature.ts). The
+   * endorsement was really given and is not erased — it just no longer covers
+   * what's on screen — and without a seeded example that state is reachable
+   * only by an e2e test that makes it happen itself.
+   */
+  editedDaysAfter?: number;
+  /**
+   * The turn-off checkout, as answered on the post-flight form.
+   *
+   * "all" is the pilot who worked the whole card; "partial" leaves the cabin
+   * clean-out unticked, which is what `derivePutAway` turns into
+   * `cabinClean: false` and what the flight log nags about. Absent means the
+   * flight was filed without the card being answered at all — the third state,
+   * and the one every row in the club's transcribed sheet is in.
+   */
+  turnoff?: "all" | "partial";
   note?: string;
 }
 
@@ -421,17 +489,47 @@ const RECENT_FLIGHTS: (SeedFlight & { daysAgo: number })[] = [
     landings: 3,
     departure: "KBFI",
     arrival: "KTIW",
+    // The only seeded flight with a filed ROUTE. Departure and arrival are the
+    // same field on a there-and-back, which makes them read as one airport
+    // twice; this is the column that says where it actually went.
+    route: "KBFI → KTIW → KPWT → KBFI",
     fuelGal: 22.4,
     fuelCents: 16_464,
+    turnoff: "all",
     note: "Tacoma and back for lunch.",
+  },
+  {
+    // The club's OTHER CFI signing, and the one entry in the log that was
+    // corrected after he signed it — see `editedDaysAfter`. Taylor's flight
+    // review rather than a student lesson, which is also why it's Drew: he is
+    // the CFI who is a flying member, and the seeded day-6 booking has him
+    // down for exactly this.
+    daysAgo: 2,
+    pic: "taylor@vffclub.test",
+    tachStart: 1504.5,
+    tachEnd: 1505.6,
+    landings: 6,
+    withInstructor: true,
+    instructor: "drew@vffclub.test",
+    signed: true,
+    editedDaysAfter: 1,
+    turnoff: "all",
+    note: "Flight review — air work, then short and soft field.",
   },
   {
     daysAgo: 1,
     pic: "alex@vffclub.test",
-    tachStart: 1504.5,
-    tachEnd: 1505.95,
+    tachStart: 1505.6,
+    tachEnd: 1507.05,
     landings: 4,
     nightLandings: 3,
+    // A quart went in after the flight, which is the servicing half of the
+    // post-flight form (Servicing rows are the no-flight case; this is the
+    // common one, and until now no seeded flight used the column).
+    oilQts: 1,
+    // Tied down and chocked, cabin left for the morning — the state the flight
+    // log's put-away nag exists to show, and an honest one at 10pm.
+    turnoff: "partial",
     note: "Night currency — three to a full stop.",
   },
 ];
@@ -477,7 +575,22 @@ const WEIGHT_BALANCE = {
 //
 // `requiredByReg` is the sheet's own "Required by Regulation" column, and it
 // is what decides whether OVERDUE grounds the airplane (lib/maintenance.ts).
-const MAINTENANCE_SHEET = [
+interface SeedMaintenanceItem {
+  label: string;
+  category: "INSPECTION" | "EQUIPMENT";
+  requiredByReg: boolean;
+  reference: string | null;
+  intervalHours: number | null;
+  intervalMonths: number | null;
+  lastDoneTach: number | null;
+  /** A fixed calendar date, or a function of "now" for the live states. */
+  lastDoneOn: [number, number, number] | (() => Date);
+  notes?: string;
+  /** Retired from the sheet but kept for its history. Defaults to true. */
+  active?: boolean;
+}
+
+const MAINTENANCE_SHEET: SeedMaintenanceItem[] = [
   {
     label: "Annual inspection",
     category: "INSPECTION" as const,
@@ -531,6 +644,77 @@ const MAINTENANCE_SHEET = [
   },
 ];
 
+// Three more items — INVENTED, and kept in their own list for the same reason
+// EARLIER_FLIGHTS is kept apart from the club's transcribed log: the sheet
+// above is the club's own paperwork and stays exactly as it reads.
+//
+// The transcribed sheet was all signed off on the same day and is therefore
+// entirely green, which leaves three of `lib/maintenance.ts`'s states with no
+// example anywhere in the app. These fill them in, and the FIRST is the one
+// that matters:
+//
+//   • OVERDUE without a grounding. `requiredByReg` is the whole difference
+//     between "the maintenance officer has a job to do" and "this airplane may
+//     not be flown", and with every seeded item comfortably in date, nothing in
+//     the demo club ever showed the first without the second. A club-schedule
+//     item a few hours over does — and `grounding()` correctly ignores it, so
+//     the Airworthy badge and the dispatch banner stay clear.
+//   • DUE_SOON on the calendar clock, dated relative to the seed run so the
+//     amber state is live rather than true only in August 2026.
+//   • A RETIRED item, which is how the club stops tracking something without
+//     erasing that it was ever tracked.
+//
+// Deliberately NOT here: a required item run out. That grounds the airplane
+// through `grounding()` — the same app-wide banner a REVIEWED_GROUNDED squawk
+// raises — and the seed avoids it for the same reason it seeds no grounded
+// squawk. File one, or mark an item overdue, to see it.
+const EXTRA_MAINTENANCE: SeedMaintenanceItem[] = [
+  {
+    label: "Wheel bearings — clean & repack",
+    category: "INSPECTION",
+    requiredByReg: false,
+    reference: null,
+    intervalHours: 100,
+    intervalMonths: null,
+    // 104 hours ago on a 100-hour interval: four hours overdue, and nobody is
+    // grounded by it.
+    lastDoneTach: 1403.05,
+    lastDoneOn: [2025, 6, 14],
+    notes: "Club schedule. Overdue — the shop has it on the list for the annual.",
+  },
+  {
+    label: "Fire extinguisher — inspection",
+    category: "EQUIPMENT",
+    requiredByReg: false,
+    reference: null,
+    intervalHours: null,
+    intervalMonths: 12,
+    lastDoneTach: null,
+    // Exactly twelve calendar months ago, so it comes due at the END of the
+    // current month (calendar months run to the last day — see
+    // `calendarMonthsFrom`). That lands inside DUE_SOON_DAYS on any day the
+    // seed is run, and can never read as overdue.
+    lastDoneOn: () => {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() - 1);
+      d.setHours(12, 0, 0, 0);
+      return d;
+    },
+  },
+  {
+    label: "Portable oxygen bottle — hydrostatic test",
+    category: "EQUIPMENT",
+    requiredByReg: false,
+    reference: null,
+    intervalHours: null,
+    intervalMonths: 60,
+    lastDoneTach: null,
+    lastDoneOn: [2021, 3, 2],
+    active: false,
+    notes: "Bottle sold in 2025. Kept so the sheet's history stays complete.",
+  },
+];
+
 /**
  * Local NOON on a calendar date. Noon rather than midnight so no timezone the
  * app is read in can slide a logged flight onto the day before.
@@ -550,6 +734,31 @@ function day(offsetDays: number, hour: number): Date {
 /** A completed run of a checkout card: every item on it ticked. */
 function everyItem(kind: "PREFLIGHT" | "RUNWAY" | "TURNOFF"): Answers {
   return Object.fromEntries(allItemIds(kind).map((id) => [id, true]));
+}
+
+/**
+ * The same run with some items left unticked.
+ *
+ * DROPPED rather than set to false, which is what a card the member never
+ * touched actually looks like: `parseAnswers` reads an absent id as unanswered,
+ * and writing `false` would claim they looked and said no.
+ */
+function withoutItems(answers: Answers, ids: string[]): Answers {
+  const rest = { ...answers };
+  for (const id of ids) delete rest[id];
+  return rest;
+}
+
+/** The first `count` items of a card, in card order — a walk left half done. */
+function firstItems(
+  kind: "PREFLIGHT" | "RUNWAY" | "TURNOFF",
+  count: number
+): Answers {
+  return Object.fromEntries(
+    allItemIds(kind)
+      .slice(0, count)
+      .map((id) => [id, true])
+  );
 }
 
 async function main() {
@@ -582,7 +791,10 @@ async function main() {
     },
   });
 
-  const members = [];
+  // Annotated rather than left to infer from the pushes below: the winter
+  // surcharge block reads this inside a callback, and an evolving `[]` stops
+  // being inferable the moment a closure gets hold of it.
+  const members: Awaited<ReturnType<typeof prisma.user.upsert>>[] = [];
   for (const member of MEMBERS) {
     members.push(
       await prisma.user.upsert({
@@ -640,11 +852,42 @@ async function main() {
   // must not resurrect a code an admin deliberately retired, which is why
   // `update` leaves `active` alone.
   for (const code of [
-    { code: "VFF-MEMBER", kind: "MEMBER" as const, label: "Seeded member code" },
-    { code: "VFF-CFI", kind: "INSTRUCTOR" as const, label: "Seeded instructor code" },
+    {
+      code: "VFF-MEMBER",
+      kind: "MEMBER" as const,
+      label: "Seeded member code",
+      // A usage trail, because "is this one still in use?" is the only
+      // question an admin asks before retiring a code — and a list where every
+      // code reads "never used" never shows the counter doing its job.
+      uses: 5,
+      lastUsedAt: day(-11, 14),
+    },
+    {
+      code: "VFF-CFI",
+      kind: "INSTRUCTOR" as const,
+      label: "Seeded instructor code",
+      uses: 1,
+      lastUsedAt: day(-46, 10),
+    },
+    {
+      // A RETIRED code, which is the state the whole "retire, never delete"
+      // rule exists for: it still refuses a stranger (`redemptionError` gives
+      // it the same message as a code that never existed), the record of who
+      // it let in survives, and DELETE is refused because `uses` is not zero.
+      // Nothing in the demo club showed any of that while both codes were
+      // open and unused.
+      code: "VFF-2025",
+      kind: "MEMBER" as const,
+      label: "2025 intake — closed",
+      active: false,
+      uses: 9,
+      lastUsedAt: on([2025, 12, 3]),
+    },
   ]) {
     await prisma.signupCode.upsert({
       where: { code: code.code },
+      // Left alone on a reseed: `active` especially, since resurrecting a code
+      // an admin deliberately retired would reopen the club's front door.
       update: {},
       create: { ...code, createdById: admin.id },
     });
@@ -669,9 +912,11 @@ async function main() {
       // Null, not a number: the club's log has no Hobbs column at all, and a
       // made-up reading would prefill the post-flight form with a lie.
       lastHobbs: null,
-      notes:
-        "Orange and white. Keys in the clubhouse lockbox. Next maintenance due:" +
-        " engine oil change, ~30 Nov 2026 (the sheet said 114 days on 8 Aug 2026).",
+      // No "next maintenance due" here any more: that is derived from the
+      // maintenance sheet on every page that asks (lib/maintenance.ts), and a
+      // sentence typed into a notes field is a second answer to the same
+      // question that goes stale the first time the shop signs anything off.
+      notes: "Orange and white. Keys in the clubhouse lockbox.",
       ...WEIGHT_BALANCE,
     },
   });
@@ -712,14 +957,136 @@ async function main() {
     });
   }
 
+  // A rule that bills ONE member.
+  //
+  // `RecurringCharge.memberId` is null for the club-wide dues and set for a
+  // private arrangement, and `membersBilledBy` branches on exactly that — but
+  // with only the dues rule seeded, the branch that returns one member had no
+  // example anywhere in the club. A locker is the ordinary shape of it.
+  const LOCKER_LABEL = "Clubhouse locker";
+  const existingLocker = await prisma.recurringCharge.findFirst({
+    where: { label: LOCKER_LABEL },
+    select: { id: true },
+  });
+  if (!existingLocker) {
+    await prisma.recurringCharge.create({
+      data: {
+        label: LOCKER_LABEL,
+        amountCents: 1_500,
+        memberId: memberBy("morgan@vffclub.test").id,
+        startsOn: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+        createdById: memberBy(FINANCE_OFFICER.email).id,
+      },
+    });
+  }
+
+  // A rule that PAYS a member rather than billing them.
+  //
+  // Same rule shape, negative amount — the sign is what makes the line a
+  // PAYBACK rather than DUES (`recurringKind` in lib/finance.ts). Seeded for
+  // the same reason the locker is: the negative branch existed with no example
+  // anywhere in the club, so nobody looking at a dev database would discover
+  // that a statement can have a standing credit on it, or that the totals net
+  // it off correctly. Somebody running the club's website for $50 a month is
+  // the ordinary shape of it.
+  const PAYBACK_LABEL = "Website upkeep";
+  const existingPayback = await prisma.recurringCharge.findFirst({
+    where: { label: PAYBACK_LABEL },
+    select: { id: true },
+  });
+  if (!existingPayback) {
+    await prisma.recurringCharge.create({
+      data: {
+        label: PAYBACK_LABEL,
+        amountCents: -5_000, // negative: the club owes this one
+        memberId: memberBy("morgan@vffclub.test").id,
+        startsOn: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+        createdById: memberBy(FINANCE_OFFICER.email).id,
+      },
+    });
+  }
+
+  // A rule that has STOPPED, and the lines it produced while it ran.
+  //
+  // Deactivating a rule is the club's way of ending it, and the promise is
+  // that the months it already billed stay exactly as they were — editing the
+  // rule never restates history. That promise is invisible in a demo club
+  // where every rule is live, so this one ran last winter and is now off.
+  //
+  // Its lines are written here rather than materialised: `ensureRecurringCharges`
+  // only ever looks at ACTIVE rules, which is what makes an ended rule safe to
+  // leave lying around, and is also why reading one of those old months would
+  // otherwise produce nothing.
+  const WINTER_LABEL = "Winter tie-down surcharge";
+  const existingWinter = await prisma.recurringCharge.findFirst({
+    where: { label: WINTER_LABEL },
+    select: { id: true },
+  });
+  if (!existingWinter) {
+    const winter = await prisma.recurringCharge.create({
+      data: {
+        label: WINTER_LABEL,
+        amountCents: 2_000,
+        memberId: null,
+        startsOn: on([2025, 11, 1]),
+        endsOn: on([2026, 2, 28]),
+        active: false,
+        createdById: memberBy(FINANCE_OFFICER.email).id,
+      },
+    });
+    await prisma.charge.createMany({
+      data: ["2025-11", "2025-12", "2026-01", "2026-02"].flatMap((period) => {
+        const [year, month] = period.split("-").map(Number);
+        return members.map((member) => ({
+          memberId: member.id,
+          kind: "DUES" as const,
+          amountCents: winter.amountCents,
+          description: WINTER_LABEL,
+          period,
+          // Dues are incurred on the 1st, whenever anyone happens to read the
+          // page — the same rule `ensureRecurringCharges` applies.
+          incurredOn: new Date(year, month - 1, 1, 12, 0, 0, 0),
+          recurringChargeId: winter.id,
+        }));
+      }),
+      // The (memberId, recurringChargeId, period) index is what makes the
+      // derived kinds idempotent, and it protects this the same way.
+      skipDuplicates: true,
+    });
+  }
+
   /** File one flight and the statement lines it produces. */
   async function fileFlight(entry: SeedFlight, flownOn: Date) {
     const pilot = memberBy(entry.pic);
+    // Which CFI is on the entry. Named on the row rather than assumed, because
+    // the club has two and `resolveInstructor` refuses anyone who isn't one —
+    // so a seeded lesson naming the wrong person would be a state the API
+    // itself could never produce.
+    const cfi = entry.withInstructor
+      ? entry.instructor
+        ? memberBy(entry.instructor)
+        : instructor
+      : null;
+    // The turn-off card, answered on the post-flight form. The put-away flags
+    // are DERIVED from it exactly as the API does, so `tiedDown` means
+    // "confirmed" rather than "a toggle nobody moved".
+    const turnoff: Answers | null =
+      entry.turnoff === "all"
+        ? everyItem("TURNOFF")
+        : entry.turnoff === "partial"
+          ? withoutItems(everyItem("TURNOFF"), ["parking.cabin"])
+          : null;
+
     const flight = await prisma.flight.create({
       data: {
         aircraftId: aircraft.id,
         userId: pilot.id,
         flownOn,
+        // Every seeded row is a FILED flight, not a session in progress. Stamped
+        // with the flight's own date rather than with the reseed, for the same
+        // reason the signature below is: a demo database whose whole log was
+        // filed at 03:00 this morning reads as one nobody flew.
+        filedAt: flownOn,
         tachStart: entry.tachStart,
         tachEnd: entry.tachEnd,
         // Hobbs is absent from every row for the same reason the airplane's
@@ -728,14 +1095,26 @@ async function main() {
         nightLandings: entry.nightLandings ?? 0,
         departure: entry.departure ?? null,
         arrival: entry.arrival ?? null,
+        route: entry.route ?? null,
         withInstructor: entry.withInstructor ?? false,
-        instructorId: entry.withInstructor ? instructor.id : null,
+        instructorId: cfi?.id ?? null,
         // A signature names a version of the entry, so the seeded ones are
         // dated with the flight rather than with the reseed.
-        signedById: entry.signed ? instructor.id : null,
+        signedById: entry.signed ? (cfi?.id ?? null) : null,
         signedAt: entry.signed ? flownOn : null,
+        // …and `editedAt` is what that signature gets compared against. Stamped
+        // only here and by PATCH /api/flights/[id], never by the act of
+        // signing — see the gotcha in CLAUDE.md.
+        editedAt:
+          entry.editedDaysAfter != null
+            ? new Date(flownOn.getTime() + entry.editedDaysAfter * 86_400_000)
+            : null,
         fuelAddedGal: entry.fuelGal ?? null,
         fuelCostCents: entry.fuelCents ?? null,
+        oilAddedQts: entry.oilQts ?? null,
+        turnoffCheckoutVersion: turnoff ? TURNOFF_CHECKOUT.version : null,
+        turnoffAnswers: turnoff ?? undefined,
+        ...(turnoff ? derivePutAway(turnoff) : {}),
         notes: entry.note ?? null,
       },
     });
@@ -773,7 +1152,7 @@ async function main() {
   // on a reseed — and an item that's already there is LEFT ALONE: an officer
   // who has since recorded an oil change must not have it rolled back to the
   // transcribed date.
-  for (const item of MAINTENANCE_SHEET) {
+  for (const item of [...MAINTENANCE_SHEET, ...EXTRA_MAINTENANCE]) {
     const existing = await prisma.maintenanceItem.findFirst({
       where: { aircraftId: aircraft.id, label: item.label },
       select: { id: true },
@@ -789,8 +1168,12 @@ async function main() {
         intervalHours: item.intervalHours,
         intervalMonths: item.intervalMonths,
         lastDoneTach: item.lastDoneTach,
-        lastDoneOn: on(item.lastDoneOn),
-        notes: "notes" in item ? item.notes : null,
+        lastDoneOn:
+          typeof item.lastDoneOn === "function"
+            ? item.lastDoneOn()
+            : on(item.lastDoneOn),
+        notes: item.notes ?? null,
+        active: item.active ?? true,
       },
     });
   }
@@ -856,6 +1239,7 @@ async function main() {
         userId: memberBy(STUDENT.email).id,
         reservationId: lesson.id,
         flownOn: day(-3, 10),
+        filedAt: day(-3, 12),
         tachStart: LESSON_TACH.start,
         tachEnd: LESSON_TACH.end,
         landings: 8,
@@ -880,16 +1264,141 @@ async function main() {
     }
   }
 
+  // Signed-off checkouts, so Plane Status has fuel and oil to show and the
+  // preflight page's oil box has a "last recorded" hint under it.
+  const existingCheckouts = await prisma.checkout.count({
+    where: { aircraftId: aircraft.id },
+  });
+  //
+  // The turn-off card is NOT here: it lives on the Flight it belongs to, and
+  // `fileFlight` writes it from each entry's `turnoff` (see SeedFlight), which
+  // is also how one of the recent flights ends up with `cabinClean: false`.
+  /** The completed runs this seed created, so a squawk can point at one. */
+  const seededRuns: { pic: string; kind: string; id: string }[] = [];
+  if (existingCheckouts === 0) {
+    const runs: {
+      kind: "PREFLIGHT" | "RUNWAY";
+      pic: string;
+      daysAgo: number;
+      hour: number;
+      values: Values;
+      notes?: string;
+      /**
+       * A walk still in progress — no `completedAt`, some of the card left.
+       *
+       * The pages autosave, so an open row is the ordinary result of somebody
+       * starting a card and being called away, and it's what `resolveResume`,
+       * the resume banner and `sweepAbandonedRuns` all exist for. Attached to
+       * a member the e2e suite never signs in as: a half-ticked card resumes
+       * on the next visit, which turns "Check all" into "Clear" and would
+       * booby-trap the checkout specs (see helpers.ts `clearCheckoutDrafts`).
+       */
+      inProgress?: number;
+    }[] = [
+      {
+        kind: "PREFLIGHT",
+        pic: "taylor@vffclub.test",
+        daysAgo: 2,
+        hour: 9,
+        // Dipped a tank at a time, which is how the card asks for it.
+        values: { "consumables.dip.left": 12.5, "consumables.dip.right": 12, "consumables.oil.qts": 5.5 },
+      },
+      {
+        kind: "RUNWAY",
+        pic: "taylor@vffclub.test",
+        daysAgo: 2,
+        hour: 9,
+        values: {},
+      },
+      {
+        kind: "PREFLIGHT",
+        pic: "alex@vffclub.test",
+        daysAgo: 1,
+        hour: 17,
+        values: { "consumables.dip.left": 17.5, "consumables.dip.right": 17, "consumables.oil.qts": 6 },
+        notes: "Added a quart before the flight.",
+      },
+      {
+        kind: "RUNWAY",
+        pic: "alex@vffclub.test",
+        daysAgo: 1,
+        hour: 17,
+        values: {},
+      },
+      {
+        kind: "PREFLIGHT",
+        pic: "casey@vffclub.test",
+        daysAgo: 1,
+        hour: 8,
+        values: { "consumables.dip.left": 9 },
+        inProgress: 6,
+        notes: "Called away before the walkaround.",
+      },
+    ];
+
+    for (const run of runs) {
+      const at = day(-run.daysAgo, run.hour);
+      const fuelOil =
+        run.kind === "PREFLIGHT"
+          ? deriveFuelOil(run.values)
+          : { fuelOnBoardGal: null, oilQuarts: null };
+      const created = await prisma.checkout.create({
+        data: {
+          aircraftId: aircraft.id,
+          userId: memberBy(run.pic).id,
+          kind: run.kind,
+          checkoutVersion:
+            run.kind === "PREFLIGHT"
+              ? PREFLIGHT_CHECKOUT.version
+              : RUNWAY_CHECKOUT.version,
+          answers:
+            run.inProgress != null
+              ? firstItems(run.kind, run.inProgress)
+              : everyItem(run.kind),
+          values: run.values,
+          fuelOnBoardGal: fuelOil.fuelOnBoardGal,
+          oilQuarts: fuelOil.oilQuarts,
+          notes: run.notes ?? null,
+          // Both stamped: `createdAt` is what "last recorded 6 qts on Tue"
+          // reads, and `completedAt` is what makes it a signed-off run rather
+          // than one somebody abandoned half way down the card.
+          createdAt: at,
+          completedAt: run.inProgress != null ? null : at,
+        },
+      });
+      if (run.inProgress == null) {
+        seededRuns.push({ pic: run.pic, kind: run.kind, id: created.id });
+      }
+    }
+  }
+
   // Squawks in every state the club's vocabulary has except grounded.
   //
   // Deliberately nothing at REVIEWED_GROUNDED: that stops the whole club with
   // an app-wide banner and a "do not fly" card, and a demo database that opens
   // with the airplane down teaches the wrong first lesson about the app. File
   // one from the Status tab to see it.
+  //
+  // Seeded AFTER the checkouts and the log so two of them can say WHERE they
+  // were noticed. `flightId` and `checkoutId` are how a squawk points back at
+  // the walk or the flight it came out of — the real path into this table,
+  // since almost every squawk a member files is filed from a card — and while
+  // every seeded one stood on its own, both columns were dead weight.
   const existingSquawks = await prisma.squawk.count({
     where: { aircraftId: aircraft.id },
   });
   if (existingSquawks === 0) {
+    /** The walk Taylor's landing-light squawk came off, if this run made it. */
+    const taylorPreflight =
+      seededRuns.find((r) => r.pic === "taylor@vffclub.test" && r.kind === "PREFLIGHT")
+        ?.id ?? null;
+    /** The night flight — the one that noticed the shimmy on rollout. */
+    const nightFlight = await prisma.flight.findFirst({
+      where: { aircraftId: aircraft.id, nightLandings: { gt: 0 } },
+      orderBy: { flownOn: "desc" },
+      select: { id: true },
+    });
+
     await prisma.squawk.create({
       data: {
         aircraftId: aircraft.id,
@@ -907,8 +1416,24 @@ async function main() {
         title: "Landing light intermittent",
         description:
           "Flickers on the taxi out, out by the runup area. Fine on the last two flights.",
+        // Filed from the preflight card, which is where members actually file
+        // them — the checkout's Report button.
+        checkoutId: taylorPreflight,
         // Nobody has looked at it yet — the state everything a member files
         // starts in.
+        status: "NEW",
+      },
+    });
+    await prisma.squawk.create({
+      data: {
+        aircraftId: aircraft.id,
+        reportedById: memberBy(PLAIN_MEMBER.email).id,
+        title: "Nosewheel shimmy on the rollout",
+        description:
+          "Only above about 40 mph on landing, and only on the last two. Went away with back pressure.",
+        // The other way in: noticed in the air and written up on the
+        // post-flight form, so it hangs off the flight rather than a card.
+        flightId: nightFlight?.id ?? null,
         status: "NEW",
       },
     });
@@ -935,95 +1460,22 @@ async function main() {
         resolution: "Seal re-bonded and re-seated. No whistle on the check flight.",
       },
     });
-  }
-
-  // Signed-off checkouts, so Plane Status has fuel and oil to show and the
-  // preflight page's oil box has a "last recorded" hint under it.
-  const existingCheckouts = await prisma.checkout.count({
-    where: { aircraftId: aircraft.id },
-  });
-  if (existingCheckouts === 0) {
-    const runs: {
-      kind: "PREFLIGHT" | "RUNWAY";
-      pic: string;
-      daysAgo: number;
-      hour: number;
-      values: Values;
-      notes?: string;
-    }[] = [
-      {
-        kind: "PREFLIGHT",
-        pic: "taylor@vffclub.test",
-        daysAgo: 2,
-        hour: 9,
-        // Dipped a tank at a time, which is how the card asks for it.
-        values: { "consumables.dip.left": 12.5, "consumables.dip.right": 12, "consumables.oil.qts": 5.5 },
+    await prisma.squawk.create({
+      data: {
+        aircraftId: aircraft.id,
+        reportedById: memberBy("robin@vffclub.test").id,
+        title: "Transponder dropped off ATC's screen near Paine",
+        description: "Approach lost the code twice. Reappeared after a power cycle.",
+        // A second CLOSED one, and the more useful shape of closed: something
+        // that was genuinely worked rather than adjusted. One closed squawk
+        // makes the history look like an exception; two make it a list.
+        status: "CLOSED",
+        resolvedById: memberBy(SAFETY_OFFICER.email).id,
+        resolvedAt: day(-24, 11),
+        resolution:
+          "Loose antenna ground strap, re-terminated by the avionics shop. Checked good on the ramp test.",
       },
-      {
-        kind: "PREFLIGHT",
-        pic: "alex@vffclub.test",
-        daysAgo: 1,
-        hour: 17,
-        values: { "consumables.dip.left": 17.5, "consumables.dip.right": 17, "consumables.oil.qts": 6 },
-        notes: "Added a quart before the flight.",
-      },
-      {
-        kind: "RUNWAY",
-        pic: "alex@vffclub.test",
-        daysAgo: 1,
-        hour: 17,
-        values: {},
-      },
-    ];
-
-    for (const run of runs) {
-      const at = day(-run.daysAgo, run.hour);
-      const fuelOil =
-        run.kind === "PREFLIGHT"
-          ? deriveFuelOil(run.values)
-          : { fuelOnBoardGal: null, oilQuarts: null };
-      await prisma.checkout.create({
-        data: {
-          aircraftId: aircraft.id,
-          userId: memberBy(run.pic).id,
-          kind: run.kind,
-          checkoutVersion:
-            run.kind === "PREFLIGHT"
-              ? PREFLIGHT_CHECKOUT.version
-              : RUNWAY_CHECKOUT.version,
-          answers: everyItem(run.kind),
-          values: run.values,
-          fuelOnBoardGal: fuelOil.fuelOnBoardGal,
-          oilQuarts: fuelOil.oilQuarts,
-          notes: run.notes ?? null,
-          // Both stamped: `createdAt` is what "last recorded 6 qts on Tue"
-          // reads, and `completedAt` is what makes it a signed-off run rather
-          // than one somebody abandoned half way down the card.
-          createdAt: at,
-          completedAt: at,
-        },
-      });
-    }
-
-    // One turn-off checkout, on the flight it belongs to — the third card
-    // lives on Flight rather than in this table. The put-away flags are
-    // DERIVED from it, exactly as the API does when a member files a flight.
-    const lastFlight = await prisma.flight.findFirst({
-      where: { aircraftId: aircraft.id },
-      orderBy: { tachEnd: "desc" },
-      select: { id: true },
     });
-    if (lastFlight) {
-      const turnoff = everyItem("TURNOFF");
-      await prisma.flight.update({
-        where: { id: lastFlight.id },
-        data: {
-          turnoffCheckoutVersion: TURNOFF_CHECKOUT.version,
-          turnoffAnswers: turnoff,
-          ...derivePutAway(turnoff),
-        },
-      });
-    }
   }
 
   // Fuel that went in with no flight attached — the before-you-fly and
@@ -1066,6 +1518,18 @@ async function main() {
         paidPersonally: true,
         notes: "One quart. Nobody flew it today.",
       },
+      {
+        // Fuel AND oil on the same visit, which is the ordinary shape of a
+        // stop at the pump and the one combination none of the rows above
+        // covered — each of them exercises a single column.
+        pic: "casey@vffclub.test",
+        daysAgo: 14,
+        fuelAddedGal: 15.6,
+        fuelCostCents: 11_388,
+        oilAddedQts: 2,
+        paidPersonally: true,
+        notes: "Filled the left tank and put two quarts in before the club fly-out.",
+      },
     ];
 
     for (const fill of fills) {
@@ -1107,6 +1571,11 @@ async function main() {
   if (existingOneOffs === 0) {
     const raisedBy = memberBy(FINANCE_OFFICER.email).id;
     const today = new Date();
+    // Last month, so the statement's month picker has somewhere to go back to.
+    // A books page that only ever shows the current month can't show that
+    // `period` is stored rather than derived, which is the whole reason
+    // correcting a date can't move money between settled months.
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 17, 12);
     await prisma.charge.createMany({
       data: [
         {
@@ -1127,8 +1596,71 @@ async function main() {
           incurredOn: today,
           createdById: raisedBy,
         },
+        {
+          memberId: memberBy("casey@vffclub.test").id,
+          kind: "ONE_OFF",
+          amountCents: 7_400,
+          description: "Landing fees — Friday Harbor",
+          period: periodOf(lastMonth),
+          incurredOn: lastMonth,
+          createdById: raisedBy,
+        },
+        {
+          // A VOIDED line, which is the state the whole "strike it through,
+          // never delete it" rule exists for — and which nothing in the demo
+          // club showed, so the struck-through row, the reason and the Restore
+          // button had never been seen on a statement that wasn't mid-test.
+          //
+          // Note what voiding does NOT do: it leaves the line on the month and
+          // takes it out of the totals. That is the difference from `paidAt`
+          // below, which leaves the totals alone and only moves what's
+          // outstanding.
+          memberId: memberBy("sam@vffclub.test").id,
+          kind: "ONE_OFF",
+          amountCents: 9_500,
+          description: "Headset repair",
+          period: periodOf(lastMonth),
+          incurredOn: lastMonth,
+          createdById: raisedBy,
+          voided: true,
+          voidReason: "Covered by the manufacturer's warranty in the end.",
+        },
       ],
     });
+  }
+
+  // Settle up everything before this month.
+  //
+  // `paidAt` / `paidById` had no seeded example at all, which meant every demo
+  // statement ever looked at reported the same number twice — the month's total
+  // and the amount outstanding — and the one distinction the column exists to
+  // draw was invisible. A club settles monthly, so every closed month is paid
+  // and the current one is not.
+  //
+  // Deliberately period by period rather than one sweep: the payment is dated
+  // to the month it settled, on the 5th of the month after, because "when" is
+  // the question anybody ever asks of a payment. Voided lines are skipped — a
+  // line that should never have stood cannot also have been met.
+  const alreadySettled = await prisma.charge.count({
+    where: { paidAt: { not: null } },
+  });
+  if (alreadySettled === 0) {
+    const settledPeriods = await prisma.charge.findMany({
+      where: { period: { lt: currentPeriod() }, voided: false, paidAt: null },
+      select: { period: true },
+      distinct: ["period"],
+    });
+    for (const { period } of settledPeriods) {
+      const [year, month] = period.split("-").map(Number);
+      await prisma.charge.updateMany({
+        where: { period, voided: false, paidAt: null },
+        data: {
+          // `month` is 1-based, so this index is the FOLLOWING month.
+          paidAt: new Date(year, month, 5, 12, 0, 0, 0),
+          paidById: memberBy(FINANCE_OFFICER.email).id,
+        },
+      });
+    }
   }
 
   const existingReservations = await prisma.reservation.count({
@@ -1213,8 +1745,76 @@ async function main() {
           status: "CANCELED",
           notes: "Ceiling never lifted.",
         },
+        {
+          // The fifth purpose. CHECKRIDE was the one value of the enum with no
+          // booking anywhere in the demo club, so its chip colour on the
+          // calendar had never been rendered — and a purpose you can pick but
+          // never see is a purpose nobody trusts the calendar to show.
+          //
+          // Day 11 on purpose: day 3 at 13:00 is the slot the e2e suite books
+          // into on the strength of it being free, and day 9 is the
+          // maintenance block its double-booking test aims at.
+          aircraftId: aircraft.id,
+          userId: memberBy(STUDENT.email).id,
+          startsAt: day(11, 8),
+          endsAt: day(11, 13),
+          purpose: "CHECKRIDE",
+          notes: "Private pilot practical. DPE arrives 0830.",
+        },
       ],
     });
+
+    // A booking with the flight that was flown against it.
+    //
+    // `Flight.reservationId` is @unique and every seeded example of it was a
+    // TRAINING lesson, which made the link look like part of the instructor
+    // feature. It isn't: it's what closes the loop for any booking, and it's
+    // what the calendar reads to show that a past block was actually flown.
+    const tacoma = await prisma.flight.findFirst({
+      where: { aircraftId: aircraft.id, arrival: "KTIW" },
+      orderBy: { flownOn: "desc" },
+      select: { id: true, userId: true, reservationId: true },
+    });
+    if (tacoma && !tacoma.reservationId) {
+      const booked = await prisma.reservation.create({
+        data: {
+          aircraftId: aircraft.id,
+          userId: tacoma.userId,
+          startsAt: day(-2, 10),
+          endsAt: day(-2, 15),
+          purpose: "CROSS_COUNTRY",
+          notes: "Lunch at Tacoma Narrows.",
+        },
+      });
+      await prisma.flight.update({
+        where: { id: tacoma.id },
+        data: { reservationId: booked.id },
+      });
+    }
+
+    // A write-up on one entry, so the Log section on the detail modal has
+    // something in it on a fresh install. Markdown, because that's what the
+    // column holds — see lib/markdown.ts — and only ONE, because a demo log in
+    // which every flight comes with a debrief teaches members that a blank one
+    // is a gap rather than the ordinary case.
+    if (tacoma) {
+      await prisma.flight.update({
+        where: { id: tacoma.id },
+        data: {
+          logEntry: [
+            "Smooth run up the Sound, **VFR the whole way**.",
+            "",
+            "Things worth remembering:",
+            "",
+            "- Tacoma tower was landing 17, so plan the 45 from the north",
+            "- Winds picked up to about 12 gusting 18 by the time we left",
+            "- Transient parking is at the *south* end, past the fuel pumps",
+            "",
+            "Left tank was slow to fill again. Squawked it.",
+          ].join("\n"),
+        },
+      });
+    }
   }
 
   console.log(

@@ -1,0 +1,23 @@
+-- Whose card the flight's fuel went on.
+--
+-- `Servicing` has carried this column since it was added — the club's own sheet
+-- calls it "Fuel Purchase Personal Card" — but `Flight` never did, so a fuel
+-- cost recorded on the post-flight form raised a FUEL_CREDIT unconditionally.
+-- Fuel bought on the CLUB's card is the club buying its own fuel and owes the
+-- member nothing; only fuel bought on the member's card is a debt.
+--
+-- DEFAULT TRUE, and that is a deliberate reading of history rather than a
+-- convenient default. Until this column existed, recording a cost against a
+-- flight WAS how a member claimed it back — there was no other control — so
+-- every existing row means "I paid". Backfilling them to false would silently
+-- withdraw credits the club has already settled. Filling them with true is
+-- both what those rows meant and the direction that cannot quietly swallow
+-- money somebody is owed.
+--
+-- No charge rows are touched. Every FUEL_CREDIT already written stays exactly
+-- as it is; `syncFlightCharges` only rewrites a flight's derived lines when
+-- that flight is next filed or corrected, and with the default at true it will
+-- rewrite them identically.
+
+-- AlterTable
+ALTER TABLE "flights" ADD COLUMN     "fuelPaidPersonally" BOOLEAN NOT NULL DEFAULT true;

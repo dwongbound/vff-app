@@ -2,11 +2,17 @@
 // One checkout, rendered as a run of collapsible sections with a sticky
 // progress bar above them.
 //
-// Shared by the preflight and runway pages, which are the same job on two
-// different cards — the only thing that differs is which `Checkout` gets
-// passed in. The turn-off checkout deliberately does NOT use this: it's
-// answered standing at the tail with the airplane still ticking, working down
-// a list you've just done, so it renders flat (see TurnoffCheckout).
+// Shared by ALL THREE checkouts — preflight, runway, and the turn-off card on
+// the post-flight form. They are the same job on three different cards, and the
+// only thing that differs is which `Checkout` gets passed in.
+//
+// The turn-off card used to render flat, and then briefly rendered through
+// here inside a titled Card of its own — a box drawn around a box, which still
+// left the one checkout members meet at the end of every flight looking like a
+// different kind of thing from the two they had just walked. It now renders
+// exactly as the other two do, and the post-flight form's own groups (meters,
+// the flight, servicing, squawks) carry on the same numbered run through
+// CollapsibleSection. One visual language across all three screens.
 //
 // Design notes: this is used on a ramp, one-handed, often in sun. So big tap
 // targets (the whole row toggles), one section open at a time, a running
@@ -14,6 +20,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Card from "@/components/common/Card";
+import CollapsibleSection from "@/components/CollapsibleSection";
 import InfoTip from "@/components/common/InfoTip";
 import CheckoutFields from "@/components/CheckoutFields";
 import {
@@ -93,6 +100,10 @@ export default function CheckoutList({
   resumed = false,
   /** Bump this to collapse back to the first section (after a sign-off). */
   resetKey = 0,
+  sticky = true,
+  sectionOffset = 0,
+  openSectionId,
+  onOpenSection,
 }: {
   checkout: Checkout;
   answers: Answers;
@@ -116,16 +127,50 @@ export default function CheckoutList({
    */
   status?: ReactNode;
   /**
+   * Does the progress bar pin itself to the top of the column?
+   *
+   * True on the two pages that ARE a card. False when the card is one section
+   * of a longer form (the post-flight page): there the bar would outlive the
+   * thing it describes, sitting over the servicing fields still counting
+   * turn-off items.
+   */
+  sticky?: boolean;
+  /**
    * A half-walked card was picked up — `answers` is somebody's work in
    * progress rather than a fresh start. Flips false→true once, when the resume
    * lands, and that edge is what re-aims the accordion (see below).
    */
   resumed?: boolean;
   resetKey?: number;
+  /**
+   * Where this card's section numbers START, when the page carries sections of
+   * its own below it. The post-flight page does: its turn-off card is sections
+   * 1–3 and its meters, flight details and servicing carry on from 4, so the
+   * whole page reads as one numbered run rather than two lists that both begin
+   * at 1. Zero-based; the badge shows `offset + position`.
+   */
+  sectionOffset?: number;
+  /**
+   * Accordion state, when a PARENT owns it.
+   *
+   * Uncontrolled by default, which is what the preflight and runway pages want
+   * — they are the whole card. The post-flight page passes these because its
+   * form groups share one accordion with the checkout's sections: without a
+   * single owner, opening "Servicing" would leave "Shutdown" open above it and
+   * the page's one-section-at-a-time promise would only hold within each half.
+   */
+  openSectionId?: string;
+  onOpenSection?: (id: string) => void;
 }) {
-  const [openSection, setOpenSection] = useState<string>(
+  const [ownOpenSection, setOwnOpenSection] = useState<string>(
     checkout.sections[0].id
   );
+  const controlled = openSectionId !== undefined;
+  const openSection = controlled ? openSectionId : ownOpenSection;
+  const setOpenSection = (id: string) => {
+    if (onOpenSection) onOpenSection(id);
+    if (!controlled) setOwnOpenSection(id);
+  };
   // Remember which reset we last honoured, so re-opening the first section
   // happens once per sign-off rather than fighting the member for the rest of
   // the page's life. (Cheaper and less surprising than an effect that runs
@@ -290,7 +335,13 @@ export default function CheckoutList({
           `status`, and is a live region because it changes when nobody touched
           anything. Nesting one inside a non-live container is fine: `aria-live`
           isn't inherited, so only the save line announces. */}
-      <div className="sticky top-0 z-10 -mx-4 bg-gray-50/95 px-4 py-2 backdrop-blur dark:bg-gray-900/95">
+      <div
+        className={
+          sticky
+            ? "sticky top-0 z-10 -mx-4 bg-gray-50/95 px-4 py-2 backdrop-blur dark:bg-gray-900/95"
+            : "-mx-4 px-4 py-2"
+        }
+      >
         <div className="flex items-baseline justify-between gap-3 text-sm">
           <span className="min-w-0 truncate font-semibold">
             {current.section.title}
@@ -390,58 +441,31 @@ export default function CheckoutList({
           const expanded = openSection === section.id;
 
           return (
-            <Card
+            <CollapsibleSection
               key={section.id}
               ref={(el) => {
                 sectionRefs.current[section.id] = el;
               }}
-              // Scroll target for the effect above. The margin is what keeps
-              // the sticky progress bar from parking on top of the header it
-              // just scrolled to, so it has to clear the bar's HEIGHT — which
-              // grew when the save state moved inside (roughly 100px now, and
-              // ~115 while the two-line resume line is up).
-              className="scroll-mt-28 p-0"
-            >
-              <button
-                onClick={() => setOpenSection(expanded ? "" : section.id)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left"
-                aria-expanded={expanded}
-              >
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                    sectionComplete
-                      ? "bg-green-500 text-white"
-                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
-                  }`}
-                >
-                  {sectionComplete ? <Check /> : sectionIndex + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium">
-                    {section.title}
-                    {/* An optional section (the cold-start pre-lube) doesn't
-                        hold up the sign-off, so say so on the header rather
-                        than let a warm-start pilot hunt for what's missing. */}
-                    {section.optional && (
-                      <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
-                        if it applies
-                      </span>
-                    )}
+              index={sectionOffset + sectionIndex + 1}
+              title={section.title}
+              // An optional section (the cold-start pre-lube) doesn't hold up
+              // the sign-off, so say so on the header rather than let a
+              // warm-start pilot hunt for what's missing.
+              titleNote={
+                section.optional ? (
+                  <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+                    if it applies
                   </span>
-                  {section.subtitle && (
-                    <span className="block text-xs text-gray-500 dark:text-gray-400">
-                      {section.subtitle}
-                    </span>
-                  )}
-                </span>
-                <span className="shrink-0 text-sm tabular text-gray-500 dark:text-gray-400">
-                  {done}/{section.items.length}
-                </span>
-                <Chevron open={expanded} />
-              </button>
-
-              {expanded && (
-                <div className="border-t border-gray-100 dark:border-gray-700">
+                ) : undefined
+              }
+              subtitle={section.subtitle}
+              meta={`${done}/${section.items.length}`}
+              complete={sectionComplete}
+              open={expanded}
+              onToggle={() => setOpenSection(expanded ? "" : section.id)}
+            >
+              {
+                <div>
                   <ul>
                     {section.items.map((item) => {
                       const fact = derived?.[item.id];
@@ -569,6 +593,20 @@ export default function CheckoutList({
                               {note.linkLabel ?? "Read them"} →
                             </Link>
                           )}
+                          {/* The page in the app that does this item's work
+                              (lib/checkouts.ts). Outside the button for the
+                              same reason as the two links above, and neutral
+                              rather than toned: a red or amber link means
+                              something is wrong with the airplane today, and
+                              this one is just a tool. */}
+                          {item.link && (
+                            <Link
+                              href={item.link.href}
+                              className="mt-3 shrink-0 text-xs font-semibold text-indigo-600 underline dark:text-indigo-400"
+                            >
+                              {item.link.label} →
+                            </Link>
+                          )}
                           <span className="mt-4 shrink-0">
                             <InfoTip label={item.label}>{item.why}</InfoTip>
                           </span>
@@ -611,8 +649,8 @@ export default function CheckoutList({
                     )}
                   </div>
                 </div>
-              )}
-            </Card>
+              }
+            </CollapsibleSection>
           );
         })}
       </div>
@@ -633,27 +671,6 @@ function Check() {
         strokeDasharray="24"
         strokeDashoffset="24"
         className="animate-check-draw"
-      />
-    </svg>
-  );
-}
-
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      aria-hidden="true"
-      className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${
-        open ? "rotate-180" : ""
-      }`}
-    >
-      <path
-        d="M6 8l4 4 4-4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );

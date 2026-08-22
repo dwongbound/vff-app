@@ -16,13 +16,12 @@
 // own: a squawk is something you read about a flight, and the grounded banner
 // in the navbar already links here.
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import ExportButton from "@/components/common/ExportButton";
 import FlightDetailModal from "@/components/FlightDetailModal";
 import FlightEntryModal from "@/components/FlightEntryModal";
-import SquawkPanel from "@/components/SquawkPanel";
 import { RulesModal } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
@@ -34,7 +33,14 @@ import {
   isAwaitingSignature,
   signatureState,
 } from "@/lib/flightSignature";
-import { formatDay } from "@/lib/dates";
+import {
+  canEditFlight,
+  isIncompleteEntry,
+  isOpenSession,
+  missingMeters,
+} from "@/lib/flightSession";
+import { flightLogSheet } from "@/lib/exports";
+import { xlsxFilename } from "@/lib/xlsx";
 import { REQUIRED_LANDINGS, soloEligibility } from "@/lib/operatingRules";
 import {
   formatHours,
@@ -43,12 +49,14 @@ import {
   totalLandings,
   totalTachHours,
 } from "@/lib/hours";
-import type { ApiFlight, ApiFlightSummary, ApiSquawk } from "@/lib/types";
+import type { ApiFlight, ApiFlightSummary } from "@/lib/types";
 
 type Filter = "all" | "mine";
 
-// useSearchParams() must sit under a Suspense boundary, so the page export
-// just wraps the real component in one.
+// The Suspense boundary is kept even though the page no longer reads a search
+// param (it did, for the squawk panel's ?squawks=all): this is the top of a
+// tab that fetches on mount, and the boundary is what keeps a future hook that
+// suspends from turning into a build error in a file nobody was touching.
 export default function FlightLogPage() {
   return (
     <Suspense>
@@ -62,9 +70,7 @@ function FlightLog() {
   // See the preflight page: depend on the id, not the object identity.
   const aircraftId = selected?.id ?? null;
   const { me } = useMe();
-  const searchParams = useSearchParams();
   const [flights, setFlights] = useState<ApiFlightSummary[] | null>(null);
-  const [squawks, setSquawks] = useState<ApiSquawk[]>([]);
   // Opens on YOUR flying, the way Finances opens on your own statement. A
   // member coming to the log almost always came to answer a question about
   // themselves — "am I current", "what did I fly last month" — and the club
@@ -75,33 +81,24 @@ function FlightLog() {
   // Adding a flight the app never saw — a page of the paper log being caught
   // up. See FlightEntryModal for why that isn't the Post-flight form.
   const [addOpen, setAddOpen] = useState(false);
-  // The navbar's grounded banner links here with ?squawks=open, so show
-  // everything when someone asks for the full history instead.
-  const showAllSquawks = searchParams.get("squawks") === "all";
-
   // See the reservations page for why this isn't just `flights === null`.
   const showSplash = fleetLoading || (selected !== null && flights === null);
   usePageLoading(showSplash);
 
+  // Only the flights now. The squawk list used to be fetched alongside them
+  // for a panel at the foot of the club view; that panel is gone (see below),
+  // and with it the second request every visit to this tab made.
   const refresh = useCallback(async () => {
     if (!aircraftId) return;
-    // The log and the squawk list are always on screen together, so they're
-    // fetched together rather than in sequence.
-    const [rows, squawkRows] = await Promise.all([
-      fetchJsonArray<ApiFlightSummary>(
-        `/api/flights?aircraftId=${aircraftId}&limit=300`
-      ),
-      fetchJsonArray<ApiSquawk>(
-        `/api/squawks?aircraftId=${aircraftId}&status=${showAllSquawks ? "all" : "open"}`
-      ),
-    ]);
+    const rows = await fetchJsonArray<ApiFlightSummary>(
+      `/api/flights?aircraftId=${aircraftId}&limit=300`
+    );
     setFlights(rows);
-    setSquawks(squawkRows);
     // Handed back as well as stored, so a caller that needs to re-find one row
     // in the new list (the signature flow) doesn't have to wait a render for
     // state to land.
     return rows;
-  }, [aircraftId, showAllSquawks]);
+  }, [aircraftId]);
 
   useEffect(() => {
     refresh();
@@ -122,6 +119,17 @@ function FlightLog() {
    */
   const asInstructor = Boolean(
     me?.capabilities.includes("flight:sign") && !me?.clubMember
+  );
+
+  /**
+   * May this viewer correct (or delete) the entry that's open?
+   *
+   * Through `canEditFlight` rather than spelled out here, so this and
+   * PATCH /api/flights/[id] can't drift — the API is the one that counts, and a
+   * button that disagrees with it is a member finding out by pressing it.
+   */
+  const mayCorrect = Boolean(
+    openFlight && canEditFlight(openFlight, me ? { id: me.id, isAdmin: me.isAdmin } : null)
   );
 
   const visible =
@@ -214,6 +222,26 @@ function FlightLog() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Exports what the switch above is showing — the club's log, or
+              yours. The two are different documents (see the Club/Mine note at
+              the top of this file), and an export that ignored the switch would
+              hand a member the wrong one of them. */}
+          <ExportButton
+            filename={xlsxFilename([
+              selected.tailNumber,
+              "flight-log",
+              filter === "mine" ? (asInstructor ? "teaching" : "mine") : null,
+            ])}
+            disabled={visible.length === 0}
+            build={() => [
+              flightLogSheet({
+                tailNumber: selected.tailNumber,
+                flights: visible,
+                maintenance: selected.maintenance,
+                tach: selected.lastTach,
+              }),
+            ]}
+          />
           <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
             Add flight
           </Button>
@@ -356,16 +384,29 @@ function FlightLog() {
                     })}
                   </h2>
                 )}
+                {/* The row reads left to right the way you look a flight up:
+                    WHEN first, then who and where, then how much. The date led
+                    with the hours before, which is backwards — you scan a
+                    logbook for a day, not for a duration, and the month heading
+                    above only narrows it to thirty of them.
+
+                    The glow on hover is the affordance: the whole row opens the
+                    entry, and a card that does something when you press it
+                    should say so before you press it. */}
                 <button
                   onClick={() => openEntry(flight)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-indigo-400 active:scale-[0.99] dark:border-gray-700 dark:bg-gray-800"
+                  className="group flex w-full items-center gap-4 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition duration-150 hover:-translate-y-px hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-500/10 focus-visible:border-indigo-400 active:translate-y-0 active:scale-[0.99] dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500 dark:hover:shadow-indigo-400/10"
                 >
-                  <div className="w-16 shrink-0">
-                    <div className="text-sm font-semibold tabular">
-                      {formatHours(tachHours(flight))}
+                  {/* AUG 11 — the day, big enough to scan a column of. */}
+                  <div className="w-14 shrink-0 text-center">
+                    <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-gray-500 transition group-hover:text-indigo-500 dark:text-gray-400 dark:group-hover:text-indigo-400">
+                      {flownOn.toLocaleDateString(undefined, { month: "short" })}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">hours</div>
+                    <div className="text-xl font-semibold leading-tight tabular">
+                      {flownOn.getDate()}
+                    </div>
                   </div>
+
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">
                       {flight.mine ? "You" : flight.pilot.name}
@@ -376,16 +417,37 @@ function FlightLog() {
                       )}
                     </div>
                     <div className="truncate text-xs text-gray-500 dark:text-gray-400">
-                      {formatDay(flight.flownOn)} · {flight.landings} landing
-                      {flight.landings === 1 ? "" : "s"}
+                      {/* The weekday still earns its place — "was that the
+                          Saturday one?" — but the date itself is now read off
+                          the left, so it isn't repeated here. */}
+                      {flownOn.toLocaleDateString(undefined, { weekday: "long" })}
                       {flight.fuelAddedGal != null && ` · ${flight.fuelAddedGal} gal`}
                     </div>
                   </div>
+
                   {/* Only on lessons — see the detail modal for why a solo
                       flight shows nothing rather than "no instructor". */}
                   {flight.instructor && (
                     <Badge tone={SIGNATURE_TONES[signatureState(flight)]}>
                       {SIGNATURE_LABELS[signatureState(flight)]}
+                    </Badge>
+                  )}
+                  {/* The airplane is still out. Amber rather than red — an
+                      unclosed entry is somebody's flight in progress, not a
+                      fault — and it earns a badge because it's the one row in
+                      the log that is waiting on a person. */}
+                  {isOpenSession(flight) && <Badge tone="amber">In progress</Badge>}
+                  {/* Filed, but missing a meter reading — a record with a gap,
+                      which is a different thing from a flight still out and is
+                      badged separately for that reason. It earns a badge
+                      because an entry nobody can FIND is one nobody fixes, and
+                      an unfixed gap bills nothing forever: `flightCharge`
+                      returns null on an unmeasurable span, and filling the
+                      number in from this row re-bills the flight. Amber, not
+                      red — an honest gap is not a fault. */}
+                  {isIncompleteEntry(flight) && (
+                    <Badge tone="amber">
+                      Needs {missingMeters(flight).join(" & ")}
                     </Badge>
                   )}
                   {flight.openSquawkCount > 0 && <Badge tone="red">Squawk</Badge>}
@@ -394,6 +456,30 @@ function FlightLog() {
                       {flight.photoCount} 📷
                     </span>
                   )}
+
+                  {/* The numbers, right-aligned so a column of them lines up on
+                      the decimal — which is the whole reason to move them here. */}
+                  <div className="shrink-0 text-right">
+                    <div className="text-sm font-semibold tabular">
+                      {/* An em dash, not 0.0. A flight whose span nobody has
+                          recorded has not flown zero hours — the club simply
+                          doesn't know yet, and a zero in this column is a
+                          number somebody would go looking for the cause of. */}
+                      {tachHours(flight) != null ? (
+                        <>
+                          {formatHours(tachHours(flight)!)}
+                          <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+                            hr
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-500">—</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {flight.landings} landing{flight.landings === 1 ? "" : "s"}
+                    </div>
+                  </div>
                 </button>
               </li>
             );
@@ -401,19 +487,13 @@ function FlightLog() {
         </ul>
       )}
 
-      {/* The airplane's open defects — club information, so it sits with the
-          club view rather than with your own logbook. */}
-      {filter === "all" && (
-        <SquawkPanel
-          squawks={squawks}
-          canSignOff={Boolean(me?.capabilities.includes("squawk:manage"))}
-          onChanged={() => {
-            refresh();
-            // The grounded banner is derived from the aircraft payload.
-            notifyAircraftChanged();
-          }}
-        />
-      )}
+      {/* The airplane's open defects USED to be listed here, under the club
+          view. They aren't any more, and the reason is that it was a second
+          squawk sheet: Plane Status › Squawks is the one the Safety Officer
+          triages on, and two lists of the same rows meant two places to look
+          and two places to be out of date. A squawk still shows up in the log
+          where it belongs to something — on the entry it was raised from, in
+          the detail modal — and that row links through to the real sheet. */}
 
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
 
@@ -434,9 +514,18 @@ function FlightLog() {
         flight={openFlight}
         onClose={() => setOpenFlight(null)}
         hourlyRateCents={selected.hourlyRateCents}
-        canDelete={Boolean(openFlight?.mine || me?.isAdmin)}
+        canDelete={mayCorrect}
         onDelete={deleteFlight}
         viewerId={me?.id ?? null}
+        canEdit={mayCorrect}
+        onSaved={async (updated) => {
+          // Show the correction under the reader straight away, then refetch:
+          // a corrected tach re-bills the flight and can move the airplane's
+          // meters, which the header and the totals above both read.
+          setOpenFlight(updated);
+          await refresh();
+          notifyAircraftChanged();
+        }}
         onSignatureChanged={async () => {
           // Refresh the list for the badge, and re-read the open entry so the
           // signature and dates update under the reader rather than after they

@@ -24,6 +24,7 @@ import Textarea from "@/components/common/Textarea";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { toDateInputValue } from "@/lib/dates";
 import { formatHours, tachHours, validateMeters } from "@/lib/hours";
+import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
 import type { ApiAircraft, ApiFlight, ApiMember } from "@/lib/types";
 
 export default function FlightEntryModal({
@@ -77,6 +78,13 @@ export default function FlightEntryModal({
   const [fuelAddedGal, setFuelAddedGal] = useState("");
   const [fuelCostDollars, setFuelCostDollars] = useState("");
   const [oilAddedQts, setOilAddedQts] = useState("");
+  const [landingFeeDollars, setLandingFeeDollars] = useState("");
+  // Same "mirrors the airport until you type in it" rule the post-flight form
+  // uses. It matters more here, if anything: this modal is for the flight
+  // nobody filed at the time, so the fee is being remembered rather than read
+  // off a receipt, and a default that overwrote a remembered figure would be
+  // worse than no default at all.
+  const [landingFeeEdited, setLandingFeeEdited] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +127,11 @@ export default function FlightEntryModal({
     setError(null);
     setBusy(true);
     const result = await sendJson<ApiFlight>("/api/flights", "POST", {
+      // A NEW row, never a close-out. The route otherwise adopts whatever
+      // session the caller has open, which is right for the post-flight form
+      // and exactly wrong here: this is a flight from last month, and the
+      // airplane the member has out right now is a different one.
+      standalone: true,
       aircraftId: aircraft.id,
       // Noon, not midnight: `flownOn` is a calendar day, and midnight local
       // read back in another zone slides the flight to the day before.
@@ -139,6 +152,7 @@ export default function FlightEntryModal({
       fuelAddedGal: numeric(fuelAddedGal),
       fuelCostDollars: numeric(fuelCostDollars),
       oilAddedQts: numeric(oilAddedQts),
+      landingFeeDollars: numeric(landingFeeDollars),
       notes: notes.trim() || null,
     });
     setBusy(false);
@@ -303,9 +317,34 @@ export default function FlightEntryModal({
           <Input
             label="To"
             value={arrival}
-            onChange={(e) => setArrival(e.target.value)}
+            onChange={(e) => {
+              setArrival(e.target.value);
+              // Prefill the fee from the field they landed at, until the member
+              // takes the box over. Clearing it back when the airport has no fee
+              // matters as much as filling it in: retyping KTOA → KCMA must not
+              // leave the home field's $6 sitting there to be billed.
+              if (!landingFeeEdited) {
+                setLandingFeeDollars(landingFeeInputFor(e.target.value));
+              }
+            }}
             placeholder="KTOA"
             className="uppercase"
+          />
+          <Input
+            label="Landing fee"
+            type="number"
+            step="0.01"
+            min="0"
+            value={landingFeeDollars}
+            onChange={(e) => {
+              setLandingFeeEdited(true);
+              setLandingFeeDollars(e.target.value);
+            }}
+            hint={
+              landingFeeFor(arrival) != null && !landingFeeEdited
+                ? `${arrival.trim().toUpperCase()}'s usual fee — change if you paid another`
+                : "Dollars, billed to the pilot"
+            }
           />
         </div>
         <Input

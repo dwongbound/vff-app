@@ -7,10 +7,20 @@
 // these specs are for is proving the page is wired to the AIRPLANE'S OWN
 // basis rather than to a plausible-looking default.
 import { expect, test } from "@playwright/test";
-import { TAIL_NUMBER, gotoTab, signIn } from "./helpers";
+import {
+  TAIL_NUMBER,
+  clearCheckoutDrafts,
+  gotoTab,
+  signIn,
+  waitForCheckoutSaved,
+} from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
+  // This page now READS the preflight draft (see the fuel test at the foot of
+  // the file), so a half-walked card left behind by another spec would decide
+  // what the fuel box opens at here.
+  await clearCheckoutDrafts(page);
 });
 
 test("the rail's Tools group opens onto Weight & Balance", async ({ page }) => {
@@ -152,6 +162,53 @@ test("it catches an over-gross load", async ({ page }) => {
   await expect(page.getByText(/Over gross weight by/)).toBeVisible();
   // The spare-capacity figure flips to "Over by" rather than going negative.
   await expect(page.getByText("Over by")).toBeVisible();
+});
+
+// The dip in your pocket beats the dip on file. The sequence this exists for is
+// somebody dipping both wings, tapping the card's own link through to here to
+// see whether the load fits, and being shown last week's fuel — a number they'd
+// have to NOTICE was wrong before it planned them a flight at the wrong weight.
+test("the fuel box takes a dip that hasn't been filed over the last one that was", async ({
+  page,
+}) => {
+  // What the last FILED preflight leaves in the box, for contrast.
+  await gotoTab(page, "/tools/weight-balance", "Weight & Balance");
+  const fuel = page.getByLabel("Fuel", { exact: true });
+  const filed = await fuel.inputValue();
+  await expect(page.getByText(/gal from .+preflight,/)).toBeVisible();
+
+  // Dip both wings on the card and walk away without signing it off. Recording
+  // a reading ticks the item it sits on, which is what starts the autosave.
+  await gotoTab(page, "/preflight", "Preflight");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: /Consumables.*\d+\/\d+$/ }).click();
+  await main.getByLabel(/^Left wing/).fill("9");
+  await main.getByLabel(/^Right wing/).fill("8.5");
+  await waitForCheckoutSaved(page);
+
+  // Then take the SERVER's copy of that walk away, so the only place the dip
+  // still exists is this device. Without this the assertions below would pass
+  // on a page that had simply refetched an open run from /api/checkouts, and
+  // the thing being tested — that the device is allowed to be AHEAD of the
+  // club, which is what lib/checkoutDraft.ts is for — would go unchecked.
+  const open = await page.request.get("/api/checkouts?mine=1&open=1&limit=100");
+  for (const run of (await open.json()) as { id: string }[]) {
+    await page.request.delete(`/api/checkouts/${run.id}`);
+  }
+
+  await gotoTab(page, "/tools/weight-balance", "Weight & Balance");
+  // 9 + 8.5, summed the same way the Status tab's fuel meter sums them.
+  expect(filed).not.toBe("17.5");
+  await expect(fuel).toHaveValue("17.5");
+
+  // And it says WHICH reading it is. The whole risk of a prefilled number is
+  // not knowing how old it is, so an unfiled one has to name itself.
+  await expect(page.getByText(/preflight in progress/)).toBeVisible();
+  await expect(page.getByText(/not filed yet/)).toBeVisible();
+
+  // Put the device back as it was: this draft would otherwise decide what the
+  // next spec's fuel box opens at.
+  await clearCheckoutDrafts(page);
 });
 
 test("Club settings holds the basis, and echoes back the arm as a check", async ({

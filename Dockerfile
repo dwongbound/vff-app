@@ -69,10 +69,13 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Next's traced bundle: server.js + the minimal node_modules it actually needs.
-# .next/static is NOT part of the trace and has to come across separately.
-# (There is no public/ in this repo — add a COPY for it if one ever appears.)
+# Neither .next/static nor public/ is part of the trace, so both have to come
+# across separately. public/ holds the installed-app icons the web manifest
+# points at (see app/manifest.ts) — miss it and the site still boots, but
+# "Add to Home Screen" gets a 404 where its icon should be.
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
 # The CLI and its inputs live together under /prisma-cli, deliberately NOT in
 # /app: prisma.config.ts does `import { env } from "prisma/config"`, and Node

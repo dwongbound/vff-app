@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the runway checkout asks before filing a partial card", async ({ page }) => {
-  await gotoTab(page, "/runway", "Runway");
+  await gotoTab(page, "/runway", "Taxi & Runway");
 
   // `exact`: the card's own "Preflight — complete" row is a button too, and
   // Playwright matches accessible names by SUBSTRING unless told otherwise.
@@ -42,7 +42,7 @@ test("the runway checkout asks before filing a partial card", async ({ page }) =
 // create a draft — and a server row — for a member who has done nothing but
 // open a tab.
 test("merely opening the runway card saves nothing", async ({ page }) => {
-  await gotoTab(page, "/runway", "Runway");
+  await gotoTab(page, "/runway", "Taxi & Runway");
 
   await expect(page.getByRole("main").getByText(/progress saves automatically/i)).toBeVisible();
   await expect(page.getByRole("main").getByRole("button", { name: "Reset" })).toHaveCount(0);
@@ -63,7 +63,7 @@ test("the two checkouts keep their own progress", async ({ page }) => {
   // (Not "0 of N": "Preflight — complete" answers itself from the database,
   // so the runway card legitimately starts at 1 once the airplane has been
   // walked today — see the derived-row tests below.)
-  await gotoTab(page, "/runway", "Runway");
+  await gotoTab(page, "/runway", "Taxi & Runway");
   const runwayCount = await page.getByText(STEP_LINE).innerText();
   const denominator = (count: string) => count.split(" of ")[2];
   expect(denominator(runwayCount)).not.toBe(denominator(preflightCount));
@@ -75,7 +75,7 @@ test("the two checkouts keep their own progress", async ({ page }) => {
 test("the preflight row cannot be ticked without a signed-off preflight", async ({
   page,
 }) => {
-  await gotoTab(page, "/runway", "Runway");
+  await gotoTab(page, "/runway", "Taxi & Runway");
   await page.getByRole("button", { name: /Before starting engine.*\d+\/\d+$/ }).click();
 
   const row = page.getByRole("button", { name: /^Preflight — complete/ });
@@ -95,7 +95,7 @@ test("the preflight row cannot be ticked without a signed-off preflight", async 
 });
 
 test("signing off the preflight ticks the row for you", async ({ page }) => {
-  await gotoTab(page, "/runway", "Runway");
+  await gotoTab(page, "/runway", "Taxi & Runway");
 
   // The precondition — a signed-off preflight — is established through the
   // API rather than by walking all ten sections in the UI. Walking the card is
@@ -112,7 +112,7 @@ test("signing off the preflight ticks the row for you", async ({ page }) => {
   // …and the runway card's first item is now answered, without being touched.
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Runway", exact: true })
+    page.getByRole("heading", { name: "Taxi & Runway", exact: true })
   ).toBeVisible({ timeout: 60_000 });
   await page.getByRole("button", { name: /Before starting engine.*\d+\/\d+$/ }).click();
 
@@ -135,7 +135,7 @@ test("signing off the preflight ticks the row for you", async ({ page }) => {
 test("an incomplete card is filed only when the member confirms it", async ({
   page,
 }) => {
-  await gotoTab(page, "/runway", "Runway");
+  await gotoTab(page, "/runway", "Taxi & Runway");
   const [aircraft] = await (await page.request.get("/api/aircraft")).json();
 
   // Nothing ticked and no acknowledgement: refused, so a stale client can't

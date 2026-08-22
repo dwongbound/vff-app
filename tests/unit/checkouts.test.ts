@@ -254,11 +254,55 @@ describe("the club's own additions", () => {
       // and rudder are ATTACHED, which is a different question from whether
       // they move.
       "empennage.controls-free",
+      // Switched on at the end of the before-start flow, and off again after
+      // the master on the turn-off card. The detector is the club's, not the
+      // airframe's, so neither line is printed on the laminated card.
+      "start.co-detector",
       // The starter turn at the end of the cold-start pre-lube: the card's
       // hand pull moves oil off the cylinder walls, the crank works the pump.
       "prelube.crank",
+      "shutdown.co-detector",
       "parking.cabin",
     ]);
+  });
+});
+
+// A few items are questions the app can already answer, and the card links out
+// to the page that answers them. Pinned as a LIST for the same reason the club
+// additions above are: this is a promise about what the card sends a member
+// away to do mid-walk, so a new one should be a deliberate edit here too.
+describe("items that link out to a tool", () => {
+  it("links weight and balance to the tool, and links nothing else", () => {
+    const linked = ALL.flatMap((c) =>
+      c.sections.flatMap((s) =>
+        s.items.filter((i) => i.link).map((i) => [i.id, i.link!.href])
+      )
+    );
+    expect(linked).toEqual([["homework.wb", "/tools/weight-balance"]]);
+  });
+
+  it("links in-app, with something to press", () => {
+    // A relative href would resolve against whichever page the card is on, and
+    // an external one would take a member off the app mid-preflight.
+    for (const checkout of ALL) {
+      for (const item of checkout.sections.flatMap((s) => s.items)) {
+        if (!item.link) continue;
+        expect(item.link.href.startsWith("/")).toBe(true);
+        expect(item.link.label.trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("does not tick, block, or otherwise change the item", () => {
+    // The app can compute the numbers; it cannot know you looked at them. So
+    // the row is still the pilot's to tick, and still counts toward sign-off.
+    const wb = PREFLIGHT_CHECKOUT.sections
+      .flatMap((s) => s.items)
+      .find((i) => i.id === "homework.wb")!;
+    expect(wb.optional).toBeUndefined();
+    expect(missingItems("PREFLIGHT", {}).map((i) => i.id)).toContain(
+      "homework.wb"
+    );
   });
 });
 

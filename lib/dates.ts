@@ -133,6 +133,67 @@ export function clubDateKey(iso: string | Date): string {
   }).format(new Date(iso));
 }
 
+/**
+ * What the club's clock was offset from UTC at an instant, in milliseconds.
+ *
+ * Derived by formatting the instant in `CLUB_TIME_ZONE` and reading the result
+ * back as if it were UTC — the difference IS the offset. Doing it this way
+ * rather than from a table means DST is whatever the platform's tz database
+ * says it is, which is the only source that stays right.
+ */
+function clubOffsetMs(at: Date): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CLUB_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const get = (type: string) =>
+    Number(parts.find((p) => p.type === type)?.value ?? NaN);
+  const asIfUtc = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second")
+  );
+  return asIfUtc - at.getTime();
+}
+
+/**
+ * A calendar day at the club plus a clock reading off one of its cards, as a
+ * real instant. "2026-08-21" + "14:05" → 14:05 at KTOA that day.
+ *
+ * This is how a time FIELD becomes a time COLUMN: the cards record "HH:MM"
+ * because that is what a member reads off the panel and what an `<input
+ * type="time">` produces, while the flight log stores instants because it sorts
+ * them, subtracts them and shows them to people in other timezones.
+ *
+ * Two passes, and the second one is what makes the spring-forward Sunday
+ * correct: the first guess uses the offset in force at the same wall time read
+ * as UTC, which can land on the wrong side of a transition, so the offset is
+ * re-read at the guessed instant and applied again. Returns null on anything
+ * that isn't a real date and clock, since a half-typed field must not become
+ * midnight.
+ */
+export function clubInstant(day: string, hm: string): Date | null {
+  const [y, mo, d] = day.split("-").map(Number);
+  const [h, mi] = hm.split(":").map(Number);
+  if (![y, mo, d, h, mi].every((n) => Number.isFinite(n))) return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+
+  const wallAsUtc = Date.UTC(y, mo - 1, d, h, mi);
+  const guess = wallAsUtc - clubOffsetMs(new Date(wallAsUtc));
+  const settled = wallAsUtc - clubOffsetMs(new Date(guess));
+  const out = new Date(settled);
+  return Number.isNaN(out.getTime()) ? null : out;
+}
+
 /** "09:30" → "9:30 AM" in the viewer's locale. */
 export function formatClock(hm: string): string {
   const [h, m] = hm.split(":").map(Number);

@@ -54,8 +54,6 @@ const BOOK_ICON =
   "M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25";
 const CALENDAR_ICON =
   "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5";
-const PEOPLE_ICON =
-  "M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z";
 const MONEY_ICON =
   "M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z";
 const WRENCH_ICON =
@@ -65,7 +63,7 @@ const FUEL_ICON =
   "M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.007-1.875 2.25-1.875s2.25.84 2.25 1.875c0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 0 1-.61-.58v0Z";
 const PLANE_ICON =
   "M6 12L3.269 3.125A59.769 59.769 0 0121.485 12 59.768 59.768 0 013.27 20.875L5.999 12zm0 0h7.5";
-// Runway: the departing-aircraft glyph, for the checkout that ends at the
+// Taxi & Runway: the departing-aircraft glyph, for the checkout that ends at the
 // hold-short line.
 const RUNWAY_ICON =
   "M3.75 19.5h16.5M4.5 15.75l3.75-1.5m0 0 8.379-3.352a2.25 2.25 0 1 0-1.671-4.177L3.75 11.25l1.5 3.75 3-1.5Zm0 0 2.25 4.5";
@@ -73,6 +71,12 @@ const CALCULATOR_ICON =
   "M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5ZM8.25 6h7.5v2.25h-7.5V6ZM12 2.25c-1.892 0-3.758.11-5.593.322C5.307 2.7 4.5 3.65 4.5 4.757V19.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V4.757c0-1.108-.806-2.057-1.907-2.185A48.507 48.507 0 0 0 12 2.25Z";
 // A balance scale, for weight & balance — the one tool where the icon is
 // simply a picture of the arithmetic.
+// A lightning bolt, for Quick Log — the fast way into the flight log.
+const BOLT_ICON =
+  "M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z";
+// An ID card, for My plane: the airplane's own spec sheet.
+const ID_CARD_ICON =
+  "M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Zm6-10.125a1.875 1.875 0 1 1-3.75 0 1.875 1.875 0 0 1 3.75 0Zm1.294 6.336a6.721 6.721 0 0 1-3.17.789 6.721 6.721 0 0 1-3.168-.789 3.376 3.376 0 0 1 6.338 0Z";
 const SCALE_ICON =
   "M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0 0 12 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 0 1-2.031.352 5.988 5.988 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971Zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 0 1-2.031.352 5.989 5.989 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971Z";
 
@@ -81,6 +85,27 @@ interface NavLeaf {
   label: string;
   mobileLabel: string;
   icon: string;
+  /**
+   * Render this leaf as an ACTION rather than as a destination: pinned to the
+   * foot of the rail, under a divider, drawn as a filled button.
+   *
+   * The app spent a while with NO permanently-tinted tab, on the reasoning
+   * that a tab which looks the same on every page stops being a signal and
+   * competes with the one mark that actually changes — which tab you're on.
+   * That reasoning is why this is not simply "a coloured tab in the list": a
+   * pinned button is a different KIND of thing from the tabs above it, sitting
+   * apart from them, so it can be permanently coloured without competing to be
+   * read as the current page. The list above stays a plain list of
+   * destinations with exactly one mark on it.
+   *
+   * Quick Log has it because it is the one entry that is a verb. Everything
+   * else in the rail is a place you go to look at something; this one does a
+   * job and returns you to what you were doing — and it is wanted at the
+   * moment you are NOT already thinking about the app, walking back to the car
+   * with a tach reading in your head, so it has to be visible without being
+   * hunted for.
+   */
+  action?: boolean;
 }
 
 interface NavGroup {
@@ -130,7 +155,7 @@ const NAV: NavItem[] = [
     icon: CLIPBOARD_ICON,
     children: [
       { href: "/preflight", label: "Preflight", mobileLabel: "Preflight", icon: CLIPBOARD_ICON },
-      { href: "/runway", label: "Runway", mobileLabel: "Runway", icon: RUNWAY_ICON },
+      { href: "/runway", label: "Taxi & Runway", mobileLabel: "Taxi", icon: RUNWAY_ICON },
       { href: "/postflight", label: "Post-flight", mobileLabel: "Post", icon: GAUGE_ICON },
       // Not a checkout — nothing is ticked and nothing is signed off — but it
       // belongs here anyway: it's the other thing you do standing at the
@@ -158,11 +183,38 @@ const NAV: NavItem[] = [
         mobileLabel: "W&B",
         icon: SCALE_ICON,
       },
+      // The airplane's own manual, as numbers. A tool rather than a Plane
+      // Status tab because it never changes: Status answers "what is the
+      // airplane doing today", and a stall speed is true of the TYPE and was
+      // true in 1958.
+      {
+        href: "/tools/my-plane",
+        label: "My plane",
+        mobileLabel: "Plane",
+        icon: ID_CARD_ICON,
+      },
     ],
   },
   { href: "/log", label: "Flight Log", mobileLabel: "Log", icon: BOOK_ICON },
   { href: "/reservations", label: "Reservations", mobileLabel: "Reserve", icon: CALENDAR_ICON },
   { href: "/finances", label: "Finances", mobileLabel: "Money", icon: MONEY_ICON },
+  // LAST, and drawn as a button pinned to the foot of the rail rather than as
+  // another row in the list — see `action` on NavLeaf. It is the shortest path
+  // through the app (four meter readings and a button), and the one entry here
+  // that DOES something rather than showing you something, so it reads better
+  // as a control under the menu than as a destination inside it.
+  //
+  // Last in the array rather than positioned by the renderer, because the
+  // SWIPE PAGER walks this list in order: a phone swiping right off Finances
+  // should arrive at Quick Log, and a tab pinned visually to the bottom while
+  // sitting first in the route order would swipe from the wrong neighbour.
+  {
+    href: "/quick-log",
+    label: "Quick Log",
+    mobileLabel: "Quick",
+    icon: BOLT_ICON,
+    action: true,
+  },
 ];
 
 /**
@@ -367,16 +419,20 @@ export default function Navbar() {
   // pages behind them re-check on the server anyway.
   const nav = me ? navFor(me.capabilities) : NAV;
   const routes = nav.flatMap((item) => (isGroup(item) ? item.children : [item]));
+  // The rail draws these in two blocks: the menu, and the action buttons
+  // pinned under it. `routes` above is deliberately built from the WHOLE nav
+  // first, so the swipe order and the tab list are unaffected by where a leaf
+  // happens to be drawn.
+  const isAction = (item: NavItem): item is NavLeaf =>
+    !isGroup(item) && item.action === true;
+  const menuItems = nav.filter((item) => !isAction(item));
+  const actionItems = nav.filter(isAction);
 
   // Shared by both nav bars: is this tab the highlighted one, and what to do
   // on click. Prefer the just-clicked tab so selection is instant; fall back
   // to the real route once navigation completes.
   const isActive = (href: string) =>
     pendingHref ? pendingHref === href : bestRoute(pathname, routes) === href;
-  // During a swipe, SwipePager sets `previewIndex` so the highlight follows the
-  // drag to the tab you're heading toward.
-  const tabActive = (index: number, href: string) =>
-    previewIndex != null ? index === previewIndex : isActive(href);
 
   // "Replay the tour": clear the seen-stamp and let GuidedTour notice. Updating
   // the shared profile is what re-opens it, so there's no second flag to keep
@@ -522,7 +578,7 @@ export default function Navbar() {
             Menu
           </p>
           <div className="flex flex-col gap-1">
-            {nav.map((item) => {
+            {menuItems.map((item) => {
               if (isGroup(item)) {
                 const expanded = groupExpanded(item);
                 return (
@@ -577,6 +633,35 @@ export default function Navbar() {
             })}
           </div>
         </nav>
+
+        {/* ── Pinned actions ────────────────────────────────────────────────
+            Below the menu and outside the scrolling <nav>, so they stay put at
+            the foot of the rail however long the list above them gets.
+
+            Drawn as filled buttons rather than tabs, which is what lets them
+            be permanently coloured without competing with the ONE mark that
+            says which page you're on: a button under a divider is a different
+            kind of thing from the rows above it, so a reader doesn't have to
+            work out whether the colour means "current". Being the current page
+            is still shown — the ring — but it's a second-order mark on a
+            control rather than the primary one on a list. */}
+        {actionItems.length > 0 && (
+          <div className="border-t border-gray-200 px-3 py-3 dark:border-gray-700">
+            {actionItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => handleTabClick(item.href)}
+                data-tour={tourKey(item.href)}
+                aria-current={isActive(item.href) ? "page" : undefined}
+                className={railActionClassName(isActive(item.href))}
+              >
+                <TabIcon d={item.icon} />
+                <span>{item.label}</span>
+              </Link>
+            ))}
+          </div>
+        )}
       </aside>
 
       {/* ── The top bar ─────────────────────────────────────────────────────
@@ -643,8 +728,12 @@ export default function Navbar() {
         {grounded.length > 0 && !groundedDismissed && (
           <Banner
             tone="red"
-            href="/log?squawks=open"
-            onLinkClick={() => handleTabClick("/log")}
+            // The squawk sheet, which is where a grounding is read and lifted.
+            // It used to point at the flight log, which carried a second copy
+            // of the list; that copy is gone, and this is the page that owns
+            // the answer to "why is it grounded and who is fixing it".
+            href="/status/squawks"
+            onLinkClick={() => handleTabClick("/status/squawks")}
             onDismiss={() => setGroundedDismissed(true)}
           >
             <span className="font-semibold">
@@ -745,7 +834,7 @@ export default function Navbar() {
                   handleTabClick(item.href);
                 }}
                 data-tour={tourKey(item.href)}
-                className={bottomTabClassName(active)}
+                className={bottomTabClassName(active, item.action)}
               >
                 <TabIcon d={item.icon} />
                 {label}
@@ -1019,6 +1108,33 @@ function railClassName(active: boolean): string {
   return `${base} text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700`;
 }
 
+/**
+ * A pinned action at the foot of the rail — Quick Log today.
+ *
+ * CENTRED, full width and OUTLINED, which is what makes it read as a button
+ * rather than as another left-aligned row of the menu above it. The shape is
+ * doing the work here, not the colour.
+ *
+ * Deliberately QUIETER than an active tab. A solid fill was the first version
+ * and it was wrong: the loudest thing in the rail has to be the one mark that
+ * changes — which page you're on — and a permanent block of solid indigo at
+ * the bottom out-shouted it on every screen. So this is a tint and a border
+ * against the active tab's solid fill, which leaves the two unambiguous when
+ * they're both on screen and keeps the button legible when they're not.
+ *
+ * Being the current page deepens the tint one step rather than filling it in:
+ * "you are here" is a smaller thing to say about a control than about a list,
+ * and the button is already the only outlined thing in the column.
+ */
+function railActionClassName(active: boolean): string {
+  const base =
+    "flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors focus:outline-none";
+  if (active) {
+    return `${base} border-indigo-400 bg-indigo-100 text-indigo-800 dark:border-indigo-500/60 dark:bg-indigo-500/25 dark:text-indigo-200`;
+  }
+  return `${base} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20`;
+}
+
 // A page nested under a rail group. No icon: the parent's icon already stands
 // for the pair, and repeating it at the same size would flatten the nesting
 // the indent is there to show.
@@ -1033,11 +1149,19 @@ function railChildClassName(active: boolean): string {
 
 // Bottom-bar tab styling: stacked icon + label, evenly sharing the pill's
 // width. `rounded-full` matches the surrounding pill.
-function bottomTabClassName(active: boolean): string {
+function bottomTabClassName(active: boolean, action = false): string {
   const base =
     "flex flex-1 flex-col items-center gap-0.5 rounded-full px-1 py-1.5 transition-colors focus:outline-none";
   if (active) {
     return `${base} bg-indigo-600 text-white shadow-sm`;
+  }
+  // A phone has no rail to pin a button under, so an `action` leaf stays a tab
+  // here and carries the tint instead. It is the last tab, which is the same
+  // place it sits in the rail — and a phone is where Quick Log gets used most,
+  // so dropping it from the pill to keep the bar short would cut it off from
+  // the people most likely to want it.
+  if (action) {
+    return `${base} bg-indigo-50 font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300`;
   }
   return `${base} text-gray-500 dark:text-gray-400`;
 }

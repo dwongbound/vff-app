@@ -35,6 +35,8 @@ import { useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray } from "@/lib/api";
+import { readDraft, savedAgo } from "@/lib/checkoutDraft";
+import { PREFLIGHT_CHECKOUT, deriveFuelOil } from "@/lib/checkouts";
 // Both date formats, for two different jobs: formatFullDate for the WEIGHING
 // date, where "Sat, Nov 27" leaves off the one part that decides anything
 // (which year it was), and formatDay for "when was the fuel last dipped",
@@ -59,6 +61,8 @@ import type { ApiCheckout } from "@/lib/types";
 /**
  * What the airplane was last measured to be carrying — the same figures Plane
  * Status shows, off the last preflight checkout that actually recorded them.
+ * The fuel half can be overridden by a dip that hasn't been filed yet; see
+ * `DraftDip` below.
  *
  * The tool is still pure arithmetic over what's in the boxes; this only decides
  * what the boxes OPEN at. Starting the fuel box at "full" was a guess that was
@@ -71,6 +75,33 @@ interface RecordedConsumables {
   /** Whose walkaround, and when — this is a measurement, so it's attributed. */
   fuelNote: string | null;
   oilNote: string | null;
+}
+
+/**
+ * The dip from a preflight this member is walking RIGHT NOW, off the device.
+ *
+ * This beats anything the server can offer, and the ordering is the whole
+ * point: a filed preflight is a reading from some previous flight, while the
+ * half-walked card in the member's pocket is today's tanks. The sequence the
+ * app has to survive is somebody dipping both wings, tapping through to
+ * Tools › Weight & Balance to see whether the load fits, and being shown last
+ * Tuesday's fuel — a number they'd have to notice was wrong before it planned
+ * them a flight at the wrong weight.
+ *
+ * Read straight out of the draft store rather than waiting for the autosave to
+ * reach the server: `lib/checkoutDraft.ts` lets the DEVICE be ahead, and this
+ * is the case that cashes that in.
+ *
+ * `deriveFuelOil` does the summing, so one wing dipped and the other not gives
+ * that wing's gallons — the same half-answer the Status tab's meter shows. It
+ * under-reads by a tank, which is why the number is never anonymous: the note
+ * under the box says where it came from and how long ago, and the box itself
+ * is editable.
+ */
+interface DraftDip {
+  gal: number;
+  /** When the draft was last written, for "saved 4 min ago". */
+  savedAt: string;
 }
 
 export default function WeightBalancePage() {
@@ -107,6 +138,46 @@ export default function WeightBalancePage() {
     };
   }, [aircraftId]);
 
+  // The preflight this member has open on this device, if any. Deliberately
+  // not a subscription: the boxes are initial state, and the moment that
+  // matters is arriving on the page from the card — which remounts this
+  // component and re-reads the store.
+  const memberId = me?.id ?? null;
+  const [draftDip, setDraftDip] = useState<DraftDip | null>(null);
+  useEffect(() => {
+    if (!aircraftId || !memberId) {
+      setDraftDip(null);
+      return;
+    }
+    // In an effect, so it runs on the client only — localStorage on the server
+    // render would be a crash, and a value that differs between the two would
+    // be a hydration mismatch.
+    const draft = readDraft(window.localStorage, {
+      memberId,
+      aircraftId,
+      kind: "PREFLIGHT",
+      checkoutVersion: PREFLIGHT_CHECKOUT.version,
+    });
+    const gal = draft ? deriveFuelOil(draft.values).fuelOnBoardGal : null;
+    setDraftDip(draft && gal != null ? { gal, savedAt: draft.savedAt } : null);
+  }, [aircraftId, memberId]);
+
+  // The dip in progress wins. `recorded` keeps the oil either way: an unfiled
+  // card's oil reading is no more usable than a filed one's, because this
+  // airframe's empty weight already includes its 8 quarts (see the station's
+  // own note) — so there is nothing for it to override.
+  const consumables = useMemo<RecordedConsumables>(
+    () =>
+      draftDip
+        ? {
+            ...recorded,
+            fuelGal: draftDip.gal,
+            fuelNote: `your preflight in progress — saved ${savedAgo(draftDip.savedAt)}, not filed yet`,
+          }
+        : recorded,
+    [recorded, draftDip]
+  );
+
   const profile = profileFor(selected?.wbProfile ?? null);
   const basis: WeightBalanceBasis | null =
     selected?.emptyWeightLbs != null && selected?.emptyMomentLbIn != null
@@ -136,14 +207,15 @@ export default function WeightBalancePage() {
         />
       ) : profile && basis && selected ? (
         <Calculator
-          // Keyed on the recorded fuel as well as the airplane: the reading
-          // arrives a moment after the page does, and the boxes are
-          // initial-state, so the calculator has to be rebuilt to take it.
-          key={`${selected.id}:${recorded.fuelGal ?? "?"}`}
+          // Keyed on the fuel as well as the airplane: the reading arrives a
+          // moment after the page does — from the fetch, or from the draft
+          // store once `me` has landed — and the boxes are initial-state, so
+          // the calculator has to be rebuilt to take it.
+          key={`${selected.id}:${consumables.fuelGal ?? "?"}`}
           profile={profile}
           basis={basis}
           weighedOn={selected.weighedOn}
-          recorded={recorded}
+          recorded={consumables}
         />
       ) : null}
     </div>
@@ -328,9 +400,12 @@ function Calculator({
                         </span>
                         {/* What the airplane was last measured to be carrying.
                             Under the FUEL box it explains where the number in
-                            it came from; under the OIL box it's a note and not
-                            a prefill, because this airframe's empty weight
-                            already includes its oil. */}
+                            it came from — a filed preflight, or the card the
+                            member is walking right now (see DraftDip), which is
+                            exactly the distinction somebody deciding whether to
+                            trust the figure wants; under the OIL box it's a
+                            note and not a prefill, because this airframe's
+                            empty weight already includes its oil. */}
                         {station.id === "fuel" && recorded.fuelNote && (
                           <span className="text-indigo-600 dark:text-indigo-400">
                             {recorded.fuelGal} gal from {recorded.fuelNote}

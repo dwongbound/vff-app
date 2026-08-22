@@ -4,7 +4,10 @@
 //        Updates the run in place. This is what makes "save progress" honest:
 //        a member who gets interrupted at the fuel truck resumes the SAME row
 //        rather than leaving a trail of half-finished ones behind. Passing
-//        `complete: true` signs it off, exactly as POST does.
+//        `complete: true` signs it off, exactly as POST does — which includes
+//        opening (or joining) the flight session that sign-off belongs to. This
+//        is the path the checkout pages actually take, because autosave has
+//        almost always created the row before the member presses Complete.
 // DELETE /api/checkouts/[id]
 //        Discards an open run — the "start over" button. The row goes for real
 //        rather than being marked abandoned: nothing reads a discarded
@@ -27,6 +30,7 @@ import {
   parseAnswers,
   parseValues,
 } from "@/lib/checkouts";
+import { attachCheckoutToSession } from "@/lib/flightSessions";
 
 const INCLUDE = {
   aircraft: { select: { id: true, tailNumber: true } },
@@ -44,7 +48,13 @@ const INCLUDE = {
 async function openRunFor(id: string, userId: string) {
   const run = await prisma.checkout.findUnique({
     where: { id },
-    select: { id: true, userId: true, kind: true, completedAt: true },
+    select: {
+      id: true,
+      userId: true,
+      aircraftId: true,
+      kind: true,
+      completedAt: true,
+    },
   });
   if (!run) {
     return { error: NextResponse.json({ error: "That checkout is gone." }, { status: 404 }) };
@@ -79,6 +89,7 @@ export async function PATCH(
   const found = await openRunFor(id, user.id);
   if (found.error) return found.error;
   const { run } = found;
+  const aircraftId = run.aircraftId;
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
@@ -127,6 +138,19 @@ export async function PATCH(
     },
     include: INCLUDE,
   });
+
+  // Same rule as POST: signing off is what puts this card on a flight. See the
+  // module comment on app/api/checkouts/route.ts.
+  if (complete) {
+    const flightId = await attachCheckoutToSession({
+      checkoutId: updated.id,
+      userId: user.id,
+      aircraftId,
+      kind,
+      values,
+    });
+    if (flightId) updated.flightId = flightId;
+  }
 
   return NextResponse.json(serializeCheckout(updated));
 }

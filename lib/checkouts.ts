@@ -18,7 +18,8 @@
 // came out of VFF-OR-A or out of the club's own practice: I'M SAFE at the top
 // of the preflight, the open squawks review beside it, the 5 Ps at the end of
 // the runup, the closing walkaround, the tach/Hobbs reading, the tail controls
-// moving freely, the starter crank that ends the cold-start pre-lube, and the
+// moving freely, the starter crank that ends the cold-start pre-lube, the CO
+// detector going on before the start and off after the master, and the
 // housekeeping line at the parking end that sets the flight log's "cabin clean"
 // flag. Everything else is on a card.
 //
@@ -110,6 +111,21 @@ export interface CheckoutItem {
   optional?: boolean;
   /** Not on the card — the club's own addition. Rendered with a marker. */
   club?: boolean;
+  /**
+   * The page in this app that DOES this item's work.
+   *
+   * A few of these checks are arithmetic the app already knows how to do, and
+   * a member standing at the wing with the card open shouldn't have to
+   * remember which tab it was on. Static, and part of the card rather than of
+   * a run: unlike the toned notes a page passes in as `itemNotes`, this says
+   * nothing about today's airplane, so it lives here with the item.
+   *
+   * It never ticks anything and it never blocks a sign-off — the pilot still
+   * confirms the row, because the app can compute the numbers and cannot know
+   * you looked at them. (Rendered by CheckoutList only; TurnoffCheckout is
+   * deliberately flat and drops `detail` for the same reason.)
+   */
+  link?: { href: string; label: string };
 }
 
 export interface CheckoutSection {
@@ -185,6 +201,12 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
         id: "homework.wb",
         label: "Weight and balance — within limits for this load",
         why: "Four adults and full fuel does not fit in a 172. Aft CG is the loading that will actually hurt you, and it's the one that feels fine until the flare.",
+        // The tool holds this airframe's own basis off its latest signed W&B
+        // revision, so the answer it gives is N8318B's rather than a generic
+        // 172's. Linked from here because this is where the question gets
+        // asked — and it's also the row where somebody who did the numbers at
+        // home wants to check the load that changed in the car park.
+        link: { href: "/tools/weight-balance", label: "Run the numbers" },
       },
       {
         id: "homework.performance",
@@ -720,7 +742,7 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
   },
 ];
 
-// ── Runway checkout ────────────────────────────────────────────────────────
+// ── Taxi & Runway checkout ─────────────────────────────────────────────────
 // The front of the in-cockpit card, from the cabin door to the hold-short line.
 // The walkaround is behind you by this point: everything below happens sitting
 // in the airplane.
@@ -789,6 +811,15 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
         id: "start.brakes",
         label: "Brakes — test / set",
         why: "Find out they're soft while stationary, not while rolling toward the fuel pumps.",
+      },
+      {
+        // Last of the before-start flow, and deliberately after the master:
+        // a detector switched on before the cabin has any power is one more
+        // thing to remember to go back for.
+        id: "start.co-detector",
+        club: true,
+        label: "Turn on CO detector",
+        why: "Carbon monoxide from a cracked exhaust or muffler reaches the cabin through the heater, and it has no smell — the symptoms (headache, sluggishness, poor judgement) are ones a pilot explains away as tiredness. The detector is the only thing in the airplane that will tell you, and it can only tell you if it's on before the engine starts.",
       },
     ],
   },
@@ -1127,6 +1158,14 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
         why: "Last thing off. A master left on overnight is a flat battery and a member's cancelled morning.",
       },
       {
+        // Straight after the master, which is the pair it belongs to: it went
+        // on with the electrics before the start, and comes off with them.
+        id: "shutdown.co-detector",
+        club: true,
+        label: "Turn off CO detector",
+        why: "It runs on its own battery, so nothing else in the airplane switches it off. Left on, it's flat by the time the flight that actually needs it comes round — which is the one where the exhaust has cracked since.",
+      },
+      {
         id: "shutdown.timer",
         fields: [
           { id: "shutdown.timer.at", label: "Stopped", kind: "time", defaultNow: true },
@@ -1244,7 +1283,7 @@ export const PREFLIGHT_CHECKOUT: Checkout = {
 
 export const RUNWAY_CHECKOUT: Checkout = {
   kind: "RUNWAY",
-  title: "Runway checkout",
+  title: "Taxi & Runway checkout",
   tagline: "Sitting down to holding short: passengers, start, runup, pre-takeoff.",
   // v2 is the club reading the card against how it actually flies N8318B.
   //
@@ -1269,7 +1308,11 @@ export const RUNWAY_CHECKOUT: Checkout = {
   // A new id is legitimately missing from a v1 run rather than failed by it; a
   // retired one is dropped from an old run's answers by `parseAnswers`. Both
   // are exactly what the version stamp is there to explain.
-  version: 2,
+  //
+  // v3 adds `start.co-detector`, closing the before-start flow. The bump is
+  // what stops a v2 sign-off — walked against a card that never mentioned the
+  // detector — from reading as though the pilot had turned it on.
+  version: 3,
   sections: RUNWAY_SECTIONS,
 };
 
@@ -1282,7 +1325,12 @@ export const TURNOFF_CHECKOUT: Checkout = {
   // `starting.transponder` on the runway card), so putting it back to standby
   // while rolling clear isn't the club's procedure any more — and shutdown
   // switches it off a couple of items later regardless.
-  version: 3,
+  //
+  // v4 adds `shutdown.co-detector`, straight after the master — the other half
+  // of the runway card's `start.co-detector`. Same reason for the bump: the
+  // detector runs on its own battery, so "did anyone turn it off" is a question
+  // a v3 run simply cannot answer.
+  version: 4,
   sections: TURNOFF_SECTIONS,
 };
 

@@ -11,6 +11,8 @@
 // says so, and the printed rules are explicit that a lower personal or FAA
 // minimum always wins.
 
+import { tachHours } from "./hours";
+
 export const RULES_ID = "VFF-OR-A";
 export const RULES_REVISION = "2026-06-29";
 
@@ -283,7 +285,10 @@ export interface SoloEligibilityInput {
   /** Declared total time from the member's profile. */
   totalTimeHours: number | null | undefined;
   /** This member's flights from the club log. */
-  flights: (CurrencyFlight & { tachStart: number; tachEnd: number })[];
+  flights: (CurrencyFlight & {
+    tachStart?: number | null;
+    tachEnd?: number | null;
+  })[];
   now?: Date;
 }
 
@@ -345,13 +350,21 @@ export function soloEligibility(input: SoloEligibilityInput): SoloEligibility {
 
 /** Hours flown in the last 12 months, from the club log. */
 export function hoursInLastYear(
-  flights: { flownOn: string | Date; tachStart: number; tachEnd: number }[],
+  flights: {
+    flownOn: string | Date;
+    tachStart?: number | null;
+    tachEnd?: number | null;
+  }[],
   now: Date = new Date()
 ): number {
   const cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
   const total = flights
     .filter((f) => new Date(f.flownOn).getTime() >= cutoff.getTime())
-    .reduce((sum, f) => sum + (f.tachEnd - f.tachStart), 0);
+    // A flight with either meter unrecorded contributes nothing: it is an
+    // entry whose LENGTH the club doesn't know, and guessing at it here would
+    // move somebody between the operating rules' experience columns on the
+    // strength of a number nobody ever read. See lib/hours.ts `tachHours`.
+    .reduce((sum, f) => sum + (tachHours(f) ?? 0), 0);
   return Math.round(total * 10) / 10;
 }
 

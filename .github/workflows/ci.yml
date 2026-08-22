@@ -19,14 +19,16 @@ on:
 # A second push to the same branch cancels the run already in flight; the old
 # result would be thrown away anyway.
 #
-# `head_ref || ref` is what stops every PR'd branch running the suite TWICE.
-# On a pull_request event `head_ref` is the source branch ("add-widget"); on a
-# push it's empty and `ref` is "refs/heads/add-widget". Grouping on the first
-# non-empty one puts both events for a branch in the SAME group, so opening a
-# PR cancels the redundant push run rather than racing it. Without this,
-# broadening `push` above would have doubled the CI bill for every PR.
+# This is also what stops a PR'd branch running the suite TWICE, and the two
+# halves have to be spelled the SAME WAY for that to work. On a pull_request
+# event `head_ref` is the bare source branch ("add-widget"); on a push,
+# `ref_name` is the bare branch too ("add-widget") where `ref` would be the
+# fully-qualified "refs/heads/add-widget". Pairing `head_ref` with `ref` — as
+# this did — produces "ci-add-widget" for the PR and "ci-refs/heads/add-widget"
+# for the push: two different groups, so neither cancels the other and every
+# PR ran the whole suite twice, in parallel, for the same commit.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:

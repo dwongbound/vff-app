@@ -352,8 +352,12 @@ interface FlightRow {
   userId: string;
   reservationId: string | null;
   flownOn: Date;
-  tachStart: number;
-  tachEnd: number;
+  filedAt: Date | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  logEntry: string | null;
+  tachStart: number | null;
+  tachEnd: number | null;
   hobbsStart: number | null;
   hobbsEnd: number | null;
   landings: number;
@@ -364,6 +368,8 @@ interface FlightRow {
   route: string | null;
   fuelAddedGal: number | null;
   fuelCostCents: number | null;
+  fuelPaidPersonally: boolean;
+  landingFeeCents: number | null;
   oilAddedQts: number | null;
   tiedDown: boolean;
   cabinClean: boolean;
@@ -393,6 +399,10 @@ function serializeFlightFields(
     pilot: serializeUser(f.pilot),
     reservationId: f.reservationId,
     flownOn: f.flownOn.toISOString(),
+    filedAt: f.filedAt?.toISOString() ?? null,
+    startedAt: f.startedAt?.toISOString() ?? null,
+    endedAt: f.endedAt?.toISOString() ?? null,
+    logEntry: f.logEntry,
     tachStart: f.tachStart,
     tachEnd: f.tachEnd,
     hobbsStart: f.hobbsStart,
@@ -405,6 +415,8 @@ function serializeFlightFields(
     route: f.route,
     fuelAddedGal: f.fuelAddedGal,
     fuelCostCents: f.fuelCostCents,
+    fuelPaidPersonally: f.fuelPaidPersonally,
+    landingFeeCents: f.landingFeeCents,
     oilAddedQts: f.oilAddedQts,
     tiedDown: f.tiedDown,
     cabinClean: f.cabinClean,
@@ -494,6 +506,7 @@ interface CheckoutRow {
   aircraft: { id: string; tailNumber: string };
   user: UserRow;
   kind: string;
+  flightId?: string | null;
   checkoutVersion: number;
   answers: unknown;
   values: unknown;
@@ -518,6 +531,10 @@ export function serializeCheckout(c: CheckoutRow): ApiCheckout {
     aircraft: { id: c.aircraft.id, tailNumber: c.aircraft.tailNumber },
     user: serializeUser(c.user),
     kind,
+    // The flight this walk belongs to — set the moment the card is signed off.
+    // Null on a run still in progress, and on one that was walked and never
+    // flown. See lib/flightSession.ts.
+    flightId: c.flightId ?? null,
     checkoutVersion: c.checkoutVersion,
     answers: parseAnswers(kind, c.answers),
     values: parseValues(kind, c.values),

@@ -4,9 +4,10 @@
 // 2.25rem square). Drawn as vector paths (no font or image dependency) so it
 // renders identically in every browser and theme.
 //
-// The geometry is the same drawing as app/icon.svg (the favicon and the
-// home-screen icon), on the same 512 grid, so the mark in the top bar and the
-// mark in the tab strip are one design. Change one, change the other.
+// The geometry is the same drawing as app/icon.svg (the favicon) and
+// public/icons/icon-square.svg (the installed home-screen icon), on the same
+// 512 grid, so the mark in the top bar, the mark in the tab strip and the one
+// on somebody's phone are one design. Change one, change all three.
 //
 // The SHAPE is the airframe's; the COLOUR is the app's — #c64912 is the club
 // orange that tailwind.config.ts remaps `indigo-600` to, so the mark matches the

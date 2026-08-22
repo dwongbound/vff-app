@@ -134,8 +134,28 @@ export interface ApiFlightSummary {
   pilot: ApiUserSummary;
   reservationId: string | null;
   flownOn: string;
-  tachStart: number;
-  tachEnd: number;
+  /**
+   * When this entry stopped being a flight in progress and became a log line.
+   * Null = the airplane is still out: a session opened by a preflight walk and
+   * not yet closed out on the post-flight form. See lib/flightSession.ts.
+   */
+  filedAt: string | null;
+  /** Wall-clock out and in, off the cards' own time fields. */
+  startedAt: string | null;
+  endedAt: string | null;
+  /**
+   * The pilot's write-up, as MARKDOWN (bold/italic/lists — see lib/markdown.ts).
+   * One per entry, editable by its author for as long as the entry exists.
+   * Render it with `renderMarkdown`, never as raw HTML.
+   */
+  logEntry: string | null;
+  /**
+   * Both tach readings are nullable now that an entry can exist before the
+   * flight is over. `tachEnd` null = still out; `tachStart` null = closed out
+   * by somebody who never walked a preflight card. Neither bills.
+   */
+  tachStart: number | null;
+  tachEnd: number | null;
   hobbsStart: number | null;
   hobbsEnd: number | null;
   landings: number;
@@ -146,6 +166,12 @@ export interface ApiFlightSummary {
   route: string | null;
   fuelAddedGal: number | null;
   fuelCostCents: number | null;
+  /**
+   * Whose card the fuel went on. False = the club's, which records the fill-up
+   * without raising a FUEL_CREDIT — see lib/finance.ts `fuelCredit`.
+   */
+  fuelPaidPersonally: boolean;
+  landingFeeCents: number | null;
   oilAddedQts: number | null;
   tiedDown: boolean;
   cabinClean: boolean;
@@ -217,6 +243,11 @@ export interface ApiCheckout {
   user: ApiUserSummary;
   /** Which card: PREFLIGHT or RUNWAY. The turn-off one rides on ApiFlight. */
   kind: CheckoutKind;
+  /**
+   * The flight session this walk belongs to, set when the card is signed off.
+   * Null while the run is in progress, and on a card walked but never flown.
+   */
+  flightId: string | null;
   checkoutVersion: number;
   answers: Record<string, boolean>;
   /** Readings recorded on the items, keyed by field id. */
