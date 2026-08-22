@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import ExportButton from "@/components/common/ExportButton";
 import OfficerOnly from "@/components/common/OfficerOnly";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
@@ -28,11 +29,14 @@ import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, fetchJsonObject, sendJson } from "@/lib/api";
 import { formatDay } from "@/lib/dates";
+import { financesWorkbook } from "@/lib/exports";
+import { xlsxFilename } from "@/lib/xlsx";
 import {
   CHARGE_KIND_LABELS,
   currentPeriod,
   formatMoney,
   formatPeriod,
+  isPayback,
   parseDollars,
   recentPeriods,
   type ChargeKind,
@@ -55,6 +59,9 @@ const KIND_TONES: Record<ChargeKind, "gray" | "indigo" | "green" | "amber"> = {
   // log entry. A colour of its own would imply the member has to do something
   // about it.
   LANDING_FEE: "gray",
+  // Green with FUEL_CREDIT: both are money coming BACK to the member, and the
+  // colour is what makes a credit legible at a glance in a column of debits.
+  PAYBACK: "green",
 };
 
 export default function FinancesPage() {
@@ -185,6 +192,25 @@ export default function FinancesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Exports the month and the view on screen. `data.clubWide` rather
+              than `clubView`, so the file can only ever contain what the API
+              actually returned — the privacy rule is the server's, and an
+              export must not be the one place that reads it differently. */}
+          <ExportButton
+            filename={xlsxFilename([
+              "finances",
+              data.period,
+              data.clubWide ? "club" : "mine",
+            ])}
+            disabled={data.statements.length === 0}
+            build={() =>
+              financesWorkbook({
+                period: data.period,
+                statements: data.statements,
+                clubWide: data.clubWide,
+              })
+            }
+          />
           <Select
             label="Month"
             hideLabel
@@ -750,6 +776,19 @@ function RulesModal({
   const [rules, setRules] = useState<ApiRecurringCharge[] | null>(null);
   const [label, setLabel] = useState("");
   const [amount, setAmount] = useState("");
+  // Which DIRECTION the money goes. A charge bills the club's members; a
+  // PAYBACK credits one of them — the $50 a month for running the website, or
+  // keeping the books. Same rule underneath, and the sign of `amountCents` is
+  // the only difference (see `recurringKind` in lib/finance.ts) — but it is
+  // asked as a direction rather than a minus sign, because a minus sign in a
+  // money box is the sort of thing that gets lost, and losing it here means
+  // billing somebody instead of paying them.
+  const [payback, setPayback] = useState(false);
+  // Who it applies to. Blank = every member, which is the dues case and the
+  // only one the form used to allow — a rule for ONE person was reachable
+  // through the API and nowhere in the UI. A payback has to name somebody.
+  const [ruleMemberId, setRuleMemberId] = useState("");
+  const [roster, setRoster] = useState<ApiMember[] | null>(null);
   const [aircraftId, setAircraftId] = useState(
     initialAircraftId ?? fleet[0]?.id ?? ""
   );
@@ -776,6 +815,12 @@ function RulesModal({
     setRules(await fetchJsonArray<ApiRecurringCharge>("/api/finances/recurring"));
   }, []);
 
+  // The roster, for the "billed to" picker. Every member can read it, and the
+  // only people who can open this modal already hold `finance:manage`.
+  useEffect(() => {
+    fetchJsonArray<ApiMember>("/api/members").then(setRoster);
+  }, []);
+
   useEffect(() => {
     loadRules();
   }, [loadRules]);
@@ -785,7 +830,10 @@ function RulesModal({
     setBusy(true);
     const result = await sendJson("/api/finances/recurring", "POST", {
       label,
+      // Always POSITIVE dollars plus a direction — the server combines them.
       amountDollars: amount,
+      payback,
+      memberId: ruleMemberId || null,
     });
     setBusy(false);
     if (!result.ok) {
@@ -794,6 +842,8 @@ function RulesModal({
     }
     setLabel("");
     setAmount("");
+    setPayback(false);
+    setRuleMemberId("");
     await loadRules();
     onChanged();
   }
@@ -883,12 +933,13 @@ function RulesModal({
         </section>
 
         <section className="space-y-2">
-          <h3 className="text-sm font-semibold">Monthly charges</h3>
+          <h3 className="text-sm font-semibold">Monthly charges &amp; paybacks</h3>
           {rules === null ? (
             <LoadingDots size="sm" />
           ) : rules.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              None yet — add one below and every member is billed it each month.
+              None yet — add one below. A charge bills every member each month;
+              a payback credits one member each month.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -914,6 +965,15 @@ function RulesModal({
                     <tr key={rule.id} className={rule.active ? "" : "opacity-60"}>
                       <td className="py-2 pr-3">
                         {rule.label}
+                        {/* A payback is chipped rather than left to be read off
+                            a minus sign in the amount column. Which direction
+                            the money goes is the most important thing about
+                            the row, and a leading "−" is one glyph. */}
+                        {isPayback(rule) && (
+                          <span className="ml-2 align-middle">
+                            <Badge tone="green">Payback</Badge>
+                          </span>
+                        )}
                         {!rule.active && (
                           <span className="ml-2 text-xs uppercase tracking-wide text-gray-400">
                             stopped
@@ -923,8 +983,14 @@ function RulesModal({
                       <td className="py-2 pr-3 text-gray-500 dark:text-gray-400">
                         {rule.member ? rule.member.name : "Every member"}
                       </td>
-                      <td className="tabular whitespace-nowrap py-2 pr-3 text-right font-medium">
-                        {formatMoney(rule.amountCents)}/mo
+                      <td
+                        className={`tabular whitespace-nowrap py-2 pr-3 text-right font-medium ${
+                          isPayback(rule) ? "text-green-700 dark:text-green-400" : ""
+                        }`}
+                      >
+                        {isPayback(rule)
+                          ? `${formatMoney(Math.abs(rule.amountCents))}/mo to them`
+                          : `${formatMoney(rule.amountCents)}/mo`}
                       </td>
                       <td className="py-2 text-right">
                         <button
@@ -946,35 +1012,96 @@ function RulesModal({
               row — the old side-by-side row staggered because only one of them
               carried a hint. */}
           <div className="space-y-3 border-t border-gray-100 pt-3 dark:border-gray-700">
+            {/* Direction first, because it changes what every other field in
+                this form means — and because getting it wrong bills somebody
+                instead of paying them. Two buttons rather than a checkbox
+                labelled "payback": a checkbox has an unlabelled state, and the
+                unlabelled state here is "money leaves the club". */}
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: false, label: "Charge members" },
+                { value: true, label: "Pay a member" },
+              ].map((option) => (
+                <button
+                  key={String(option.value)}
+                  type="button"
+                  onClick={() => setPayback(option.value)}
+                  aria-pressed={payback === option.value}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    payback === option.value
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              A new monthly charge bills every member, starting this month.
+              {payback
+                ? "A monthly payback credits one member's statement, starting this month — the club paying somebody to run the website, mow the tiedown or keep the books. Stopping it later leaves the months it already paid alone."
+                : "A monthly charge bills every member, starting this month — or one member, if you name them below."}
             </p>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <Input
                 label="Name"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
-                placeholder="Monthly membership"
+                placeholder={payback ? "Website upkeep" : "Monthly membership"}
               />
               <Input
-                label="Amount per month"
+                label={payback ? "Paid per month" : "Amount per month"}
                 type="number"
                 inputMode="decimal"
                 step="0.01"
                 min="0"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="250.00"
+                placeholder={payback ? "50.00" : "250.00"}
+                hint={
+                  payback
+                    ? "Enter it as a positive amount — the direction is the toggle above."
+                    : undefined
+                }
               />
             </div>
+
+            {/* "Every member" is not offered for a payback: it would credit the
+                whole club every month, which is far likelier to be a forgotten
+                name than a rebate the club voted for. The server refuses it
+                too — this select just never lets you get there. */}
+            <Select
+              label={payback ? "Paid to" : "Billed to"}
+              value={ruleMemberId}
+              onChange={(e) => setRuleMemberId(e.target.value)}
+            >
+              {payback ? (
+                <option value="">Choose a member…</option>
+              ) : (
+                <option value="">Every member</option>
+              )}
+              {(roster ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </Select>
+
             <div className="flex justify-end">
               <Button
                 size="sm"
                 variant="secondary"
                 onClick={addRule}
-                disabled={busy || !label.trim() || amount === ""}
+                disabled={
+                  busy ||
+                  !label.trim() ||
+                  amount === "" ||
+                  (payback && !ruleMemberId)
+                }
               >
-                Add
+                {payback ? "Add payback" : "Add"}
               </Button>
             </div>
           </div>

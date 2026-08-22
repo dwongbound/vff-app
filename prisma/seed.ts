@@ -980,6 +980,32 @@ async function main() {
     });
   }
 
+  // A rule that PAYS a member rather than billing them.
+  //
+  // Same rule shape, negative amount — the sign is what makes the line a
+  // PAYBACK rather than DUES (`recurringKind` in lib/finance.ts). Seeded for
+  // the same reason the locker is: the negative branch existed with no example
+  // anywhere in the club, so nobody looking at a dev database would discover
+  // that a statement can have a standing credit on it, or that the totals net
+  // it off correctly. Somebody running the club's website for $50 a month is
+  // the ordinary shape of it.
+  const PAYBACK_LABEL = "Website upkeep";
+  const existingPayback = await prisma.recurringCharge.findFirst({
+    where: { label: PAYBACK_LABEL },
+    select: { id: true },
+  });
+  if (!existingPayback) {
+    await prisma.recurringCharge.create({
+      data: {
+        label: PAYBACK_LABEL,
+        amountCents: -5_000, // negative: the club owes this one
+        memberId: memberBy("morgan@vffclub.test").id,
+        startsOn: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+        createdById: memberBy(FINANCE_OFFICER.email).id,
+      },
+    });
+  }
+
   // A rule that has STOPPED, and the lines it produced while it ran.
   //
   // Deactivating a rule is the club's way of ending it, and the promise is
@@ -1056,6 +1082,11 @@ async function main() {
         aircraftId: aircraft.id,
         userId: pilot.id,
         flownOn,
+        // Every seeded row is a FILED flight, not a session in progress. Stamped
+        // with the flight's own date rather than with the reseed, for the same
+        // reason the signature below is: a demo database whose whole log was
+        // filed at 03:00 this morning reads as one nobody flew.
+        filedAt: flownOn,
         tachStart: entry.tachStart,
         tachEnd: entry.tachEnd,
         // Hobbs is absent from every row for the same reason the airplane's
@@ -1208,6 +1239,7 @@ async function main() {
         userId: memberBy(STUDENT.email).id,
         reservationId: lesson.id,
         flownOn: day(-3, 10),
+        filedAt: day(-3, 12),
         tachStart: LESSON_TACH.start,
         tachEnd: LESSON_TACH.end,
         landings: 8,
@@ -1757,6 +1789,30 @@ async function main() {
       await prisma.flight.update({
         where: { id: tacoma.id },
         data: { reservationId: booked.id },
+      });
+    }
+
+    // A write-up on one entry, so the Log section on the detail modal has
+    // something in it on a fresh install. Markdown, because that's what the
+    // column holds — see lib/markdown.ts — and only ONE, because a demo log in
+    // which every flight comes with a debrief teaches members that a blank one
+    // is a gap rather than the ordinary case.
+    if (tacoma) {
+      await prisma.flight.update({
+        where: { id: tacoma.id },
+        data: {
+          logEntry: [
+            "Smooth run up the Sound, **VFR the whole way**.",
+            "",
+            "Things worth remembering:",
+            "",
+            "- Tacoma tower was landing 17, so plan the 45 from the north",
+            "- Winds picked up to about 12 gusting 18 by the time we left",
+            "- Transient parking is at the *south* end, past the fuel pumps",
+            "",
+            "Left tank was slow to fill again. Squawked it.",
+          ].join("\n"),
+        },
       });
     }
   }

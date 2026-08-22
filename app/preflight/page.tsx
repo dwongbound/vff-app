@@ -356,8 +356,13 @@ export default function PreflightPage() {
     draft.finish();
 
     setBusy(false);
+    // The card has done two things, and the second is new enough to say out
+    // loud: signing off a preflight OPENS the flight's log entry, carrying the
+    // meters and the clock this walk just read. See lib/flightSession.ts.
     setSaved(
-      "Preflight checkout completed. Next: the runway checkout, once you're sitting in it."
+      outcome.data.flightId
+        ? "Preflight checkout completed, and this flight is now open in the log. Next: the runway checkout, once you're sitting in it."
+        : "Preflight checkout completed. Next: the runway checkout, once you're sitting in it."
     );
 
     // Start clean for the next run — clean meaning "a fresh card", which

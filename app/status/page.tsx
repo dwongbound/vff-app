@@ -39,9 +39,10 @@ import {
   SQUAWK_STATUS_SHORT,
   SQUAWK_STATUS_TONES,
 } from "@/lib/squawks";
-import { formatDay, formatTimeRange } from "@/lib/dates";
+import { formatDay, formatTime, formatTimeRange } from "@/lib/dates";
 import { formatRemaining, maintenanceDue, nextDue } from "@/lib/maintenance";
 import { formatHours, monthlyTachHours, tachHours } from "@/lib/hours";
+import { isOpenSession } from "@/lib/flightSession";
 import type {
   ApiCheckout,
   ApiFlightSummary,
@@ -131,7 +132,16 @@ export default function StatusPage() {
     );
   }, [bookings]);
 
-  const lastFlight = (flights ?? [])[0] ?? null;
+  // The last flight the club has a COMPLETE record of. Open sessions sort to
+  // the top of the log now (they're the rows waiting on somebody), so taking
+  // [0] would put a flight that hasn't landed yet under a heading that says
+  // "last flight" and report its hours as unknown.
+  const lastFlight = (flights ?? []).find((f) => !isOpenSession(f)) ?? null;
+  // …and separately, whether the airplane is out RIGHT NOW. This is the one
+  // question Plane Status could never answer before a card opened a log entry,
+  // and it's the most useful thing on the page to a member deciding whether to
+  // drive over.
+  const flyingNow = (flights ?? []).find((f) => isOpenSession(f)) ?? null;
   const openSquawks = squawks ?? [];
   // What the airplane is next due for, for the line under the tach. Read off
   // the fleet the provider already holds — no fetch of its own.
@@ -279,6 +289,20 @@ export default function StatusPage() {
         {/* What the last person did with it. */}
         <Card className="space-y-2">
           <h2 className="text-sm font-semibold">Last flight</h2>
+          {flyingNow && (
+            <p
+              className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900
+                dark:bg-amber-900/30 dark:text-amber-200"
+            >
+              {flyingNow.mine ? "You have" : `${flyingNow.pilot.name} has`} the
+              airplane out
+              {flyingNow.startedAt ? ` since ${formatTime(flyingNow.startedAt)}` : ""}
+              {flyingNow.tachStart != null
+                ? `, from tach ${flyingNow.tachStart.toFixed(1)}`
+                : ""}
+              .
+            </p>
+          )}
           {lastFlight ? (
             <>
               <p className="text-sm">
@@ -288,7 +312,10 @@ export default function StatusPage() {
                 — {formatDay(new Date(lastFlight.flownOn))}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {formatHours(tachHours(lastFlight))} tach ·{" "}
+                {(() => {
+                  const hours = tachHours(lastFlight);
+                  return hours != null ? `${formatHours(hours)} tach · ` : "";
+                })()}
                 {lastFlight.landings}{" "}
                 {lastFlight.landings === 1 ? "landing" : "landings"}
                 {lastFlight.route ? ` · ${lastFlight.route}` : ""}

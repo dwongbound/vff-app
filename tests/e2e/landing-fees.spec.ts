@@ -7,7 +7,12 @@
 // DIFFERENT field, survives the trip through the API, and lands on somebody's
 // bill. Each of those hops is where it would break.
 import { expect, test } from "@playwright/test";
-import { clearCheckoutDrafts, gotoTab, signIn } from "./helpers";
+import {
+  clearCheckoutDrafts,
+  gotoTab,
+  openPostflightSection,
+  signIn,
+} from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -20,6 +25,9 @@ test("the fee fills itself in from where you landed, and clears again", async ({
   page,
 }) => {
   await gotoTab(page, "/postflight", "Post-flight");
+  // Route and fee live in "The flight", which is collapsed until it's opened —
+  // the page is one accordion across the turn-off card and the form.
+  await openPostflightSection(page, /The flight/);
   const main = page.getByRole("main");
   const fee = main.getByLabel("Landing fee");
 
@@ -43,6 +51,7 @@ test("the fee fills itself in from where you landed, and clears again", async ({
 
 test("a fee the pilot types over is the one that gets billed", async ({ page }) => {
   await gotoTab(page, "/postflight", "Post-flight");
+  await openPostflightSection(page, /The flight/);
   const main = page.getByRole("main");
 
   await main.getByLabel("To", { exact: true }).fill("KTOA");

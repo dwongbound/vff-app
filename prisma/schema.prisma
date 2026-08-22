@@ -131,6 +131,12 @@ enum ChargeKind {
   // DECLARATION order, so renumbering the existing values is the destructive
   // change (see the squawk-status migration) while appending is safe.
   LANDING_FEE
+  // A standing monthly CREDIT — the mirror of DUES, materialised from the same
+  // RecurringCharge rule. The club paying somebody $50 a month to run the
+  // website is not a negative due, and calling it one would file it under
+  // "Monthly membership" on the statement and in the dues half of every total.
+  // Stored negative, like every other credit. Appended, as above.
+  PAYBACK
 }
 
 model User {
@@ -389,12 +395,45 @@ model Flight {
 
   flownOn DateTime // the calendar day of the flight (local midnight)
 
-  // Meter readings. Tach is required (it's what bills); Hobbs is optional
-  // because not every airplane has one.
-  tachStart  Float
-  tachEnd    Float
+  // ── The flight as a SESSION ───────────────────────────────────────────────
+  //
+  // A row no longer begins life at the post-flight form. Completing the
+  // PREFLIGHT card opens one — that walk read the tach, the Hobbs and the clock
+  // off the panel, and those three numbers are the start of a log entry rather
+  // than trivia about a checkout. The runway card joins the same row, and the
+  // post-flight form FINISHES it. See lib/flightSession.ts for the rules and
+  // lib/flightSessions.ts for the queries.
+  //
+  // `filedAt` is what separates the two states, and it is deliberately not
+  // `createdAt`: an OPEN session is a flight that is happening (the airplane is
+  // out, the club can see who has it and what the meters read when they left),
+  // while a FILED one is the log entry. Null = still open.
+  filedAt DateTime?
+
+  // Meter readings. BOTH ends are optional now, and each null means something
+  // specific rather than "missing data":
+  //   tachStart null — nobody walked the preflight card and the pilot didn't
+  //                    know where the airplane started. That's the post-flight-
+  //                    only entry, and a row with an end and no start is a
+  //                    better record than no row at all.
+  //   tachEnd   null — the session is still open: the airplane hasn't come
+  //                    back yet.
+  // Nothing bills until both are there (lib/finance.ts `flightCharge` returns
+  // null on an unknown span), so an open session is free until it's closed out.
+  tachStart  Float?
+  tachEnd    Float?
   hobbsStart Float?
   hobbsEnd   Float?
+
+  // Wall-clock out and in, as recorded on the cards' own time fields: the
+  // preflight's "Time — recorded" / the runway card's "Flight timer — start"
+  // for `startedAt`, the turn-off card's "Flight timer — stop" for `endedAt`.
+  //
+  // Real columns rather than a read through the checkout's `values` JSON,
+  // because the flight log shows and EDITS them: a member correcting the time
+  // they got back is correcting the log entry, not rewriting a signed-off card.
+  startedAt DateTime?
+  endedAt   DateTime?
 
   landings Int @default(1)
 
@@ -449,6 +488,18 @@ model Flight {
   fuelCostCents Int?
   oilAddedQts   Float?
 
+  // Whose card the fuel went on — the same "Fuel Purchase Personal Card"
+  // column Servicing already carries, and for the same reason: fuel bought on
+  // the CLUB's card is the club buying its own fuel, while fuel bought on the
+  // member's is a debt the club owes them, and only the second raises a
+  // FUEL_CREDIT. It was missing here, so a cost recorded against a flight was
+  // credited back whether or not anybody was owed it.
+  //
+  // Defaults TRUE, which is both the safer default (it can't quietly swallow
+  // money somebody is owed) and what every row predating this column meant:
+  // until now, recording a cost WAS how you claimed it back.
+  fuelPaidPersonally Boolean @default(true)
+
   // What the destination charged to land, in whole cents, billed on to the
   // pilot as its own statement line (lib/finance.ts `landingFeeCharge`).
   //
@@ -480,8 +531,28 @@ model Flight {
 
   notes String?
 
+  // The pilot's own write-up of the flight — one per log entry, editable by
+  // its author for as long as the entry exists.
+  //
+  // Stored as MARKDOWN (a small subset: bold, italic, bullet and numbered
+  // lists — see lib/markdown.ts), not HTML. The editor is a formatting toolbar
+  // over plain text, so what lands in this column is text the club could read
+  // in a database dump, and rendering it can never be an injection: the
+  // renderer escapes first and emits only the tags it knows.
+  //
+  // Deliberately separate from `notes`, which is the one-line remark the
+  // post-flight form has always asked for ("left tank slow to fill"). This is
+  // the lesson debrief, the trip write-up, the thing worth reading a year later.
+  logEntry String?
+
   squawks Squawk[]
   photos  Photo[]
+
+  // The before-the-flight cards walked for this session — the preflight, the
+  // runway checkout, or both. The turn-off card is NOT here: it's answered on
+  // the post-flight form and stored in the columns above, because it belongs to
+  // this flight rather than standing alone.
+  checkouts Checkout[]
 
   // The hours charge and the fuel credit this flight produced. Rebuilt when the
   // flight is corrected, and cascade-deleted with it.
@@ -494,6 +565,9 @@ model Flight {
   @@index([userId, flownOn])
   // "What am I owed a signature on?" — the instructor's whole view of the log.
   @@index([instructorId, signedAt])
+  // "Do I already have a session open on this airplane?" — asked by every
+  // checkout sign-off and by the post-flight form as it loads.
+  @@index([userId, aircraftId, filedAt])
   @@map("flights")
 }
 
@@ -642,6 +716,20 @@ model Checkout {
 
   kind CheckoutKind
 
+  // The flight SESSION this run belongs to.
+  //
+  // Set when the card is signed off: the preflight OPENS a session (see
+  // Flight.filedAt) and the runway card joins the one already open, so
+  // "preflight → runway → post-flight" is one row in the log rather than three
+  // unrelated records that happen to share a morning. Null while the run is
+  // still in progress, and null forever on a card that was walked and then
+  // never flown — which is a real thing that happens and is worth keeping.
+  //
+  // SetNull rather than Cascade: deleting a mis-filed log entry must not take
+  // the record of the walkaround with it. The walk happened.
+  flight   Flight? @relation(fields: [flightId], references: [id], onDelete: SetNull)
+  flightId String?
+
   // Version of that card which was answered, so a future edit to
   // lib/checkouts.ts can't silently rewrite history. Versions are per-kind.
   checkoutVersion Int  @default(1)
@@ -672,6 +760,8 @@ model Checkout {
   // pages make, so `kind` sits inside the index rather than filtering after it.
   @@index([aircraftId, kind, createdAt])
   @@index([userId, createdAt])
+  // "Which cards were walked for this flight?" — the log entry's own question.
+  @@index([flightId])
   @@map("checkouts")
 }
 
@@ -713,6 +803,11 @@ model RecurringCharge {
   id String @id @default(cuid())
 
   label       String // "Monthly membership"
+  // POSITIVE is a charge (dues); NEGATIVE is a PAYBACK — a standing monthly
+  // credit, for the member who runs the website or mows the tiedown. One rule
+  // shape for both, because they are the same rule: an amount, a member or
+  // everyone, a start and an optional end, materialised once a month and never
+  // restated. The SIGN is what picks DUES or PAYBACK for the lines it writes.
   amountCents Int
 
   // Null means every member. Set it to bill one person only.

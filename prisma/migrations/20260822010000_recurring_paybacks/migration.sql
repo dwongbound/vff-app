@@ -1,0 +1,27 @@
+-- Monthly paybacks: the club paying a member every month, on the same rule
+-- that bills them.
+--
+-- A `RecurringCharge` with a NEGATIVE `amountCents` is a payback — $50 a month
+-- to whoever runs the website. It needs no new column, because it is the same
+-- rule in every other respect: an amount, a member or everyone, a start and an
+-- optional end, materialised once a month and never restated. Only the SIGN
+-- differs, and the sign is what picks the statement line's kind
+-- (`recurringKind` in lib/finance.ts).
+--
+-- So the only schema change is the new kind. It is APPENDED, which is the safe
+-- kind of enum change: Postgres sorts an enum in declaration order, so adding
+-- at the end leaves every existing charge's sort position alone. (Renumbering
+-- is the destructive case — see 20260807000000_squawk_status_vocabulary, which
+-- had to hand-write a USING clause with a CASE for exactly that reason.)
+--
+-- A separate kind rather than negative DUES, because a statement showing the
+-- club paying somebody $50 under "Dues" would be wrong twice: wrong on the
+-- line a member reads, and wrong in the dues half of every total that groups
+-- by kind.
+--
+-- Note the new enum value cannot be USED in the same transaction that adds it
+-- (Postgres rule). Nothing here does — the first PAYBACK row is written by the
+-- app when a month is next read, long after this has committed.
+
+-- AlterEnum
+ALTER TYPE "ChargeKind" ADD VALUE 'PAYBACK';

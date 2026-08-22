@@ -20,6 +20,7 @@ import { useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import ExportButton from "@/components/common/ExportButton";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Modal from "@/components/common/Modal";
@@ -27,6 +28,8 @@ import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
 import { notifyAircraftChanged } from "@/components/AircraftProvider";
 import { sendJson } from "@/lib/api";
+import { maintenanceSheet } from "@/lib/exports";
+import { xlsxFilename } from "@/lib/xlsx";
 import { formatFullDate, toDateInputValue } from "@/lib/dates";
 import {
   MAINTENANCE_CATEGORIES,
@@ -100,11 +103,26 @@ export default function MaintenancePanel({
     <Card className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">Maintenance</h2>
-        {canManage && (
-          <Button size="sm" variant="secondary" onClick={() => setEditing("new")}>
-            Add item
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Not gated on `maintenance:manage`: reading the due list is open to
+              every member (see lib/positions.ts), and an export is a read. */}
+          <ExportButton
+            filename={xlsxFilename([aircraft.tailNumber, "maintenance"])}
+            disabled={items.length === 0}
+            build={() => [
+              maintenanceSheet({
+                tailNumber: aircraft.tailNumber,
+                items,
+                tach,
+              }),
+            ]}
+          />
+          {canManage && (
+            <Button size="sm" variant="secondary" onClick={() => setEditing("new")}>
+              Add item
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && (

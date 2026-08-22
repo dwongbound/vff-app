@@ -2,7 +2,12 @@
 // solo-or-instructor verdict on the preflight tab, the (i) explanations on
 // every checkout item, and the full reference table on the flight log.
 import { expect, test } from "@playwright/test";
-import { gotoTab, signIn } from "./helpers";
+import {
+  gotoTab,
+  openMeters,
+  openPostflightSection,
+  signIn,
+} from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -45,8 +50,10 @@ test("three landings today clears the member for solo", async ({ page }) => {
   // File a flight with the three landings the rules ask for. Dated today, it
   // satisfies both the 30- and 90-day windows whatever else is in the log.
   await gotoTab(page, "/postflight", "Post-flight");
+  await openMeters(page);
   const tachStart = await page.getByLabel("Tach start").inputValue();
   await page.getByLabel("Tach end").fill((Number(tachStart) + 0.9).toFixed(1));
+  await openPostflightSection(page, /The flight/);
   await page.getByLabel("Landings", { exact: true }).fill("3");
   await page.getByRole("button", { name: "File" }).click();
   await expect(page.getByText(/Filed 0.9 hours/)).toBeVisible({ timeout: 60_000 });

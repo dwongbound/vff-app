@@ -83,6 +83,14 @@ export async function dismissTour(page: Page) {
  * member's own drafts — the same ones the DELETE route will allow.
  */
 export async function clearCheckoutDrafts(page: Page) {
+  // Open flight SESSIONS go too. It stretches this helper's name, and it's the
+  // same stretch that already sends it after the post-flight draft family: what
+  // a spec needs before it walks a card is "none of my own half-finished flying
+  // is lying around", and a signed-off preflight now leaves an unfiled log entry
+  // as surely as a half-ticked card leaves a draft. Splitting them would mean
+  // every spec remembering two calls that are never wanted apart.
+  await clearOpenSessions(page);
+
   const response = await page.request.get(
     "/api/checkouts?mine=1&open=1&limit=100"
   );
@@ -108,6 +116,31 @@ export async function clearCheckoutDrafts(page: Page) {
       }
     }
   });
+}
+
+/**
+ * Delete any flight SESSION this member has open.
+ *
+ * The other half of `clearCheckoutDrafts`, and it exists for the same reason:
+ * signing off a preflight card now OPENS a log entry, so a spec that walks a
+ * card leaves an unfiled flight behind it. The next spec's post-flight submit
+ * would then FINISH that entry rather than create one — which is correct
+ * behaviour and the wrong precondition, since the two specs are about different
+ * flights and only one row would exist for them.
+ *
+ * Deleting rather than filing: an open session left by a spec is a walk nobody
+ * flew, and filing it would put a flight with no end reading into the log every
+ * other spec then has to reason about.
+ *
+ * Belongs in the `beforeEach` of any spec that completes a checkout or files a
+ * flight — which, between them, is most of them.
+ */
+export async function clearOpenSessions(page: Page) {
+  const response = await page.request.get("/api/flights?mine=1&open=1&limit=100");
+  if (!response.ok()) return;
+  for (const flight of (await response.json()) as { id: string }[]) {
+    await page.request.delete(`/api/flights/${flight.id}`);
+  }
 }
 
 /**
@@ -137,4 +170,42 @@ export async function gotoTab(page: Page, href: string, heading: string) {
   await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible({
     timeout: 60_000,
   });
+}
+
+/**
+ * Open one of the post-flight page's collapsible sections.
+ *
+ * The whole page is one accordion now — the turn-off card's sections and the
+ * form's own groups (Meter readings, The flight, Servicing, Squawks) share a
+ * single "one open at a time" run, so the same component draws all of them and
+ * a member meets one interface across the three checkouts rather than two.
+ *
+ * The consequence for tests is that a collapsed section renders NO children at
+ * all, so `getByLabel("Tach end")` finds nothing until its section is open.
+ * Header names start with the number badge and end with the section's meta, so
+ * these match on the title alone with a regex rather than an exact string.
+ *
+ * Idempotent: already-open sections are left alone, because toggling one shut
+ * is exactly the failure this helper exists to prevent.
+ */
+export async function openPostflightSection(page: Page, title: RegExp) {
+  // Matched on `aria-expanded` rather than by role+name, because the sticky
+  // progress gauge renders a BUTTON PER SECTION too ("Go to Shutdown — 0 of 11
+  // checked") and a name regex hits that one first. Only a section header
+  // carries aria-expanded, which makes it the honest handle.
+  const header = page
+    .getByRole("main")
+    .locator("button[aria-expanded]")
+    .filter({ hasText: title })
+    .first();
+  await expect(header).toBeVisible({ timeout: 60_000 });
+  if ((await header.getAttribute("aria-expanded")) !== "true") {
+    await header.click();
+  }
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+}
+
+/** The meters live behind "Meter readings" now — the commonest one. */
+export async function openMeters(page: Page) {
+  await openPostflightSection(page, /Meter readings/);
 }

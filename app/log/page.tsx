@@ -19,6 +19,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import ExportButton from "@/components/common/ExportButton";
 import FlightDetailModal from "@/components/FlightDetailModal";
 import FlightEntryModal from "@/components/FlightEntryModal";
 import { RulesModal } from "@/components/OperatingRules";
@@ -32,7 +33,14 @@ import {
   isAwaitingSignature,
   signatureState,
 } from "@/lib/flightSignature";
-import { formatDay } from "@/lib/dates";
+import {
+  canEditFlight,
+  isIncompleteEntry,
+  isOpenSession,
+  missingMeters,
+} from "@/lib/flightSession";
+import { flightLogSheet } from "@/lib/exports";
+import { xlsxFilename } from "@/lib/xlsx";
 import { REQUIRED_LANDINGS, soloEligibility } from "@/lib/operatingRules";
 import {
   formatHours,
@@ -111,6 +119,17 @@ function FlightLog() {
    */
   const asInstructor = Boolean(
     me?.capabilities.includes("flight:sign") && !me?.clubMember
+  );
+
+  /**
+   * May this viewer correct (or delete) the entry that's open?
+   *
+   * Through `canEditFlight` rather than spelled out here, so this and
+   * PATCH /api/flights/[id] can't drift — the API is the one that counts, and a
+   * button that disagrees with it is a member finding out by pressing it.
+   */
+  const mayCorrect = Boolean(
+    openFlight && canEditFlight(openFlight, me ? { id: me.id, isAdmin: me.isAdmin } : null)
   );
 
   const visible =
@@ -203,6 +222,26 @@ function FlightLog() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Exports what the switch above is showing — the club's log, or
+              yours. The two are different documents (see the Club/Mine note at
+              the top of this file), and an export that ignored the switch would
+              hand a member the wrong one of them. */}
+          <ExportButton
+            filename={xlsxFilename([
+              selected.tailNumber,
+              "flight-log",
+              filter === "mine" ? (asInstructor ? "teaching" : "mine") : null,
+            ])}
+            disabled={visible.length === 0}
+            build={() => [
+              flightLogSheet({
+                tailNumber: selected.tailNumber,
+                flights: visible,
+                maintenance: selected.maintenance,
+                tach: selected.lastTach,
+              }),
+            ]}
+          />
           <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
             Add flight
           </Button>
@@ -393,6 +432,24 @@ function FlightLog() {
                       {SIGNATURE_LABELS[signatureState(flight)]}
                     </Badge>
                   )}
+                  {/* The airplane is still out. Amber rather than red — an
+                      unclosed entry is somebody's flight in progress, not a
+                      fault — and it earns a badge because it's the one row in
+                      the log that is waiting on a person. */}
+                  {isOpenSession(flight) && <Badge tone="amber">In progress</Badge>}
+                  {/* Filed, but missing a meter reading — a record with a gap,
+                      which is a different thing from a flight still out and is
+                      badged separately for that reason. It earns a badge
+                      because an entry nobody can FIND is one nobody fixes, and
+                      an unfixed gap bills nothing forever: `flightCharge`
+                      returns null on an unmeasurable span, and filling the
+                      number in from this row re-bills the flight. Amber, not
+                      red — an honest gap is not a fault. */}
+                  {isIncompleteEntry(flight) && (
+                    <Badge tone="amber">
+                      Needs {missingMeters(flight).join(" & ")}
+                    </Badge>
+                  )}
                   {flight.openSquawkCount > 0 && <Badge tone="red">Squawk</Badge>}
                   {flight.photoCount > 0 && (
                     <span className="text-xs text-gray-400">
@@ -404,10 +461,20 @@ function FlightLog() {
                       the decimal — which is the whole reason to move them here. */}
                   <div className="shrink-0 text-right">
                     <div className="text-sm font-semibold tabular">
-                      {formatHours(tachHours(flight))}
-                      <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
-                        hr
-                      </span>
+                      {/* An em dash, not 0.0. A flight whose span nobody has
+                          recorded has not flown zero hours — the club simply
+                          doesn't know yet, and a zero in this column is a
+                          number somebody would go looking for the cause of. */}
+                      {tachHours(flight) != null ? (
+                        <>
+                          {formatHours(tachHours(flight)!)}
+                          <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+                            hr
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-500">—</span>
+                      )}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
                       {flight.landings} landing{flight.landings === 1 ? "" : "s"}
@@ -447,11 +514,10 @@ function FlightLog() {
         flight={openFlight}
         onClose={() => setOpenFlight(null)}
         hourlyRateCents={selected.hourlyRateCents}
-        canDelete={Boolean(openFlight?.mine || me?.isAdmin)}
+        canDelete={mayCorrect}
         onDelete={deleteFlight}
         viewerId={me?.id ?? null}
-        // Same rule the API enforces on PATCH: your own entry, or an admin.
-        canEdit={Boolean(openFlight?.mine || me?.isAdmin)}
+        canEdit={mayCorrect}
         onSaved={async (updated) => {
           // Show the correction under the reader straight away, then refetch:
           // a corrected tach re-bills the flight and can move the airplane's

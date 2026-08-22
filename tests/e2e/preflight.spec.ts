@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import {
   clearCheckoutDrafts,
   gotoTab,
+  openMeters,
+  openPostflightSection,
   signIn,
   waitForCheckoutSaved,
 } from "./helpers";
@@ -120,9 +122,12 @@ test("filing a flight adds it to the log and advances the tach", async ({ page }
   // 1507.05. Rounding the END to one place turns "fly 1.5 hours" into 1.55 and
   // the page — correctly — says 1.6, which is a test asserting its own
   // arithmetic rather than the app's.
+  // The form's groups collapse now — one accordion across the whole page.
+  await openMeters(page);
   const tachStart = await page.getByLabel("Tach start").inputValue();
   const end = (Number(tachStart) + 1.5).toFixed(2);
   await page.getByLabel("Tach end").fill(end);
+  await openPostflightSection(page, /The flight/);
   await page.getByLabel("Landings", { exact: true }).fill("2");
   await page.getByLabel("Night landings").fill("1");
 
@@ -143,6 +148,7 @@ test("an impossible meter reading is caught before it can be filed", async ({
   page,
 }) => {
   await gotoTab(page, "/postflight", "Post-flight");
+  await openMeters(page);
   const tachStart = await page.getByLabel("Tach start").inputValue();
   await page.getByLabel("Tach end").fill((Number(tachStart) - 5).toFixed(1));
 
