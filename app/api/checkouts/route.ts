@@ -17,6 +17,13 @@
 //      partial run RETIRES any the caller already had open on that card, which
 //      is the invariant the resume logic depends on: at most one.
 //
+// SIGNING OFF A CARD WRITES TO THE FLIGHT LOG. Completing the preflight opens a
+// flight session — a log row carrying the meters and the clock that walk just
+// read — and completing the runway card joins the one already open (or opens
+// one, for a member who skipped the preflight). The response carries the
+// session's `flightId`, which is what the pages link to. See
+// lib/flightSession.ts for the rules and lib/flightSessions.ts for the writes.
+//
 // The turn-off checkout is NOT here: it's answered on the post-flight form and
 // stored on the Flight row, so it goes up through /api/flights.
 import { NextResponse } from "next/server";
@@ -24,6 +31,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeCheckout } from "@/lib/serialize";
 import { supersedeOpenRuns, sweepAbandonedRuns } from "@/lib/checkoutCleanup";
+import { attachCheckoutToSession } from "@/lib/flightSessions";
 import {
   checkoutFor,
   deriveFuelOil,
@@ -188,6 +196,21 @@ export async function POST(req: Request) {
     },
     include: INCLUDE,
   });
+
+  // A SIGNED-OFF card belongs to a flight. A draft doesn't yet — half a
+  // walkaround is not a flight anyone has committed to, and opening a log row
+  // on the first tick would fill the club's log with sessions for members who
+  // changed their minds at the fuel truck.
+  if (complete) {
+    const flightId = await attachCheckoutToSession({
+      checkoutId: created.id,
+      userId: user.id,
+      aircraftId,
+      kind,
+      values,
+    });
+    if (flightId) created.flightId = flightId;
+  }
 
   return NextResponse.json(serializeCheckout(created), { status: 201 });
 }

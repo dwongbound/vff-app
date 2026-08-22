@@ -3,7 +3,12 @@
 // exercises lib/storage end to end (upload → row → authed read), so it's worth
 // having even though it's the slowest spec here.
 import { expect, test } from "@playwright/test";
-import { gotoTab, signIn } from "./helpers";
+import {
+  gotoTab,
+  openMeters,
+  openPostflightSection,
+  signIn,
+} from "./helpers";
 
 // A real 2×2 PNG, hand-assembled so the suite doesn't need a fixture file on
 // disk (and so the bytes are small enough to be free).
@@ -20,9 +25,12 @@ test.beforeEach(async ({ page }) => {
 test("a photo attached to a flight comes back on the log entry", async ({ page }) => {
   await gotoTab(page, "/postflight", "Post-flight");
 
+  await openMeters(page);
   const tachStart = await page.getByLabel("Tach start").inputValue();
   await page.getByLabel("Tach end").fill((Number(tachStart) + 1.2).toFixed(1));
 
+  // The uploader lives in Servicing, which is its own collapsed section now.
+  await openPostflightSection(page, /Servicing/);
   // The uploader holds the file locally and only sends it once the flight row
   // exists — see components/PhotoUploader.tsx.
   await page.locator('input[type="file"]').setInputFiles({

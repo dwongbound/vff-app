@@ -14,6 +14,7 @@ import {
   chargesForFlight,
   isBillablePeriod,
   membersBilledBy,
+  recurringKind,
   servicingCredit,
   type BillableServicing,
   type Period,
@@ -25,10 +26,25 @@ import { prisma } from "./prisma";
 export interface FlightForBilling {
   id: string;
   userId: string;
-  tachStart: number;
-  tachEnd: number;
+  /** Nullable: an open session has no end reading yet. See BillableFlight. */
+  tachStart: number | null;
+  tachEnd: number | null;
   flownOn: Date;
   fuelCostCents: number | null;
+  /**
+   * Whose card the fuel went on. REQUIRED here, unlike on `BillableFlight`
+   * where it is optional-and-absent-means-true for compatibility with callers
+   * that predate the column.
+   *
+   * The difference is deliberate. Absent-means-true is the right default for a
+   * pure function with old fixtures behind it, but it is a trap for the two db
+   * call sites: forget the field and the club silently credits a member for
+   * its own fuel, with nothing on screen to say so. Requiring it here makes
+   * that a compile error instead — which is how the omission that shipped in
+   * the first version of this feature should have been caught, rather than by
+   * an e2e test asserting on a statement.
+   */
+  fuelPaidPersonally: boolean;
   landingFeeCents?: number | null;
   arrival?: string | null;
   aircraft: { tailNumber: string; hourlyRateCents: number | null };
@@ -166,7 +182,7 @@ export async function ensureRecurringCharges(period: Period) {
 
   const rows: {
     memberId: string;
-    kind: "DUES";
+    kind: "DUES" | "PAYBACK";
     amountCents: number;
     description: string;
     period: string;
@@ -175,10 +191,13 @@ export async function ensureRecurringCharges(period: Period) {
   }[] = [];
 
   for (const rule of rules as RecurringRule[]) {
+    // The sign of the rule picks the kind: a negative standing amount is the
+    // club paying a member monthly, not a negative due. See `recurringKind`.
+    const kind = recurringKind(rule);
     for (const memberId of membersBilledBy(rule, period, roster)) {
       rows.push({
         memberId,
-        kind: "DUES",
+        kind,
         amountCents: rule.amountCents,
         description: rule.label,
         period,

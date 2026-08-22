@@ -37,13 +37,19 @@ import {
   signatureState,
 } from "@/lib/flightSignature";
 import { SQUAWK_STATUS_SHORT, SQUAWK_STATUS_TONES } from "@/lib/squawks";
-import { formatFullDate, toDateInputValue } from "@/lib/dates";
+import { formatFullDate, formatTime, toDateInputValue, toLocalInputValue } from "@/lib/dates";
 import { formatCents, formatHours, hobbsHours, tachHours, validateMeters } from "@/lib/hours";
+import { canEditLogEntry, isOpenSession } from "@/lib/flightSession";
+import { hasContent } from "@/lib/markdown";
+import RichTextEditor, { RichTextView } from "./common/RichText";
 import type { ApiFlight, ApiMember } from "@/lib/types";
 
 /** The editable half of a log entry, as the inputs hold it (strings). */
 interface EditForm {
   flownOn: string;
+  /** "YYYY-MM-DDTHH:MM" as a datetime-local input holds it; "" = not recorded. */
+  startedAt: string;
+  endedAt: string;
   tachStart: string;
   tachEnd: string;
   hobbsStart: string;
@@ -60,6 +66,8 @@ interface EditForm {
   withInstructor: boolean;
   instructorId: string;
   notes: string;
+  /** The pilot's write-up, as markdown. See lib/markdown.ts. */
+  logEntry: string;
 }
 
 const money = (cents: number | null) =>
@@ -70,6 +78,8 @@ const text = (value: number | string | null) =>
 function formFor(flight: ApiFlight): EditForm {
   return {
     flownOn: toDateInputValue(new Date(flight.flownOn)),
+    startedAt: flight.startedAt ? toLocalInputValue(new Date(flight.startedAt)) : "",
+    endedAt: flight.endedAt ? toLocalInputValue(new Date(flight.endedAt)) : "",
     tachStart: text(flight.tachStart),
     tachEnd: text(flight.tachEnd),
     hobbsStart: text(flight.hobbsStart),
@@ -86,6 +96,7 @@ function formFor(flight: ApiFlight): EditForm {
     withInstructor: flight.withInstructor,
     instructorId: flight.instructor?.id ?? "",
     notes: flight.notes ?? "",
+    logEntry: flight.logEntry ?? "",
   };
 }
 
@@ -124,6 +135,17 @@ export default function FlightDetailModal({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [instructors, setInstructors] = useState<ApiMember[] | null>(null);
+
+  /**
+   * May this viewer write the WRITE-UP, as opposed to correcting the entry?
+   *
+   * Narrower than `canEdit` on purpose, and the same rule the route enforces:
+   * an admin may fix anyone's tach reading, because that's the club's books,
+   * and may not put words in anyone's logbook. See lib/flightSession.ts.
+   */
+  const canWriteLog = flight
+    ? canEditLogEntry(flight, viewerId ? { id: viewerId } : null)
+    : false;
 
   // Opening a different entry closes the editor. Without this, clicking through
   // the log with the form open would show one flight's numbers under another
@@ -170,12 +192,14 @@ export default function FlightDetailModal({
 
     // The same mis-read-meter check the post-flight form and the API run. Worth
     // running here too: a correction is exactly when a digit gets transposed.
+    //
+    // Either reading may be CLEARED. An entry filed with no start tach is a
+    // real thing — a flight closed out by somebody who never walked a preflight
+    // card — and so is a member deciding the number they typed from memory was
+    // wrong. What the log shows for those is a gap, which is honest; what it
+    // must never show is an invented number nobody can date.
     const tachStart = numeric(form.tachStart);
     const tachEnd = numeric(form.tachEnd);
-    if (tachStart == null || tachEnd == null) {
-      setSaveError("A flight needs both tach readings.");
-      return;
-    }
     const problem = validateMeters({
       tachStart,
       tachEnd,
@@ -197,6 +221,11 @@ export default function FlightDetailModal({
       // Noon, not midnight — see the entry modal: a calendar day read back in
       // another zone otherwise slides to the day before.
       flownOn: `${form.flownOn}T12:00:00`,
+      // The datetime-local inputs hold LOCAL wall time; `new Date(...)` on that
+      // string reads it in the viewer's zone, which is the right one — a member
+      // correcting the time they got back is typing the time on their watch.
+      startedAt: form.startedAt ? new Date(form.startedAt).toISOString() : null,
+      endedAt: form.endedAt ? new Date(form.endedAt).toISOString() : null,
       tachStart,
       tachEnd,
       hobbsStart: numeric(form.hobbsStart),
@@ -216,6 +245,10 @@ export default function FlightDetailModal({
       instructorId:
         form.withInstructor && form.instructorId ? form.instructorId : null,
       notes: form.notes.trim() || null,
+      // The write-up, but only from its author — the route refuses it from
+      // anyone else, and sending it anyway would turn an admin's correction of
+      // a tach reading into a 403. See lib/flightSession.ts `canEditLogEntry`.
+      ...(canWriteLog ? { logEntry: form.logEntry.trim() || null } : {}),
     });
     setSaving(false);
 
@@ -228,13 +261,40 @@ export default function FlightDetailModal({
     onSaved?.(result.data);
   }
 
+  /**
+   * Stamp an open entry as filed, leaving everything else exactly as it is.
+   *
+   * Its own request rather than a flag on Save, because it is its own decision:
+   * a member correcting the tach on a flight still in progress has not said the
+   * flight is over, and a Save that quietly ended it would be the app deciding
+   * for them.
+   */
+  async function fileEntry() {
+    if (!flight) return;
+    setSaveError(null);
+    setSaving(true);
+    const result = await sendJson<ApiFlight>(`/api/flights/${flight.id}`, "PATCH", {
+      filed: true,
+    });
+    setSaving(false);
+    if (!result.ok || !result.data) {
+      setSaveError(result.error ?? "Could not file that flight.");
+      return;
+    }
+    onSaved?.(result.data);
+  }
+
   if (!flight) return null;
 
   const tach = tachHours(flight);
   const hobbs = hobbsHours(flight);
-  const hoursCost = hourlyRateCents == null ? null : Math.round(tach * hourlyRateCents);
+  // An entry with no measurable span costs no HOURS. It can still owe a landing
+  // fee — the desk charged that whether or not anybody read the panel.
+  const hoursCost =
+    hourlyRateCents == null || tach == null ? null : Math.round(tach * hourlyRateCents);
   const fee = flight.landingFeeCents ?? 0;
-  const cost = hoursCost == null ? null : hoursCost + fee;
+  const cost = hoursCost == null ? (fee || null) : hoursCost + fee;
+  const inProgress = isOpenSession(flight);
   const state = signatureState(flight);
   const set = (patch: Partial<EditForm>) =>
     setForm((current) => (current ? { ...current, ...patch } : current));
@@ -243,7 +303,13 @@ export default function FlightDetailModal({
     <Modal
       open
       onClose={onClose}
-      title={`${formatHours(tach)} hours · ${flight.aircraft.tailNumber}`}
+      title={
+        tach != null
+          ? `${formatHours(tach)} hours · ${flight.aircraft.tailNumber}`
+          : inProgress
+            ? `In progress · ${flight.aircraft.tailNumber}`
+            : `Hours not recorded · ${flight.aircraft.tailNumber}`
+      }
       subtitle={`${formatFullDate(flight.flownOn)} · ${flight.pilot.name}`}
       footer={
         <div className="flex w-full items-center gap-2">
@@ -253,6 +319,16 @@ export default function FlightDetailModal({
           {canDelete && !editing && (
             <Button variant="danger" onClick={() => onDelete(flight)}>
               Delete
+            </Button>
+          )}
+          {/* Closing out an entry from the log rather than from the post-flight
+              form. The case it exists for is the walk that was signed and then
+              never flown, or a flight closed out days later — without it the
+              note above tells a member to file the entry here and gives them
+              nothing to press. Hidden once filed: there is no un-filing. */}
+          {inProgress && canEdit && onSaved && !editing && (
+            <Button variant="secondary" disabled={saving} onClick={fileEntry}>
+              {saving ? <LoadingDots size="sm" /> : "File this flight"}
             </Button>
           )}
           <div className="ml-auto flex items-center gap-2">
@@ -310,6 +386,24 @@ export default function FlightDetailModal({
               onChange={(e) => set({ flownOn: e.target.value })}
             />
 
+            {/* Out and in. Recorded by the cards' own time fields when they
+                were walked, and typed here for a flight that wasn't — or when
+                the clock on the card was the one the member forgot to change. */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                label="Started"
+                type="datetime-local"
+                value={form.startedAt}
+                onChange={(e) => set({ startedAt: e.target.value })}
+              />
+              <Input
+                label="Ended"
+                type="datetime-local"
+                value={form.endedAt}
+                onChange={(e) => set({ endedAt: e.target.value })}
+              />
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <Input
                 label="Tach start"
@@ -317,6 +411,7 @@ export default function FlightDetailModal({
                 step="0.01"
                 value={form.tachStart}
                 onChange={(e) => set({ tachStart: e.target.value })}
+                hint="Leave empty if it was never read"
               />
               <Input
                 label="Tach end"
@@ -457,22 +552,65 @@ export default function FlightDetailModal({
               label="Notes"
               value={form.notes}
               onChange={(e) => set({ notes: e.target.value })}
+              hint="The one-line remark — “left tank slow to fill”. The write-up below is for the flight itself."
             />
+
+            {/* The write-up. Author-only, which is why it disappears rather
+                than greying out for an admin correcting somebody's meters:
+                a disabled field invites a member to wonder what they'd have to
+                do to enable it, and the answer is "be someone else". */}
+            {canWriteLog && (
+              <RichTextEditor
+                label="Log"
+                value={form.logEntry}
+                onChange={(logEntry) => set({ logEntry })}
+                placeholder={"How the flight went.\n\n- Use the buttons above, or type **bold**, *italic*\n- Dashes make a list"}
+                hint="Yours, and yours alone — an admin correcting this entry can't touch it. Editable any time."
+              />
+            )}
           </>
         ) : (
           <>
-            {/* Meters, side by side the way they read on the panel. */}
+            {/* An entry the airplane hasn't come back from. Said plainly and
+                at the top, because everything below it — hours, cost, landings
+                — is an answer about a flight that isn't over. */}
+            {inProgress && (
+              <p
+                className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900
+                  dark:bg-amber-900/30 dark:text-amber-200"
+              >
+                This flight is still open. It was started at the airplane and
+                hasn&apos;t been closed out — finish it on the post-flight form,
+                or fill in the end readings here and file it.
+              </p>
+            )}
+
+            {/* Meters, side by side the way they read on the panel. An unread
+                meter shows an em dash on its side of the arrow rather than a
+                zero: the club knows it doesn't know. */}
             <section className="grid grid-cols-2 gap-3 text-sm">
-              <Figure label="Tach" value={`${flight.tachStart} → ${flight.tachEnd}`} sub={`${formatHours(tach)} hr`} />
+              <Figure
+                label="Tach"
+                value={`${flight.tachStart ?? "—"} → ${flight.tachEnd ?? "—"}`}
+                sub={tach != null ? `${formatHours(tach)} hr` : "no span recorded"}
+              />
               <Figure
                 label="Hobbs"
                 value={
-                  flight.hobbsStart != null && flight.hobbsEnd != null
-                    ? `${flight.hobbsStart} → ${flight.hobbsEnd}`
+                  flight.hobbsStart != null || flight.hobbsEnd != null
+                    ? `${flight.hobbsStart ?? "—"} → ${flight.hobbsEnd ?? "—"}`
                     : "—"
                 }
                 sub={hobbs != null ? `${formatHours(hobbs)} hr` : "not recorded"}
               />
+              {(flight.startedAt || flight.endedAt) && (
+                <Figure
+                  label="Out / in"
+                  value={`${flight.startedAt ? formatTime(flight.startedAt) : "—"} → ${
+                    flight.endedAt ? formatTime(flight.endedAt) : "—"
+                  }`}
+                />
+              )}
               <Figure label="Landings" value={String(flight.landings)} />
               {cost != null && (
                 <Figure
@@ -614,6 +752,29 @@ export default function FlightDetailModal({
               </section>
             )}
 
+            {/* The write-up. Shown to everyone — the log is the club's shared
+                record and a good debrief is worth reading — and written by its
+                author alone. An entry without one offers the author the way in
+                rather than saying nothing, since "you can add this later, any
+                time" is the whole promise and an invisible feature isn't one. */}
+            {hasContent(flight.logEntry) ? (
+              <section>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Log
+                </h3>
+                <RichTextView markdown={flight.logEntry} />
+              </section>
+            ) : (
+              canWriteLog &&
+              canEdit &&
+              onSaved && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  No write-up yet — press Edit to add one. You can do that any
+                  time, on any flight of yours.
+                </p>
+              )
+            )}
+
             {flight.squawks.length > 0 && (
               <section>
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -727,7 +888,8 @@ function CostBreakdown({
   arrival,
   total,
 }: {
-  tach: number;
+  /** Null when the entry has no measurable span — see the hours row below. */
+  tach: number | null;
   hourlyRateCents: number | null;
   hoursCost: number;
   landingFeeCents: number;
@@ -736,13 +898,24 @@ function CostBreakdown({
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-3">
-        <span>
-          {tach} tach hr × {hourlyRateCents == null ? "—" : formatCents(hourlyRateCents)}
-          /hr
-        </span>
-        <span className="tabular font-medium">{formatCents(hoursCost)}</span>
-      </div>
+      {/* An entry with no span has no hours LINE, rather than a line reading
+          "0 tach hr × $135.00/hr — $0.00". That row is an assertion about a
+          flight, and this is a flight the club can't measure: the fee below it
+          is the only thing it really knows. */}
+      {tach != null ? (
+        <div className="flex items-baseline justify-between gap-3">
+          <span>
+            {tach} tach hr ×{" "}
+            {hourlyRateCents == null ? "—" : formatCents(hourlyRateCents)}
+            /hr
+          </span>
+          <span className="tabular font-medium">{formatCents(hoursCost)}</span>
+        </div>
+      ) : (
+        <p className="text-gray-500 dark:text-gray-400">
+          No hours billed — this entry has no tach span recorded.
+        </p>
+      )}
       {landingFeeCents > 0 && (
         <div className="flex items-baseline justify-between gap-3">
           <span>Landing fee{arrival ? ` — ${arrival}` : ""}</span>

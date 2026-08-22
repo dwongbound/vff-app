@@ -5,7 +5,7 @@
 // Edit, change a number, press Save, and check the club's record moved — both
 // on screen and in the books, because a corrected tach re-bills the flight.
 import { expect, test } from "@playwright/test";
-import { gotoTab, signIn } from "./helpers";
+import { clearOpenSessions, gotoTab, signIn } from "./helpers";
 
 /** File a flight of our own to correct, and hand back its id. */
 async function seedFlight(page: import("@playwright/test").Page) {
@@ -29,6 +29,9 @@ async function seedFlight(page: import("@playwright/test").Page) {
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
+  // An earlier spec's preflight walk leaves an open session, and POSTing a
+  // flight would FINISH that one rather than file a new row. See the helper.
+  await clearOpenSessions(page);
 });
 
 test("a member can correct their own entry, and the log says it was edited", async ({

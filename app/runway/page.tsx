@@ -273,6 +273,10 @@ export default function RunwayPage() {
     draft.finish();
 
     setBusy(false);
+    // Signing this card off joins the flight's log entry — the one the
+    // preflight walk opened, or a new one for a member who skipped that card.
+    // Either way the club can now see the airplane is out. See
+    // lib/flightSession.ts.
     setSaved("Taxi & Runway checkout completed. Clear prop — have a good flight.");
 
     setAnswers(preflightDone ? { "start.preflight": true } : {});

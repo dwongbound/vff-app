@@ -127,6 +127,11 @@ export default function FlightEntryModal({
     setError(null);
     setBusy(true);
     const result = await sendJson<ApiFlight>("/api/flights", "POST", {
+      // A NEW row, never a close-out. The route otherwise adopts whatever
+      // session the caller has open, which is right for the post-flight form
+      // and exactly wrong here: this is a flight from last month, and the
+      // airplane the member has out right now is a different one.
+      standalone: true,
       aircraftId: aircraft.id,
       // Noon, not midnight: `flownOn` is a calendar day, and midnight local
       // read back in another zone slides the flight to the day before.

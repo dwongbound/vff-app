@@ -7,6 +7,7 @@ import {
   formatPeriod,
   fuelCredit,
   isBillablePeriod,
+  isPayback,
   isPeriod,
   membersBilledBy,
   parseDollars,
@@ -15,6 +16,7 @@ import {
   servicingCredit,
   periodStart,
   recentPeriods,
+  recurringKind,
   ruleAppliesTo,
   shiftPeriod,
   totals,
@@ -202,6 +204,26 @@ describe("what a flight costs", () => {
     expect(fuelCredit({ ...flight, fuelCostCents: 0 }, "N8318B")).toBeNull();
   });
 
+  // Fuel on the CLUB's card is the club buying its own fuel: the fill-up is
+  // worth recording, but nobody is owed anything. Before this the cost alone
+  // raised a credit, which paid members back for the club's own purchases.
+  it("has no credit when the fuel went on the club's card", () => {
+    expect(
+      fuelCredit({ ...flight, fuelPaidPersonally: false }, "N8318B")
+    ).toBeNull();
+  });
+
+  // Absent-means-true, matching the column default. Every flight filed before
+  // there was a toggle meant "pay me back" — recording a cost was the only way
+  // to ask — so a caller that omits the field must bill exactly as it always
+  // did, and a fixture written before this existed must not lose its credit.
+  it("still credits a flight that says nothing about whose card it was", () => {
+    expect(fuelCredit(flight, "N8318B")?.amountCents).toBe(-6_500);
+    expect(
+      fuelCredit({ ...flight, fuelPaidPersonally: true }, "N8318B")?.amountCents
+    ).toBe(-6_500);
+  });
+
   // The example from the club: $65 of gas comes off what you owe.
   it("nets the hours charge against the fuel credit", () => {
     const lines = chargesForFlight(flight, 13_500, "N8318B");
@@ -306,5 +328,68 @@ describe("servicingCredit", () => {
       "N8318B"
     )!;
     expect(december.period).toBe("2026-12");
+  });
+});
+
+// ── Monthly paybacks ────────────────────────────────────────────────────────
+//
+// A payback is a RecurringCharge with a negative amount — the club paying $50
+// a month to whoever runs the website. Same rule shape as dues; the SIGN is
+// the only difference, and these pin that the sign is what decides the kind.
+describe("paybacks", () => {
+  const base: RecurringRule = {
+    id: "r1",
+    label: "Website upkeep",
+    amountCents: -5_000,
+    memberId: "sam",
+    startsOn: new Date(2026, 0, 1),
+    endsOn: null,
+    active: true,
+  };
+
+  it("reads the direction off the sign of the amount", () => {
+    expect(isPayback(base)).toBe(true);
+    expect(isPayback({ ...base, amountCents: 25_000 })).toBe(false);
+    // Zero is not a payback. It bills nothing either way, and calling it a
+    // credit would put a $0.00 "Monthly payback" line on a statement.
+    expect(isPayback({ ...base, amountCents: 0 })).toBe(false);
+  });
+
+  // A statement showing the club paying somebody $50 under "Dues" would be
+  // wrong on the line a member reads AND in the dues half of every total that
+  // groups by kind. That's why it's a separate kind rather than negative dues.
+  it("writes a PAYBACK line rather than a negative due", () => {
+    expect(recurringKind(base)).toBe("PAYBACK");
+    expect(recurringKind({ ...base, amountCents: 25_000 })).toBe("DUES");
+    expect(recurringKind({ ...base, amountCents: 0 })).toBe("DUES");
+  });
+
+  // Everything else about a payback is a dues rule: the same window, the same
+  // roster filtering, the same "never restate a month already billed".
+  it("applies over its window exactly as a charge does", () => {
+    expect(ruleAppliesTo(base, "2026-08")).toBe(true);
+    expect(ruleAppliesTo(base, "2025-12")).toBe(false);
+    expect(ruleAppliesTo({ ...base, active: false }, "2026-08")).toBe(false);
+    expect(
+      ruleAppliesTo({ ...base, endsOn: new Date(2026, 5, 30) }, "2026-08")
+    ).toBe(false);
+  });
+
+  it("credits only the member it names", () => {
+    const roster = [
+      { id: "sam", joinedAt: new Date(2025, 0, 1) },
+      { id: "alex", joinedAt: new Date(2025, 0, 1) },
+    ];
+    expect(membersBilledBy(base, "2026-08", roster)).toEqual(["sam"]);
+  });
+
+  // Credits are stored negative, so a payback lands in the same addition every
+  // other credit does and a member's balance needs no special case.
+  it("nets against what the member owes", () => {
+    const month = totals([
+      { amountCents: 25_000, voided: false },
+      { amountCents: -5_000, voided: false },
+    ]);
+    expect(month.balanceCents).toBe(20_000);
   });
 });

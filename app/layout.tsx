@@ -3,6 +3,7 @@ import Script from "next/script";
 import { IBM_Plex_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
 import Providers from "./providers";
 import AppShell from "@/components/AppShell";
 import { CLUB_NAME, CLUB_SHORT_NAME } from "@/lib/constants";
@@ -125,6 +126,22 @@ try {
 } catch (e) {}
 `;
 
+/* Page views, counted by Vercel — on the two branches that are real
+   deployments and nowhere else.
+   ──────────────────────────────────────────────────────────────────────────
+   The script is served by Vercel's own edge at `/_vercel/insights/script.js`,
+   so anywhere else it is a 404 on every page load: the Docker image, `next
+   dev`, and the e2e harness all serve this app without any Vercel around it.
+   Hence the same `main | staging` gate scripts/vercel-build.sh applies to
+   migrations, and for the same underlying reason — those are the only two
+   branches vercel.json lets deploy at all, so a preview build has no business
+   writing to the club's numbers either. `VERCEL_GIT_COMMIT_REF` is a Vercel
+   system variable and is simply unset everywhere else, which is what makes
+   this one check cover both questions. */
+const analytics =
+  process.env.VERCEL_GIT_COMMIT_REF === "main" ||
+  process.env.VERCEL_GIT_COMMIT_REF === "staging";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // Read here, on the server, where the environment actually lives. Handed to
   // the client as one boolean + one sentence, so no bucket configuration ever
@@ -155,6 +172,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers photos={{ enabled: photos.configured, reason: photos.reason }}>
           <AppShell>{children}</AppShell>
         </Providers>
+        {analytics ? <Analytics /> : null}
       </body>
     </html>
   );

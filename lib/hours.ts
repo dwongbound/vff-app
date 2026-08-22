@@ -16,28 +16,69 @@ export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * The four readings, each of which may be missing.
+ *
+ * Every one is optional because a log entry now spans a whole session and can
+ * legitimately be looked at halfway through it. A row with a start and no end
+ * is an airplane that hasn't come back; a row with an end and no start is a
+ * flight closed out by somebody who never walked the preflight card. Both are
+ * better records than no row, so the arithmetic here answers "unknown" rather
+ * than refusing to run — see `tachHours` returning null.
+ */
 export interface Meters {
-  tachStart: number;
-  tachEnd: number;
+  tachStart?: number | null;
+  tachEnd?: number | null;
   hobbsStart?: number | null;
   hobbsEnd?: number | null;
 }
 
-/** Billable tach time for one flight. */
-export function tachHours(m: Pick<Meters, "tachStart" | "tachEnd">): number {
-  return round2(m.tachEnd - m.tachStart);
+/** A reading that is actually a reading — not null, not NaN, not a blank box. */
+function reading(v: number | null | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Billable tach time for one flight, or null when either end is unknown.
+ *
+ * Null rather than 0, and the difference is the whole reason this returns a
+ * nullable: zero hours is a claim ("the airplane ran and logged nothing"),
+ * while an open session is the absence of one. Totals treat null as
+ * contributing nothing; the ledger refuses to bill it at all.
+ */
+export function tachHours(m: Pick<Meters, "tachStart" | "tachEnd">): number | null {
+  const start = reading(m.tachStart);
+  const end = reading(m.tachEnd);
+  if (start == null || end == null) return null;
+  return round2(end - start);
+}
+
+/** Both tach readings are in — the flight has a measurable span. */
+export function hasTachSpan(m: Pick<Meters, "tachStart" | "tachEnd">): boolean {
+  return tachHours(m) !== null;
 }
 
 /** Hobbs (elapsed) time, or null when the airplane has no Hobbs entry. */
 export function hobbsHours(
   m: Pick<Meters, "hobbsStart" | "hobbsEnd">
 ): number | null {
-  if (m.hobbsStart == null || m.hobbsEnd == null) return null;
-  return round2(m.hobbsEnd - m.hobbsStart);
+  const start = reading(m.hobbsStart);
+  const end = reading(m.hobbsEnd);
+  if (start == null || end == null) return null;
+  return round2(end - start);
 }
 
 /**
- * Validate a post-flight meter entry. Returns a member-facing message or null.
+ * Validate a set of meter readings. Returns a member-facing message or null.
+ *
+ * Every reading is OPTIONAL here, which is the change a flight session brings:
+ * a row is looked at (and saved) at three different points in its life, and
+ * only the last of them has all four numbers. What this checks is that the
+ * readings which ARE present make sense together — a missing one is a state,
+ * not a mistake. "Did you give me enough to FILE this?" is a different question
+ * and is asked separately by whoever is filing — `POST /api/flights` insists on
+ * a tach END, because that is the number the pilot has just read off the panel,
+ * and deliberately does not insist on a start.
  *
  * The "Hobbs is much smaller than tach" check is the mis-read catcher: Hobbs
  * counts wall-clock time including taxi, so it is essentially always ≥ tach.
@@ -45,26 +86,42 @@ export function hobbsHours(
  * wrong (usually a transposed digit).
  */
 export function validateMeters(m: Meters): string | null {
-  if (!Number.isFinite(m.tachStart) || !Number.isFinite(m.tachEnd)) {
-    return "Enter both tach readings.";
+  const tachStart = reading(m.tachStart);
+  const tachEnd = reading(m.tachEnd);
+  const hobbsStart = reading(m.hobbsStart);
+  const hobbsEnd = reading(m.hobbsEnd);
+
+  // A reading that was given has to be a real one. Note this catches the
+  // Number("abc") case the old `Number.isFinite` pair caught, while a field
+  // that was simply never filled in now passes straight through.
+  for (const value of [tachStart, tachEnd, hobbsStart, hobbsEnd]) {
+    if (value != null && value < 0) return "Meter readings can't be negative.";
   }
-  if (m.tachStart < 0 || m.tachEnd < 0) {
-    return "Meter readings can't be negative.";
-  }
-  if (m.tachEnd < m.tachStart) {
-    return "Tach end is lower than tach start — check the readings.";
-  }
-  if (tachHours(m) === 0) {
-    return "Tach start and end are the same — no flight time recorded.";
-  }
-  if (tachHours(m) > 12) {
-    return "That's over 12 hours of tach time — check for a typo.";
+  if (m.tachStart != null && tachStart == null) return "That tach start isn't a number.";
+  if (m.tachEnd != null && tachEnd == null) return "That tach end isn't a number.";
+
+  const tach = tachHours(m);
+  if (tach != null) {
+    if (tach < 0) {
+      return "Tach end is lower than tach start — check the readings.";
+    }
+    if (tach === 0) {
+      return "Tach start and end are the same — no flight time recorded.";
+    }
+    if (tach > 12) {
+      return "That's over 12 hours of tach time — check for a typo.";
+    }
   }
 
-  const hasStart = m.hobbsStart != null;
-  const hasEnd = m.hobbsEnd != null;
-  if (hasStart !== hasEnd) {
-    return "Enter both Hobbs readings, or neither.";
+  // The "one Hobbs and not the other" catcher, and it only applies to a flight
+  // with both ends recorded. Half a Hobbs pair on a half-recorded flight is the
+  // half that HAS been read: a session in progress has a start and no end
+  // because the airplane is still out, and an entry closed out without a
+  // preflight has an end and no start because nobody read the panel first.
+  if (tachStart != null && tachEnd != null) {
+    if ((hobbsStart == null) !== (hobbsEnd == null)) {
+      return "Enter both Hobbs readings, or neither.";
+    }
   }
 
   const hobbs = hobbsHours(m);
@@ -73,7 +130,7 @@ export function validateMeters(m: Meters): string | null {
       return "Hobbs end is lower than Hobbs start — check the readings.";
     }
     // Allow a small margin for a tach that runs fast at cruise RPM.
-    if (hobbs + 0.2 < tachHours(m)) {
+    if (tach != null && hobbs + 0.2 < tach) {
       return "Hobbs time is well below tach time — double-check both meters.";
     }
   }
@@ -82,8 +139,8 @@ export function validateMeters(m: Meters): string | null {
 }
 
 export interface FlightLike {
-  tachStart: number;
-  tachEnd: number;
+  tachStart?: number | null;
+  tachEnd?: number | null;
   hobbsStart?: number | null;
   hobbsEnd?: number | null;
   landings?: number;
@@ -92,9 +149,15 @@ export interface FlightLike {
   fuelCostCents?: number | null;
 }
 
-/** Total tach hours across a set of flights. */
+/**
+ * Total tach hours across a set of flights.
+ *
+ * A flight with no measurable span contributes nothing rather than dropping the
+ * total: "hours flown this month" is a sum over what is known, and a session
+ * still in the air has nothing to add to it yet.
+ */
 export function totalTachHours(flights: FlightLike[]): number {
-  return round1(flights.reduce((sum, f) => sum + tachHours(f), 0));
+  return round1(flights.reduce((sum, f) => sum + (tachHours(f) ?? 0), 0));
 }
 
 /** One month of flying, for the Plane Status utilisation chart. */
@@ -143,7 +206,7 @@ export function monthlyTachHours(
     const bucket = index.get(`${d.getFullYear()}-${d.getMonth()}`);
     // Flights older than the window (or dated into the future) simply have no
     // bucket — that's the window doing its job, not an error.
-    if (bucket) bucket.hours += tachHours(flight);
+    if (bucket) bucket.hours += tachHours(flight) ?? 0;
   }
 
   for (const bucket of buckets) bucket.hours = round1(bucket.hours);
@@ -167,13 +230,21 @@ export function inRange<T extends FlightLike>(
   });
 }
 
-/** What a flight costs at the aircraft's wet rate. Null when no rate is set. */
+/**
+ * What a flight costs at the aircraft's wet rate.
+ *
+ * Null when no rate is set, and null again when the flight has no measurable
+ * span — an open session costs nothing YET, which is a different answer from
+ * $0.00 and is worth showing as one.
+ */
 export function flightCostCents(
   f: FlightLike,
   hourlyRateCents: number | null | undefined
 ): number | null {
   if (hourlyRateCents == null) return null;
-  return Math.round(tachHours(f) * hourlyRateCents);
+  const hours = tachHours(f);
+  if (hours == null) return null;
+  return Math.round(hours * hourlyRateCents);
 }
 
 /** "1.4" — hours as pilots write them, always to one decimal. */

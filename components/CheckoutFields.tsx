@@ -1,7 +1,7 @@
 "use client";
 // The readings a checkout item asks you to write down, rendered on the row.
 //
-// Shared by CheckoutList (preflight/runway) and TurnoffCheckout, so a field
+// Shared by every checkout section CheckoutList draws, so a field
 // behaves the same wherever the card puts it.
 //
 // Three things this has to get right:

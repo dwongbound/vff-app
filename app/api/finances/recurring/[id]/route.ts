@@ -1,11 +1,12 @@
-// Change or stop a standing monthly charge. finance:manage.
+// Change or stop a standing monthly charge — or a payback, which is the same
+// rule with a negative amount. finance:manage.
 //
 // PATCH — rename it, change the amount, set an end date, or deactivate it.
 // DELETE — only if it has never billed anything; otherwise deactivate, so the
 //          lines it produced keep pointing at the rule that explains them.
 import { NextResponse } from "next/server";
 import { getCapableUser } from "@/lib/auth";
-import { parseDollars } from "@/lib/finance";
+import { isPayback, parseDollars } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 import { serializeRecurringCharge } from "@/lib/serialize";
 
@@ -33,7 +34,9 @@ export async function PATCH(
 
   const existing = await prisma.recurringCharge.findUnique({
     where: { id },
-    select: { id: true },
+    // `amountCents` comes along because its SIGN is what makes this rule a
+    // charge or a payback, and an amount edit must not silently flip it.
+    select: { id: true, amountCents: true },
   });
   if (!existing) {
     return NextResponse.json({ error: "No such recurring charge." }, { status: 404 });
@@ -50,14 +53,23 @@ export async function PATCH(
   }
 
   if ("amountDollars" in body) {
-    const amountCents = parseDollars(body.amountDollars);
-    if (amountCents === null || amountCents <= 0) {
+    const magnitude = parseDollars(body.amountDollars);
+    if (magnitude === null || magnitude <= 0) {
       return NextResponse.json(
         { error: "Enter how much it is, per month." },
         { status: 400 }
       );
     }
-    data.amountCents = amountCents;
+    // The direction is KEPT unless the body deliberately changes it. Editing
+    // "$50" to "$60" on a payback must not turn a monthly credit into a
+    // monthly bill because the form only knew how to send a positive number.
+    const payback =
+      typeof body.payback === "boolean" ? body.payback : isPayback(existing);
+    data.amountCents = payback ? -magnitude : magnitude;
+  } else if (typeof body.payback === "boolean") {
+    // Flipping the direction on its own, keeping the amount.
+    const magnitude = Math.abs(existing.amountCents);
+    data.amountCents = body.payback ? -magnitude : magnitude;
   }
 
   if (typeof body.active === "boolean") data.active = body.active;

@@ -6,6 +6,16 @@
 // panel in front of you), then landings and route, then what you put back into
 // the airplane. Tach start pre-fills from the airplane's last recorded reading,
 // so the common case is typing one number.
+//
+// It is usually FINISHING something rather than starting one. Signing off the
+// preflight card opens a flight session — a log row carrying the meters and the
+// clock that walk read — and this form closes it out. The page loads that
+// session as it opens and says so, so a member can see that the numbers in the
+// start boxes are the ones they wrote at the airplane rather than a guess off
+// the last filed flight. With no session open (nobody walked a card, or it was
+// walked yesterday) the form files a fresh entry exactly as it always did, and
+// the start boxes may be left EMPTY — a row with an end and no start is a real
+// record of a flight, and better than none. See lib/flightSession.ts.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
@@ -15,8 +25,10 @@ import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
+import Toggle from "@/components/common/Toggle";
 import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
-import TurnoffCheckout from "@/components/TurnoffCheckout";
+import CheckoutList from "@/components/CheckoutList";
+import CollapsibleSection from "@/components/CollapsibleSection";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import PostflightDraftBar from "@/components/PostflightDraftBar";
 import { usePostflightDraft } from "@/components/usePostflightDraft";
@@ -25,8 +37,13 @@ import type { PostflightForm } from "@/lib/postflightDraft";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
-import { initialValues, type Answers, type Values } from "@/lib/checkouts";
-import { clubDateKey, formatDay, formatTimeRange, toDateInputValue } from "@/lib/dates";
+import {
+  TURNOFF_CHECKOUT,
+  initialValues,
+  type Answers,
+  type Values,
+} from "@/lib/checkouts";
+import { clubDateKey, formatDay, formatTime, formatTimeRange, toDateInputValue } from "@/lib/dates";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
 import {
   flightCostCents,
@@ -39,10 +56,28 @@ import {
 import type {
   ApiCheckout,
   ApiFlight,
+  ApiFlightSummary,
   ApiMember,
   ApiReservation,
   ApiSquawk,
 } from "@/lib/types";
+
+/**
+ * Where the form's own sections sit in the page's ONE numbered run.
+ *
+ * The turn-off checkout is sections 1..3 (it renders through the same
+ * CheckoutList the preflight and runway pages use), and the form picks up
+ * straight after it. Derived from the card rather than hard-coded, so adding a
+ * section to the turn-off checkout renumbers the form instead of colliding
+ * with it.
+ */
+const FIRST_FORM_INDEX = TURNOFF_CHECKOUT.sections.length + 1;
+const FORM_SECTION_INDEX = {
+  meters: FIRST_FORM_INDEX,
+  flight: FIRST_FORM_INDEX + 1,
+  servicing: FIRST_FORM_INDEX + 2,
+  squawks: FIRST_FORM_INDEX + 3,
+};
 
 export default function PostflightPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -64,6 +99,12 @@ export default function PostflightPage() {
   const [route, setRoute] = useState("");
   const [fuelAdded, setFuelAdded] = useState("");
   const [fuelCost, setFuelCost] = useState("");
+  // Whose card the fuel went on. Defaults to the member's own — the case that
+  // needs paying back, and what recording a cost has always meant here. NOT in
+  // the device draft: it's one radio pair with a safe default, and adding a
+  // field to `PostflightForm` would invalidate every draft in the club's
+  // pockets on deploy for the sake of restoring a boolean.
+  const [fuelPaidPersonally, setFuelPaidPersonally] = useState(true);
   const [oilAdded, setOilAdded] = useState("");
   const [landingFee, setLandingFee] = useState("");
   // The turn-off checkout replaces the old "tied down"/"cabin clean" toggles:
@@ -77,6 +118,20 @@ export default function PostflightPage() {
     initialValues("TURNOFF")
   );
   const [notes, setNotes] = useState("");
+  /**
+   * Which section is open — ONE piece of state for the whole page.
+   *
+   * The turn-off card's sections and the form's groups share it, which is what
+   * makes "one section open at a time" true of the page rather than true twice
+   * over. CheckoutList runs controlled off this (see its `openSectionId`);
+   * without a single owner, opening Servicing would leave Shutdown expanded
+   * above it and the page would scroll like two accordions stapled together.
+   */
+  const [openSection, setOpenSection] = useState<string>(
+    TURNOFF_CHECKOUT.sections[0].id
+  );
+  const toggleFormSection = (id: string) =>
+    setOpenSection((current) => (current === id ? "" : id));
   const [photos, setPhotos] = useState<File[]>([]);
   const [squawkDrafts, setSquawkDrafts] = useState<SquawkDraft[]>([]);
   const [squawkModalOpen, setSquawkModalOpen] = useState(false);
@@ -91,6 +146,15 @@ export default function PostflightPage() {
   const [instructors, setInstructors] = useState<ApiMember[] | null>(null);
   /** Today's signed-off preflight walk, if there is one — the start meters. */
   const [todaysPreflight, setTodaysPreflight] = useState<ApiCheckout | null>(null);
+  /**
+   * The flight this form is here to FINISH, if there is one.
+   *
+   * Opened by whichever card was signed off first, and found by asking the
+   * server rather than by remembering anything on the device — the walk may
+   * have been done on the clubhouse iPad and the form filled in on a phone,
+   * which is the case that makes "one flight, one row" worth having at all.
+   */
+  const [session, setSession] = useState<ApiFlightSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -114,6 +178,25 @@ export default function PostflightPage() {
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
+
+  // The session this form is finishing. Asked for on every load of the page and
+  // deliberately NOT cached on the device: the only copy that can be trusted is
+  // the club's, because the card that opened it may have been walked on a
+  // different device entirely.
+  const loadSession = useCallback(async () => {
+    if (!aircraftId) {
+      setSession(null);
+      return;
+    }
+    const rows = await fetchJsonArray<ApiFlightSummary>(
+      `/api/flights?aircraftId=${aircraftId}&mine=1&open=1&limit=1`
+    );
+    setSession(rows[0] ?? null);
+  }, [aircraftId]);
+
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
 
   // Today's preflight walk, for the start meters below. Only TODAY's: a reading
   // from last week is a number about a different flight, and quietly prefilling
@@ -182,17 +265,25 @@ export default function PostflightPage() {
     landingFee: false,
   });
 
-  // START, first choice: what today's preflight walk actually read off the
-  // panel. Second choice: where the last filed flight left the airplane, which
-  // is what this page used before and is still right when nobody walked the
-  // card today. A disagreement between the two usually means somebody flew and
-  // didn't file, which is worth seeing rather than smoothing over.
+  // START, in order of how much the number knows about THIS flight:
+  //   1. the open session — the reading the preflight walk wrote into the log
+  //      entry this form is closing out. First because it is that entry's own
+  //      column: whatever else changed since, this is where the flight began.
+  //   2. today's preflight card, for a walk whose session has since been closed
+  //      out or which never opened one.
+  //   3. where the last filed flight left the airplane, which is what this page
+  //      used before any of this existed and is still right when nobody walked
+  //      a card today.
+  // A disagreement between the last two usually means somebody flew and didn't
+  // file, which is worth seeing rather than smoothing over.
   const walkedTach = todaysPreflight?.values["cockpit.meters.tach"];
   const walkedHobbs = todaysPreflight?.values["cockpit.meters.hobbs"];
   const lastTach = selected?.lastTach ?? null;
   const lastHobbs = selected?.lastHobbs ?? null;
-  const startTach = typeof walkedTach === "number" ? walkedTach : lastTach;
-  const startHobbs = typeof walkedHobbs === "number" ? walkedHobbs : lastHobbs;
+  const startTach =
+    session?.tachStart ?? (typeof walkedTach === "number" ? walkedTach : lastTach);
+  const startHobbs =
+    session?.hobbsStart ?? (typeof walkedHobbs === "number" ? walkedHobbs : lastHobbs);
   useEffect(() => {
     if (startTach != null && !edited.tachStart) setTachStart(String(startTach));
   }, [startTach, edited.tachStart]);
@@ -362,6 +453,7 @@ export default function PostflightPage() {
     setRoute("");
     setFuelAdded("");
     setFuelCost("");
+    setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
     setTurnoffAnswers({});
@@ -382,7 +474,10 @@ export default function PostflightPage() {
    */
   function startHint(box: "tachStart" | "hobbsStart"): string | undefined {
     const walked = box === "tachStart" ? walkedTach : walkedHobbs;
+    const fromSession =
+      box === "tachStart" ? session?.tachStart != null : session?.hobbsStart != null;
     if (edited[box]) return undefined;
+    if (fromSession) return "from the flight you opened at the airplane";
     if (typeof walked === "number") return "from today's preflight walk";
     if (box === "tachStart") return "from the last filed flight";
     return undefined;
@@ -399,22 +494,26 @@ export default function PostflightPage() {
   // prefilled from the airplane, so without this a pilot who simply doesn't use
   // the Hobbs would be nagged for a reading they never took.
   const hobbsPair = hobbsStart !== "" && hobbsEnd !== "";
+  // Nulls, not NaN. An empty box is a reading nobody took, and `validateMeters`
+  // now says so rather than refusing — a flight filed with no start reading is
+  // a real entry with a gap in it. See lib/hours.ts.
   const meters = useMemo(
     () => ({
-      tachStart: Number(tachStart),
-      tachEnd: Number(tachEnd),
+      tachStart: tachStart === "" ? null : Number(tachStart),
+      tachEnd: tachEnd === "" ? null : Number(tachEnd),
       hobbsStart: hobbsPair ? Number(hobbsStart) : null,
       hobbsEnd: hobbsPair ? Number(hobbsEnd) : null,
     }),
     [tachStart, tachEnd, hobbsStart, hobbsEnd, hobbsPair]
   );
 
-  const bothTach = tachStart !== "" && tachEnd !== "";
-  // Only nag once there's something to nag about — an empty form isn't wrong
-  // yet, it's just empty.
-  const meterError = bothTach ? validateMeters(meters) : null;
-  const tach = bothTach && !meterError ? tachHours(meters) : null;
-  const hobbs = bothTach && !meterError ? hobbsHours(meters) : null;
+  // The end reading is the one this form exists to collect; the start may be
+  // left empty. Only nag once there's something to nag about — an empty form
+  // isn't wrong yet, it's just empty.
+  const hasEndTach = tachEnd !== "";
+  const meterError = hasEndTach ? validateMeters(meters) : null;
+  const tach = meterError ? null : tachHours(meters);
+  const hobbs = meterError ? null : hobbsHours(meters);
   const cost =
     tach != null ? flightCostCents(meters, selected?.hourlyRateCents) : null;
 
@@ -423,8 +522,8 @@ export default function PostflightPage() {
     setError(null);
     setSaved(null);
 
-    if (meterError || !bothTach) {
-      setError(meterError ?? "Enter both tach readings.");
+    if (meterError || !hasEndTach) {
+      setError(meterError ?? "Enter the tach reading at shutdown.");
       return;
     }
 
@@ -435,9 +534,13 @@ export default function PostflightPage() {
     draft.freeze();
     const result = await sendJson<ApiFlight>("/api/flights", "POST", {
       aircraftId: selected.id,
+      // The entry this form is finishing, when there is one. The server looks
+      // for it as well (a stale tab must not open a second row for the same
+      // flight), so this is the fast path rather than the only one.
+      flightId: session?.id ?? null,
       reservationId: reservationId || null,
       flownOn: new Date(`${flownOn}T12:00:00`).toISOString(), // local midday: date-only, TZ-safe
-      tachStart: Number(tachStart),
+      tachStart: tachStart === "" ? null : Number(tachStart),
       tachEnd: Number(tachEnd),
       hobbsStart: hobbsPair ? Number(hobbsStart) : null,
       hobbsEnd: hobbsPair ? Number(hobbsEnd) : null,
@@ -453,6 +556,7 @@ export default function PostflightPage() {
       route: route.trim() || null,
       fuelAddedGal: fuelAdded === "" ? null : Number(fuelAdded),
       fuelCostDollars: fuelCost === "" ? null : Number(fuelCost),
+      fuelPaidPersonally,
       oilAddedQts: oilAdded === "" ? null : Number(oilAdded),
       landingFeeDollars: landingFee === "" ? null : Number(landingFee),
       turnoffAnswers,
@@ -485,8 +589,14 @@ export default function PostflightPage() {
     }
 
     setBusy(false);
+    // Hours only when the flight has a measurable span. Filed with no start
+    // reading it hasn't got one, and claiming "0.0 hours" would be the app
+    // asserting something nobody told it.
+    const filedHours = tachHours(meters);
     setSaved(
-      `Filed ${formatHours(tachHours(meters))} hours on ${selected.tailNumber}. Thanks for closing it out.`
+      filedHours != null
+        ? `Filed ${formatHours(filedHours)} hours on ${selected.tailNumber}. Thanks for closing it out.`
+        : `Filed on ${selected.tailNumber} with no start reading — add it from the flight log and the hours will follow.`
     );
 
     // Reset for the next flight, but keep the meters in sync with what the
@@ -518,6 +628,7 @@ export default function PostflightPage() {
     setRoute("");
     setFuelAdded("");
     setFuelCost("");
+    setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
     setTurnoffAnswers({});
@@ -532,7 +643,11 @@ export default function PostflightPage() {
     // The filed flight advanced the airplane's meters, so everyone's view of
     // it is stale — one event, which the provider turns into one refetch.
     notifyAircraftChanged();
-    await loadBookings();
+    // And this member no longer has the airplane out. Re-asking rather than
+    // clearing the state by hand: a member who flies twice in an afternoon may
+    // already have walked the next preflight card, in which case there IS
+    // another session and the form should pick it up.
+    await Promise.all([loadBookings(), loadSession()]);
   }
 
   if (!selected) {
@@ -555,40 +670,74 @@ export default function PostflightPage() {
         </p>
       </header>
 
-      {/* Where this entry stands, and the only way to throw it away. Above the
-          form rather than at the foot of it: the question it answers ("if I
-          walk away now, is this kept?") is one a member asks before they start,
-          not after they finish. */}
-      <PostflightDraftBar
-        savedAt={draft.savedAt}
-        storageBlocked={draft.storageBlocked}
-        restoredAt={draft.restored?.savedAt ?? null}
-        droppedFiles={
-          (draft.restored?.hadPhotos ?? false) ||
-          (draft.restored?.squawks ?? []).some((sq) => sq.hadPhotos)
-        }
-        dirty={draft.dirty}
-        onReset={resetForm}
-      />
+      {/* Which flight this is. A session opened at the airplane is the common
+          case now, and saying so is what makes the prefilled start meters
+          believable — a number that appears in a box with no explanation is one
+          members type over. Quiet rather than loud: it's confirmation, not a
+          warning, so it reads as a line rather than as a banner. */}
+      {session && (
+        <div
+          className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm
+            text-indigo-900 dark:border-indigo-900/60 dark:bg-indigo-950/40
+            dark:text-indigo-200"
+        >
+          Closing out the flight you opened
+          {session.startedAt ? ` at ${formatTime(session.startedAt)}` : ""}
+          {session.tachStart != null
+            ? `, tach ${session.tachStart.toFixed(1)}.`
+            : "."}{" "}
+          Filing this form finishes that log entry rather than starting a new one.
+        </div>
+      )}
 
       {/* The turn-off checkout comes FIRST: it's the back of the airplane's
           card and you work it standing at the tail, and its shutdown section is
           where you read the tach off the panel. Recording it here is what
           prefills the meters below, so the form follows what you actually did
-          rather than making you jump back up the page. */}
-      <Card className="space-y-4">
-        <h2 className="text-sm font-semibold">Turn-off checkout</h2>
-        <TurnoffCheckout
-          answers={turnoffAnswers}
-          onChange={setTurnoffAnswers}
-          values={turnoffValues}
-          onValuesChange={setTurnoffValues}
-        />
-      </Card>
+          rather than making you jump back up the page.
+
+          Rendered by the SAME component the preflight and runway pages use, in
+          the same call shape, with no wrapper card or heading of its own — it
+          used to sit inside a titled Card, which drew a box around a box and
+          made the one checkout members meet at the end of every flight look
+          like a different kind of thing from the two they had just walked.
+
+          The draft bar goes in the sticky strip's `status` slot for the same
+          reason it does there: where you are and whether your work is kept are
+          one glance, in the one strip that follows you down the page. */}
+      <CheckoutList
+        checkout={TURNOFF_CHECKOUT}
+        answers={turnoffAnswers}
+        onChange={setTurnoffAnswers}
+        values={turnoffValues}
+        onValuesChange={setTurnoffValues}
+        openSectionId={openSection}
+        onOpenSection={setOpenSection}
+        status={
+          <PostflightDraftBar
+            savedAt={draft.savedAt}
+            storageBlocked={draft.storageBlocked}
+            restoredAt={draft.restored?.savedAt ?? null}
+            droppedFiles={
+              (draft.restored?.hadPhotos ?? false) ||
+              (draft.restored?.squawks ?? []).some((sq) => sq.hadPhotos)
+            }
+            dirty={draft.dirty}
+            onReset={resetForm}
+          />
+        }
+      />
 
       {/* Meters first — you're reading them off the panel right now. */}
-      <Card className="space-y-4">
-        <h2 className="text-sm font-semibold">Meter readings</h2>
+      <CollapsibleSection
+        index={FORM_SECTION_INDEX.meters}
+        title="Meter readings"
+        subtitle="Off the panel, engine just shut down"
+        meta={tach != null ? `${formatHours(tach)} hr` : undefined}
+        open={openSection === "form.meters"}
+        onToggle={() => toggleFormSection("form.meters")}
+      >
+        <div className="space-y-4 p-4">
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Tach start"
@@ -679,11 +828,19 @@ export default function PostflightPage() {
             )}
           </div>
         )}
-      </Card>
+        </div>
+      </CollapsibleSection>
 
       {/* The flight itself. */}
-      <Card className="space-y-4">
-        <h2 className="text-sm font-semibold">The flight</h2>
+      <CollapsibleSection
+        index={FORM_SECTION_INDEX.flight}
+        title="The flight"
+        subtitle="Where you went, and who was on board"
+        meta={`${landings || 0} ldg`}
+        open={openSection === "form.flight"}
+        onToggle={() => toggleFormSection("form.flight")}
+      >
+        <div className="space-y-4 p-4">
 
         {openBookings && openBookings.length > 0 && (
           <Select
@@ -768,7 +925,7 @@ export default function PostflightPage() {
           onChange={(e) => setRoute(e.target.value)}
           placeholder="KTOA → KCMA → practice area → KTOA"
         />
-        <Toggle
+        <SwitchRow
           checked={withInstructor}
           onChange={setWithInstructor}
           label="Flown with an approved flight instructor"
@@ -805,11 +962,19 @@ export default function PostflightPage() {
             instructor on this entry.
           </p>
         )}
-      </Card>
+        </div>
+      </CollapsibleSection>
 
       {/* What you put back into the airplane. */}
-      <Card className="space-y-4">
-        <h2 className="text-sm font-semibold">Servicing</h2>
+      <CollapsibleSection
+        index={FORM_SECTION_INDEX.servicing}
+        title="Servicing"
+        subtitle="What went back into the airplane"
+        meta={fuelAdded ? `${fuelAdded} gal` : undefined}
+        open={openSection === "form.servicing"}
+        onToggle={() => toggleFormSection("form.servicing")}
+      >
+        <div className="space-y-4 p-4">
         <div className="grid grid-cols-3 gap-3">
           <Input
             label="Fuel added"
@@ -843,6 +1008,19 @@ export default function PostflightPage() {
           />
         </div>
 
+        {/* Whose card. Fuel on the CLUB's card is the club buying its own
+            fuel and raises no credit; fuel on the member's is a debt the club
+            owes them. Recording a cost here used to mean the second
+            unconditionally, which quietly credited members for club-card
+            fills. */}
+        <Toggle
+          checked={!fuelPaidPersonally}
+          onChange={(clubCard) => setFuelPaidPersonally(!clubCard)}
+          offLabel="My card"
+          onLabel="Club card"
+          label="Fuel paid with the club's card"
+        />
+
         <Textarea
           label="Notes (optional)"
           value={notes}
@@ -854,17 +1032,32 @@ export default function PostflightPage() {
           onChange={setPhotos}
           hint="A shot of the Hobbs/tach is the easiest way to settle a dispute later."
         />
-      </Card>
-
-
-      {/* Squawks found on this flight. */}
-      <Card className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Squawks from this flight</h2>
-          <Button variant="secondary" size="sm" onClick={() => setSquawkModalOpen(true)}>
-            Report
-          </Button>
         </div>
+      </CollapsibleSection>
+
+
+      {/* Squawks found on this flight. The Report button lives in the BODY
+          rather than the header: the header is itself a <button>, and nesting
+          one inside it is the same invalid markup the checkout rows avoid for
+          their (i) markers. */}
+      <CollapsibleSection
+        index={FORM_SECTION_INDEX.squawks}
+        title="Squawks from this flight"
+        subtitle="Anything the next member should know"
+        meta={squawkDrafts.length > 0 ? String(squawkDrafts.length) : undefined}
+        open={openSection === "form.squawks"}
+        onToggle={() => toggleFormSection("form.squawks")}
+      >
+        <div className="space-y-3 p-4">
+          <div className="flex justify-end">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSquawkModalOpen(true)}
+            >
+              Report
+            </Button>
+          </div>
         {squawkDrafts.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Nothing reported — the airplane goes back on the line as-is. Report
@@ -894,7 +1087,8 @@ export default function PostflightPage() {
             ))}
           </ul>
         )}
-      </Card>
+        </div>
+      </CollapsibleSection>
 
       <div className="space-y-2 pb-2">
         {error && (
@@ -910,7 +1104,7 @@ export default function PostflightPage() {
         <Button
           size="lg"
           onClick={submit}
-          disabled={busy || !bothTach || Boolean(meterError)}
+          disabled={busy || !hasEndTach || Boolean(meterError)}
           className="w-full sm:w-auto"
         >
           {busy ? <LoadingDots size="sm" /> : "File"}
@@ -928,7 +1122,15 @@ export default function PostflightPage() {
 
 // Big switch-style checkbox — the two put-away questions are answered with a
 // thumb, not a pointer.
-function Toggle({
+/**
+ * A bordered row with a switch and ONE label — an on/off assertion about this
+ * flight ("flown with an instructor").
+ *
+ * Deliberately not `common/Toggle`, which names BOTH sides and is for a choice
+ * between two things. Here there is no second thing to name: the opposite of
+ * "flown with an instructor" is the ordinary case and doesn't want a word.
+ */
+function SwitchRow({
   checked,
   onChange,
   label,

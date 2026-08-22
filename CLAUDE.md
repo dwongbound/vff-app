@@ -61,11 +61,30 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
   rather than leaving a stale name on a booking that changed.
 - **Flight** — tach/Hobbs in-out, landings, route, fuel/oil, `landingFeeCents`,
-  `tiedDown`, `cabinClean`. `reservationId` is `@unique` (one filed flight per booking).
+  `tiedDown`, `cabinClean`. `fuelPaidPersonally` is the club sheet's "Fuel
+  Purchase Personal Card" column, the same one `Servicing` carries and for the
+  same reason: fuel on the CLUB's card is the club buying its own fuel and owes
+  nobody anything, so only a personal card raises a FUEL_CREDIT. Defaults TRUE,
+  which is both the safe direction and what every row predating the column
+  meant — recording a cost WAS how you claimed it back. `reservationId` is `@unique` (one filed flight per booking).
   `turnoffAnswers` + `turnoffCheckoutVersion` hold the TURN-OFF checkout
   (`TURNOFF_CHECKOUT`), and `tiedDown`/`cabinClean` are DERIVED from it in the
   API (`derivePutAway`) whenever it's been answered — they mean "confirmed",
   not "a toggle nobody moved".
+  A Flight row IS THE FLIGHT SESSION, and that's the biggest thing to know
+  about this model. It no longer begins life at the post-flight form: signing
+  off the PREFLIGHT card opens one, carrying the meters and the clock that walk
+  read off the panel, the RUNWAY card joins the same row, and the post-flight
+  form FINISHES it. `filedAt` is the whole difference — null means the airplane
+  is out. `startedAt`/`endedAt` are the wall-clock out and in, off the cards'
+  own time fields. Both TACH columns are nullable, and each null says something
+  specific: no `tachEnd` = still out; no `tachStart` = closed out by somebody
+  who never walked a preflight card, which is a row with a gap and is a better
+  record than no row. Nothing bills until both are known (`flightCharge`
+  returns null on an unmeasurable span), so an open session is free until it's
+  closed. `logEntry` is the pilot's own write-up, MARKDOWN, one per entry,
+  editable by its AUTHOR ALONE for as long as the entry exists — see
+  `lib/markdown.ts` and the author-vs-admin gotcha.
 - **Servicing** — fuel or oil put IN, with no flight attached. The post-flight
   form still records what went in after a flight (on `Flight`); this is the
   before-you-fly / nobody-flew-today case, which previously had nowhere to go,
@@ -95,7 +114,11 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   maintenance" card that is explicitly NOT a grounding.
 - **Checkout** — one run of ONE of the airplane's cards. `kind` is
   `PREFLIGHT | RUNWAY` (the third, TURNOFF, lives on Flight — it belongs to
-  that flight, not to a standalone row). `answers` JSON `{ itemId: true }`
+  that flight, not to a standalone row). `flightId` is the SESSION this run
+  belongs to, set the moment the card is signed off (null while it's a draft,
+  and null forever on a card walked but never flown). `SetNull`, not Cascade:
+  deleting a mis-filed log entry must not take the record of the walkaround
+  with it — the walk happened. `answers` JSON `{ itemId: true }`
   against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 7,
   continuing the old checklist's v3; RUNWAY at 3; TURNOFF at 4);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
@@ -118,10 +141,21 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   too: not an elected office, but handed out by an admin from the same roster
   screen and carrying a capability (`flight:sign`).
 - **RecurringCharge** — the RULE for a standing monthly charge (dues). Editing
-  it never restates months already billed.
+  it never restates months already billed. `amountCents` may be NEGATIVE, and
+  that is the whole payback feature: a negative rule is the club paying a
+  member every month (the $50 for running the website) rather than billing
+  them. Same rule shape either way — an amount, a member or everyone, a start
+  and an optional end — and the SIGN is what picks the line's kind
+  (`recurringKind`). The API takes a positive amount plus a `payback` flag
+  rather than a signed number, because a minus sign in a money box is the sort
+  of thing that gets lost, and losing it bills somebody instead of paying them;
+  a club-wide payback is refused outright.
 - **Charge** — one statement line, positive = owed, negative = credit. Kinds:
-  `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE` (the last appended, the
-  safe kind of enum change).
+  `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE | PAYBACK` (the last two
+  appended, the safe kind of enum change). PAYBACK is deliberately not negative
+  DUES: a statement showing the club paying somebody $50 under "Dues" would be
+  wrong on the line a member reads AND in the dues half of every total that
+  groups by kind.
   `paidAt`/`paidById` is SETTLED and is deliberately not `voided`: a voided
   line should never have stood, a paid one stood and has been met, so paying
   leaves the month's totals alone and only moves `outstandingCents`. `period`
@@ -133,8 +167,9 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 
 ## Pages (`app/*/page.tsx`)
 
-`login` · `status` (+ `status/squawks`) · `preflight` · `runway` ·
+`login` · `quick-log` · `status` (+ `status/squawks`) · `preflight` · `runway` ·
 `postflight` · `servicing` (Checkouts › Add Fuel) · `tools/weight-balance` ·
+`tools/my-plane` ·
 `log` · `reservations` · `members` ·
 `finances` · `profile` ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
@@ -143,8 +178,28 @@ An instructor-only account gets Plane Status, the checkouts, Tools and the
 flight log, a READ-ONLY reservations calendar (no New, no per-day "+", every
 booking opens the read-only view the modal already had for somebody else's),
 and no Finances at all.
-`tools/` is a nav GROUP with one entry today — planning arithmetic isn't only
-W&B, and promoting a leaf to a group later moves a link people have learned.
+`quick-log` is the TOP tab and the only one carrying a permanent tint (see the
+nav gotcha). It files a flight in four numbers — tach and Hobbs at both ends,
+where you landed, optional fuel — and is the fast alternative to walking the
+three cards. It is NOT a checkout: nothing is ticked, so nothing there can
+be mistaken for a walkaround, and the club's record of an inspection is still
+the preflight card or nothing. It keeps the
+checkout pages' smarts that make it four numbers instead of eight — it finds
+your open session and CLOSES THAT OUT rather than inserting (so it deliberately
+does not send `standalone`, unlike `FlightEntryModal`), prefills the start
+meters from the session ▸ today's preflight walk ▸ the last filed flight and
+names WHOSE reading each is and when, and validates through the same
+`validateMeters`. Landings are entered as a list of AIRPORTS rather than a
+count (`lib/landingAirports.ts`), and it can file an INCOMPLETE entry — see the
+gotcha.
+`tools/` is a nav GROUP — planning arithmetic isn't only W&B, and promoting a
+leaf to a group later moves a link people have learned. `tools/my-plane` is the
+airplane's own manual as data: V-speeds, arcs, stall matrix, climb rates,
+runway distances, engine limits, every figure with an (i) and a page number.
+STATIC FACTS ONLY — no tach, no Hobbs, nothing that moves with the flying, because a spec sheet with one
+stale number on it is a page you can't trust at a glance. Speeds are shown in
+KNOTS (what N8318B's instrument reads) with the manual's own MPH beside each
+one; see `lib/pohReference.ts` for why the conversion rounds the way it does.
 Weight & Balance stores nothing: a W&B is true of one load on one day, so the
 page is pure calculator over the aircraft's stored basis.
 Plane Status › Overview also carries the MAINTENANCE sheet (`MaintenancePanel`),
@@ -169,10 +224,30 @@ explanation. Completing one card opens the NEXT: preflight → `/runway` →
 `/postflight`, because the walk ends at the cabin door, the runway card starts
 in the seat, and the flight ends at the form. The runway
 page carries no "preflight done today" banner: the card's own `start.preflight`
-row is the app's answer to that and can't be scrolled past. The turn-off
-checkout is a card on `postflight`, and that page AUTOSAVES too (device only —
-see `lib/postflightDraft.ts`).
-`layout.tsx` = pre-hydration theme script + `AppShell`; `AppShell` = top bar +
+row is the app's answer to that and can't be scrolled past.
+`postflight` is usually FINISHING something rather than starting one: signing
+off the preflight card OPENS the flight's log entry (see the Flight model), and
+this form closes it out. It loads the member's open session as it opens, says
+so in a line above the card, and prefills the start meters from that entry's
+own columns rather than from the airplane's last filed reading. The start boxes
+may be left EMPTY — a row with an end and no start is a real record of a flight
+— and only the tach END is required to file. The turn-off
+checkout is the TOP of `postflight`, rendered by the same `CheckoutList` the
+other two use — no wrapper card, no heading of its own — and the form's own
+groups (Meter readings, The flight, Servicing, Squawks) carry on the SAME
+numbered accordion beneath it through `CollapsibleSection`. One piece of state
+owns the whole run (`CheckoutList`'s `openSectionId`/`onOpenSection`), so "one
+section open at a time" is true of the PAGE rather than true twice over — which
+does mean the meters and the shutdown card can't be on screen together, and
+that's fine: you write the reading on the shutdown item at the airplane and find
+it already in the meter box when you reach it. That page AUTOSAVES too (device
+only — see `lib/postflightDraft.ts`), and its draft bar rides in the sticky
+strip's `status` slot exactly as the checkout pages' does.
+`layout.tsx` = pre-hydration theme script + Vercel Analytics + `AppShell`
+(the analytics tag is gated on `VERCEL_GIT_COMMIT_REF` being main or staging —
+the same gate `scripts/vercel-build.sh` uses, because the insights script is
+served by Vercel's edge and 404s in the Docker image, `next dev` and e2e);
+`AppShell` = top bar +
 nav rail + content column + swipe pager, and is a CLIENT component only because
 the column reserves the rail's width (`md:pl-60`) and `/login` — which has no
 rail — must not. `providers.tsx` = session/loading/aircraft/me. There is NO
@@ -197,6 +272,11 @@ owns the only splash in the app.
   accident. The answers column records exactly which items were left, so
   "completed" never means more than it should). An
   unrecognised `kind` is a 400, never a silent "show me everything".
+  COMPLETING A CARD WRITES TO THE FLIGHT LOG — `attachCheckoutToSession` runs on
+  both the POST and the PATCH that can sign one off, and the response carries
+  the session's `flightId`. A draft doesn't: half a walkaround is not a flight
+  anyone has committed to, and opening a log row on the first tick would fill
+  the log with sessions for members who changed their minds at the fuel truck.
   Two housekeeping rules ride on this route, and they exist because the pages
   AUTOSAVE: an open run is now created a couple of seconds after the first tick
   rather than by someone pressing a button, so unclaimed ones would pile up
@@ -229,16 +309,27 @@ owns the only splash in the app.
   (PATCH to void/restore/amend, or `{ paid }` to tick a line off as settled;
   DELETE only for hand-entered lines, and the UI confirms it in a dialog).
 - `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
-  refuses once it has billed anyone; deactivate instead).
+  refuses once it has billed anyone; deactivate instead). Both take a POSITIVE
+  `amountDollars` plus a `payback` boolean and combine them server-side; PATCH
+  KEEPS the existing direction unless the body names it, so editing a payback's
+  amount can't turn a monthly credit into a monthly bill.
 - `reservations` (GET window, POST — needs `reservation:book`, and resolves the
   TRAINING instructor) · `reservations/[id]` (PATCH, DELETE=cancel). The
   instructor is re-resolved on every PATCH against the purpose the booking will
   HAVE, not the one it had.
-- `flights` (GET `?instructing=1` for the lessons you're the CFI on, POST —
-  also advances the aircraft's meters; both routes read `turnoffAnswers` and
-  re-derive the put-away flags) · `flights/[id]` (PATCH stamps `editedAt`) ·
-  `flights/[id]/sign` (POST/DELETE — the instructor's endorsement, its own
-  route so a signature can never be confused with an edit).
+- `flights` (GET `?instructing=1` for the lessons you're the CFI on,
+  `?mine=1&open=1` for "have I got the airplane out"; POST FILES A SESSION —
+  the one the caller's preflight walk opened, which the route finds for itself
+  rather than trusting the client's `flightId`, because the walk may have been
+  done on the clubhouse iPad and the form filled in on a phone. With nothing
+  open it inserts, which is the post-flight-without-preflight entry. Requires
+  `tachEnd` and not `tachStart`. Also advances the aircraft's meters; both
+  routes read `turnoffAnswers` and re-derive the put-away flags) ·
+  `flights/[id]` (PATCH stamps `editedAt` — except on a write-up-only edit, see
+  the gotcha; reads every meter and time through `in body` so they can be
+  CLEARED as well as set; `{ filed: true }` closes out an open session from the
+  log) · `flights/[id]/sign` (POST/DELETE — the instructor's endorsement, its
+  own route so a signature can never be confused with an edit).
 - `maintenance` (POST) · `maintenance/[id]` (PATCH/DELETE) — all three need
   `maintenance:manage`. There is deliberately NO GET: the sheet rides on
   `GET /api/aircraft` beside the open squawks (`AIRCRAFT_INCLUDE` in
@@ -326,6 +417,27 @@ owns the only splash in the app.
   tick its item, because opening a page confirms nothing), and the fuel dip is
   recorded per WING, with `deriveFuelOil` summing the two into the
   `fuelOnBoardGal` column. ✅tested
+- `pohReference.ts` — N8318B's own manual as data: the ASI arcs, takeoff/climb,
+  approach/landing, the stall matrix, the climb-rate table, runway distances,
+  engine markings and weights, every figure carrying a `why` and a PAGE NUMBER
+  so any of it can be checked in a minute. Two rules run through it. (1) THE
+  UNIT: the manual is MPH, the airplane's instrument is knots, so every airspeed
+  is stored as the manual's MPH and CONVERTED (`knots`, `knotsRange`,
+  `displaySpeed`) rather than hand-typed — and the rounding is a safety
+  property, not formatting: a ceiling rounds DOWN, a floor (stall, approach)
+  rounds UP, a range narrows inward, a target with no dangerous side rounds to
+  nearest. (2) NOTHING IS INVENTED: the three figures a 1958 manual doesn't
+  print — Va, best glide, any descent rate — are `FROM_ELSEWHERE`, carrying
+  figures found ONLINE for related airframes (the 170B's published Va, the
+  1974–75 172's, the FAA's best-glide guidance), each labelled "found online"
+  on the page with what the manual gives instead and why it can't just be
+  adopted. Keyed on the same profile id as `weightBalance.ts`, and null for an
+  unknown one for the same reason. ✅tested
+- `landingAirports.ts` — the Quick Log "Landed at" box: a line of identifiers →
+  `{ codes, landings, arrival, route }`, which are columns the `Flight` row
+  already has, so no schema change. Repeats are counted every time (six
+  circuits is KTOA six times), any sane separator is accepted, and an empty box
+  is a gap rather than a zero-landing claim. ✅tested
 - `inflightReference.ts` — the card's takeoff/climb/cruise/descent phases and
   the KTOA (Zamperini Field, the club's home) frequency block, as read-only data. Deliberately NOT checkout items:
   nothing ticked in the air, nothing blocking a sign-off. Airspeeds are MPH.
@@ -363,6 +475,38 @@ owns the only splash in the app.
   `signupCodeRequired` (the fresh-install exception) and `redemptionError`,
   which gives an unknown and a retired code the SAME message so a stranger who
   guesses a real one isn't told they guessed right. ✅tested
+- `flightSession.ts` — one flight, from the preflight walk to the shutdown, as
+  rules. `sessionState`/`isOpenSession` (keyed on `filedAt` ALONE — an entry
+  filed with a blank tach end is a record with a gap, not a flight still in the
+  air), `SESSION_WINDOW_HOURS` (24 — a card walked three weeks ago and never
+  flown must not be joined by today's flight; the window is applied in
+  `findOpenSession`'s query rather than filtered after it),
+  `startFromPreflight` / `startFromRunway` / `endFromTurnoff` (what each card
+  contributes to the log entry, off the field ids named in
+  `START_FIELDS`/`RUNWAY_FIELDS`/`END_FIELDS` — a test asserts all six still
+  exist on their card, because renaming one would silently open sessions with
+  no meters), `resolveTimes` (an overnight leg's end rolls forward a day, ONCE,
+  so a mistyped time stays visibly wrong), and the two permission rules:
+  `canEditFlight` (yours, or an admin's correction — the log page asks this
+  rather than spelling it out) and `canEditLogEntry` (the AUTHOR alone — see
+  the gotcha). ✅tested
+- `flightSessions.ts` — the db half. `findOpenSession`, `attachCheckoutToSession`
+  (the whole "a checkout writes to the flight log" rule, called from both routes
+  that can complete a run) and `advanceMeters`. The invariant it holds: A MEMBER
+  HAS AT MOST ONE OPEN SESSION PER AIRPLANE — the same shape as the checkout
+  cleanup's "at most one open run per card", and for the same reason.
+  Joining fills GAPS rather than overwriting, with one exception: the runway
+  card's flight timer replaces the preflight's clock, because it is the same
+  fact measured better.
+- `markdown.ts` — the flight log's write-up, as text the club owns. A small
+  subset (bold, italic, bullet and numbered lists), hand-written for the same
+  reason `xlsx.ts` and `ics.ts` are — a markdown dependency brings a parser
+  that accepts raw HTML by default, which is the exact thing this exists to
+  avoid. The safety rule is one line and load-bearing: EVERYTHING IS ESCAPED
+  FIRST and the only tags that can appear are the ones written literally in the
+  file, which is what makes `RichTextView`'s `dangerouslySetInnerHTML` the one
+  safe use of it in the app. Plus `markdownToText` (for the spreadsheet export),
+  `normalizeLogEntry` and `MAX_LOG_ENTRY_CHARS`. ✅tested
 - `flightSignature.ts` — what an instructor's endorsement means:
   `signatureState` (`NOT_APPLICABLE | AWAITING | SIGNED | SIGNED_THEN_EDITED`),
   `isAwaitingSignatureFrom`, `signatureError`/`unsignError`. Accepts a flight
@@ -411,8 +555,9 @@ owns the only splash in the app.
   is one visit to one desk. ✅tested
 - `ledger.ts` — the db half. `syncFlightCharges` rebuilds a flight's two derived
   lines on every file/correct (skipping any an officer has voided);
-  `ensureRecurringCharges` materialises a month's dues, idempotent via the
-  unique index, never for a future month.
+  `ensureRecurringCharges` materialises a month's dues AND paybacks, idempotent
+  via the unique index, never for a future month — the kind of each line comes
+  from `recurringKind`, i.e. from the sign of the rule.
 - `aircraft.ts` — `normalizeTailNumber` (upper-case, space-free),
   `tailNumberError`, `modelError`. ✅tested
 - `offline.ts` — the difference between a card the club REFUSED and one that
@@ -423,6 +568,29 @@ owns the only splash in the app.
   useful sentence changes the moment signal returns and the member is not
   looking at the screen when it does. Neither version says "error": the walk is
   whole and on the device, and the only missing ingredient is signal. ✅tested
+- `xlsx.ts` — rows → a real `.xlsx`, by hand and with no dependency, for the
+  same reason `ics.ts` is hand-written. An xlsx is a ZIP of a few XML parts;
+  this is those parts plus a STORE-only ZIP writer (`crc32` included, because
+  readers check it). Deliberately narrow: strings and numbers only — no date
+  cells (callers format their own, so there's no serial-number/1900-leap-year
+  surface), no styles, no shared string table, no deflate (there's no
+  synchronous one in the browser, and the export has to build on the device).
+  `buildXlsx` returns `Uint8Array<ArrayBuffer>` — the buffer parameter is
+  spelled out because a bare `Uint8Array` isn't a `BlobPart`. ✅tested
+- `exports.ts` — the club's own spreadsheets, rebuilt from what the app knows:
+  `flightLogSheet`, `maintenanceSheet`, `financesWorkbook`. The COLUMN ORDER IS
+  THE CLUB'S, off the Google Sheet these replace, which is why the flight log
+  opens with a two-box "until next Mx due" band above a blank row 4 and why
+  both sheets run OLDEST-FIRST while the app's log is newest-first. Anything
+  the app knows that the sheet never had a column for goes to the RIGHT of the
+  club's columns; nothing is invented to fill one (the sheet's own CheckSum
+  column stays empty — it holds a formula there, and a value here would be this
+  app's opinion). Money is written as summable NUMBERS of dollars rather than
+  "$291.50", dates as `sheetDate`'s M/D/YYYY. Two figures are derived rather
+  than guessed: the per-gallon price only when both halves are known (and never
+  over zero gallons), and "Fuel Purchase Personal Card", which is answerable
+  because a fuel cost on a flight is exactly what raises that member's
+  FUEL_CREDIT. ✅tested
 - `dates.ts` — formatting, `toLocalInputValue`, `calendarMonthsFrom`.
 - `constants.ts` — club name, purposes/severities + tones, policy limits.
 - `auth.ts` — `authOptions`, `getSessionUser()`, `getAdminUser()` (re-reads db).
@@ -452,6 +620,11 @@ is made while looking at the thing that's wrong. Delete is `danger` red and
 hides while editing. Est. cost carries an (i) that writes the sum out, and it
 exists because the headline and the money round differently: the title says
 "1.2 hours" while the bill is 1.19 tach hr × the rate, plus any landing fee.
+EDIT now covers the whole session: both meters (clearable), the out and in
+times, and the **Log** — the pilot's write-up, a `RichTextEditor` over
+markdown, which is AUTHOR-ONLY and so is hidden rather than disabled for an
+admin correcting somebody's tach. An entry still in progress says so at the
+top, above every figure that is an answer about a flight that isn't over.
 
 The flight log's Club/Mine switch changes what the page is about, not just the
 rows, and it OPENS on Mine (the same way Finances opens on your own statement): Club = the airplane (hours this month, club totals, everyone's flights,
@@ -534,19 +707,26 @@ FOR GROUNDED there; in-work and untriaged are amber, because "reviewed — in
 work" is a flyable airplane and painting it like a grounding teaches members to
 read past the colour that stops a flight. With anything open the item is still
 TICKED by the pilot: the app knows the list, it can't know you read it),
-`TurnoffCheckout`
-(a THIN WRAPPER over `CheckoutList` — all three cards now share one layout,
-because a member meets the turn-off card minutes after walking the other two and
-a checklist that changes shape between screens has to be re-learned each time.
-It used to render flat; consistency beat the "you're working down a list you've
-just done" argument. The one difference it keeps is `sticky={false}`: this card
-is a section of a longer form, so a pinned bar would follow the member down past
-the meters and the servicing fields still counting turn-off items), `InflightReference`
+`CollapsibleSection`
+(the numbered, collapsible shell EVERY section on a checkout page is drawn in —
+`CheckoutList` uses it for a card's sections, and the post-flight form uses it
+for its own groups. It knows nothing about checkouts: a number, a title, a
+right-hand `meta` slot and children. There is no `TurnoffCheckout` component any
+more — the post-flight page renders `CheckoutList` directly with
+`TURNOFF_CHECKOUT`, in the same call shape the other two pages use, so all three
+checkouts are literally the same interface rather than merely similar ones), `InflightReference`
 (collapsed card at the foot of the runway page), `WeightBalanceChart` (the CG
 envelope as inline SVG — plotted against CG in INCHES rather than the POH's
 moment axis so the limits can be checked against the printed numbers by eye,
 with takeoff and landing both marked and the axes stretching to contain a load
 that falls outside), `SquawkPanel`,
+`ExportButton` (the "Export" button on the flight log, Finances and the
+maintenance panel: builds the workbook LAZILY in the click handler — sheets as
+a prop would rebuild every row on every render of a page whose export nobody
+pressed — and downloads it client-side, exactly as `ReservationModal` does its
+.ics. Each caller exports WHAT IS ON SCREEN: the log follows the Club/Mine
+switch, and Finances keys on `data.clubWide` rather than the toggle, so the
+file can only hold what the API actually returned),
 `SquawkDraftModal`, `SignupCodesPanel` (org settings' two code lists, side by
 side because which list a code is on is the only thing about it that matters
 when you read it out), `PhotoUploader`, `Logo`, `GuidedTour` (first-run walkthrough
@@ -559,8 +739,18 @@ sits above the card the member came to walk; the solo-or-instructor banner is on
 it at every state, the minimums and the reasoning are behind the disclosure / `RulesModal` off the log's currency card /
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
-DateTimeField Dropdown InfoTip Input Modal Select Textarea LoadingDots
-LoadingScreen`. Prefer extending these. `Input` DEFAULTS `inputMode` to
+DateTimeField Dropdown InfoTip Input Modal RichText Select Textarea Toggle
+LoadingDots LoadingScreen`. `Toggle` is a switch with a label on EACH side
+("My card ( o) Club card") — for a binary choice where both sides deserve a
+name, which a checkbox can't do (it has a label and an unlabelled opposite) and
+a radio pair needs four lines and a legend for. The post-flight page keeps its
+own `SwitchRow` for the other shape: one switch, one label, an on/off assertion
+whose opposite doesn't want a word. Prefer extending these. `RichText` is two exports:
+`RichTextEditor` (a formatting toolbar over a plain textarea — deliberately not
+a contenteditable, see the file) and `RichTextView` (the renderer, and the ONLY
+sanctioned `dangerouslySetInnerHTML` in the app). Its `applyTool` is exported
+and unit-tested, because "bold with nothing selected leaves the caret between
+the markers" is a fact worth pinning rather than a DOM interaction. `Input` DEFAULTS `inputMode` to
 "decimal" for `type="number"`, so a numeric field opens the number pad on a
 phone without every call site remembering to say so; a field that counts things
 (landings) still passes `inputMode="numeric"` for a pad with no decimal point.
@@ -600,6 +790,19 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   while the Vercel project's **Build Command is left on its default** — an
   explicit Build Command in the dashboard overrides package.json and silently
   restores the original bug.
+- **Only `main` and `staging` deploy to Vercel; everything else is off.**
+  `vercel.json` sets `git.deploymentEnabled` to `false` for `*` and `**` and
+  back to `true` for those two branches — Vercel resolves a branch matching
+  several rules by deploying if ANY match is `true`, so listing the two by name
+  is what re-enables them. Both wildcards are listed on purpose: minimatch's
+  `*` does not cross a `/`, so `*` alone would let a `feature/x` branch through.
+  This is what stops a push to `dev` (and every PR preview) from building.
+  It is deliberately the same `main | staging` gate `scripts/vercel-build.sh`
+  already applies to migrations — those two branches are the only ones that own
+  a database, and now the only ones that deploy. The file sets ONLY `git`:
+  adding a `buildCommand` here would override package.json and silently stop
+  `vercel-build` running, which is the migration bug described below.
+
 - **`output: "standalone"` is for Docker only and must stay OFF on Vercel.**
   Vercel does its own file tracing and ends every build by reading
   `.next/next-server.js.nft.json`; standalone output writes the traced tree
@@ -704,6 +907,75 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   aviation English: `lib/checkouts.ts` is a walkthrough of one of the
   airplane's cards, while `CHECKOUT_AIRPORTS` in `lib/operatingRules.ts` is a
   pilot being signed off to fly into Catalina or Big Bear. Don't merge them.
+- **A checkout now WRITES TO THE FLIGHT LOG, and the log row is the session.**
+  Completing the preflight opens a `Flight` with `filedAt: null`; the runway
+  card joins it; the post-flight form fills in the end and stamps `filedAt`.
+  Three consequences worth holding on to. (1) `tachStart`/`tachEnd` are
+  NULLABLE, so every reader has to cope — `tachHours` returns `number | null`
+  and totals treat that as contributing nothing rather than as zero, because
+  "the club doesn't know" and "the airplane logged no time" are different
+  answers and only one of them is a claim. (2) An open session bills NOTHING,
+  and filling the missing reading in later from the log bills it then, because
+  every write to a flight re-runs `syncFlightCharges`. (3) The log's default
+  order puts open sessions FIRST — anything reading `flights[0]` as "the last
+  flight" (Plane Status did) now has to filter them out first.
+- **`PATCH /api/flights/[id]` does not touch the airplane's meters, and the
+  detail modal's "File this flight" inherits that.** Correcting a tach reading
+  re-bills the flight (`syncFlightCharges` runs on every PATCH) but leaves
+  `lastTach`/`lastHobbs` where the last POST left them — long-standing
+  behaviour, not something the session work changed. It's most visible on the
+  new "File this flight" control, which closes an open entry out from the log:
+  the entry is filed and billed, and the next pilot's prefill still reads off
+  the last flight filed through the post-flight form. Worth knowing before
+  concluding the button is broken.
+- **Only a FILED flight moves the airplane's meters.** The preflight card reads
+  the panel, so advancing `lastTach` from it is tempting and is a trap: the
+  airplane hasn't flown yet, and one member's fat-fingered `15070.5` would
+  become every other member's prefill with nothing to catch it. A disagreement
+  between the walked reading and the stored one is worth SHOWING (the
+  post-flight form's meter hints name which reading each box came from), not
+  adopting. `advanceMeters` is called from `POST /api/flights` and nowhere else.
+- **`FlightEntryModal` sends `standalone: true`, and it has to.** Adding a
+  flight to the log BY HAND is the one POST that must never adopt the caller's
+  open session — a hop somebody flew in June would otherwise close out the
+  flight they have out right now, with June's numbers, and nothing on screen
+  would say so.
+- **A member has at most one open session per airplane, and the SERVER is what
+  holds that.** `POST /api/flights` looks for the caller's open session itself
+  rather than trusting the client's `flightId`: the preflight may have been
+  walked on the clubhouse iPad and the form filled in on a phone that never
+  heard of it, and a second row for the same flight is the bug the whole
+  feature exists to prevent. The window is `SESSION_WINDOW_HOURS` (24) — a card
+  walked three weeks ago and never flown stays in the log as an unfinished
+  entry rather than being joined by today's flight.
+- **The write-up belongs to its author, and no admin exception applies.**
+  Everywhere else in this app "admins can do anything" holds, and
+  `PATCH /api/flights/[id]` follows it for every field but `logEntry`, which is
+  refused with a 403 from anyone but the pilot (`canEditLogEntry`). The rest of
+  a log entry is the club's record of an airplane; this is one member's account
+  of their flight, and there is no version of "the club needed it corrected"
+  that ends with someone else's words under a member's name. The modal HIDES
+  the field rather than disabling it — a disabled field invites a member to
+  wonder what they'd have to do to enable it, and the answer is "be someone
+  else".
+- **`editedAt` is stamped by a real CHANGE, not by which fields were sent.**
+  `PATCH /api/flights/[id]` compares the incoming values against the stored row,
+  because the detail modal PATCHes the whole form on every Save — so "which
+  fields arrived" is always "all of them". Without the comparison, pressing Save
+  having changed nothing would stamp the entry and quietly demote an
+  instructor's signature to "signed, then edited". `flownOn` is compared by
+  local DAY and the two times to the MINUTE, matching the precision their inputs
+  offer, or a round-trip through the form would report a change it didn't make.
+  `logEntry` is excluded outright: what a CFI endorses is the flight — meters,
+  landings, route, who was on board — and a debrief typed up a week later is not
+  a change to the version they signed.
+- **`lib/markdown.ts` is the only thing standing between the write-up field and
+  stored XSS.** `RichTextView` is the app's one `dangerouslySetInnerHTML`, and
+  it is safe for exactly one reason: `renderMarkdown` escapes every character of
+  its input BEFORE adding a single tag, and emits only `p/br/strong/em/ul/ol/li`
+  with no attributes. There is no path from input text to a tag or to an
+  attribute position. Don't "improve" it by adding links, images or raw-HTML
+  passthrough without replacing that argument with a real sanitiser.
 - **`Flight.editedAt` is not `updatedAt`, and the difference is the whole
   feature.** An instructor's signature is only worth something if it names a
   version, so the flight log compares `signedAt` against when the entry was
@@ -743,9 +1015,20 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   is for. The note under the box always says which it is, since the whole risk
   is a number nobody knows the age of. The preflight card links here from its
   own W&B item (`CheckoutItem.link`), which is the walk that makes this happen.
-- Nothing in the nav carries a permanent tint any more. Reservations used to,
-  as the app's call to action, and it competed with the one mark that actually
-  changes — which tab you're on.
+- **The rail has one pinned ACTION, drawn as a button, and that is why it may
+  be permanently coloured.** Reservations was once a tinted tab and it was
+  removed, because a tab that looks the same on every page stops being a signal
+  and competes with the one mark that actually changes — which tab you're on.
+  Quick Log gets colour back without reopening that argument by not being a tab
+  at all: `NavLeaf.action` pins a leaf to the FOOT of the rail, under a
+  divider, drawn centred and outlined (`railActionClassName`). A button below
+  the menu is a different KIND of thing from the rows in it, so a reader never
+  has to work out whether its colour means "current". It is also deliberately
+  QUIETER than an active tab — a tint and a border against the tab's solid fill
+  — because the loudest thing in the rail has to stay "which page am I on".
+  The leaf is LAST in `NAV` rather than positioned by the renderer, since the
+  swipe pager walks that array in order; on a phone there is no rail to pin
+  under, so it stays the last pill tab and carries the tint instead.
 - The UI calls `/settings` **Club settings**; an empty fleet tells members to
   ask an admin to add an airplane there rather than naming a shell command
   nobody reading the page can run.
@@ -782,6 +1065,33 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   the hold-short line, well past the clubhouse wifi. Deliberately no auto-retry
   on the `online` event: a member who kept ticking after the failed press would
   have a half-edited card filed out from under them.
+- `quick-log.spec.ts` sorts between `preflight` and `runway`, which is safe on
+  both sides: it never signs off a card, so the runway spec's "the airplane has
+  NOT been walked today" assertion is untouched. It reads the flight it just
+  created off the POST RESPONSE rather than off `?mine=1&limit=1` — several
+  specs file on the same day against one database, and the list hands back
+  whichever it sorts first, which is how an assertion once passed against
+  another spec's flight and then failed only in a full run.
+- **An e2e spec that SIGNS OFF a preflight has to sort after `runway.spec.ts`.**
+  That's why the session spec is `sessions.spec.ts` rather than
+  `flight-session.spec.ts`. The suite runs serially against one database in
+  filename order; a sign-off is permanent (`DELETE /api/checkouts/[id]` refuses
+  a completed run on purpose), so nothing can clean it up; and
+  `runway.spec.ts`'s "the preflight row cannot be ticked without a signed-off
+  preflight" asserts the airplane has NOT been walked today. The runway page
+  asks that of the AIRPLANE (`?kind=PREFLIGHT`, no `mine=1`) — any member's walk
+  counts — so running the offending spec as a different pilot does not help.
+  The symptom is that runway test failing every attempt with "No preflight
+  completed" not found, from a spec that never mentions the runway page.
+- **A signed-off checkout leaves a FLIGHT behind in e2e, not just a draft.**
+  `clearCheckoutDrafts(page)` now also deletes the caller's open sessions
+  (`clearOpenSessions`), which stretches its name and is the same stretch that
+  already sends it after the post-flight draft family: what a spec needs before
+  it walks a card is "none of my own half-finished flying is lying around", and
+  the two are never wanted apart. Specs that file a flight through the API
+  without walking a card — `finances`, `flight-edit` — call `clearOpenSessions`
+  directly, because a POST with a session open FINISHES that entry rather than
+  inserting, which is correct behaviour and the wrong precondition.
 - **The checkout pages autosave, so every e2e spec that ticks anything leaves a
   booby trap for the next one.** A resumed half-ticked card turns "Check all"
   into "Clear" and makes a bare `0 of N checked` assertion fail for reasons
@@ -917,6 +1227,16 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   a matrix over the three projects (`fail-fast: false`, its own Postgres service
   per leg, artifact names suffixed per leg), so they run in parallel and one
   shape failing still reports the others.
+- **The post-flight form's fields are behind an accordion now.** Meter
+  readings, The flight, Servicing and Squawks are `CollapsibleSection`s sharing
+  one open-at-a-time run with the turn-off card's sections, and a COLLAPSED
+  section renders no children at all — so `getByLabel("Tach end")` finds nothing
+  until its section is opened. `openPostflightSection(page, /The flight/)` and
+  `openMeters(page)` in `tests/e2e/helpers.ts` are the fix, and they are
+  idempotent because toggling an already-open section SHUT is the failure they
+  exist to prevent. Opening one section closes the others, which is why a spec
+  that types into the shutdown card and then reads the meter box has to re-open
+  the meters in between.
 - Two e2e traps specific to `CheckoutList`. A SECTION header's accessible name
   starts with its number badge and ends with its count ("3 Consumables … 0/6"),
   so `{ name: /^Consumables/ }` matches nothing and a bare `"Consumables"`
@@ -935,6 +1255,10 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   "Start" hits "Open calendar for Start". Specs use `{ exact: true }`.
 - CI lives in `.github/workflows/ci.yml` and materialises `env/test.env`
   itself, since the e2e harness loads that file rather than process env.
+- The seed stamps `filedAt` on every flight it creates. Without it the whole
+  club's demo history comes back as flights in progress — the column defaults to
+  null, and null means "the airplane is still out". The migration backfills the
+  same way for a database that predates sessions.
 - `prisma/seed.ts`'s `FLIGHT_LOG` is REAL data — N8318B's log transcribed from
   the club's Google Sheet on 8 Aug 2026. Two things in it look like typos and
   are not: the tach doesn't chain at 1489 → 1489.98 or 1499.42 → 1499.49, and
@@ -968,6 +1292,55 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   with "Another next dev server is already running". Clean up with
   `docker ps -aq --filter name=vff-app-vff-app-test | xargs -r docker rm -f`
   then `docker volume rm vff-app_test-next`.
+- **Quick Log files a real flight.** The row it writes is the same `Flight` the
+  post-flight form writes, bills the same way, advances the meters the same way
+  and is corrected from the same modal. What it does NOT write is a checkout —
+  no ticks, so no walkaround, so no `turnoffAnswers` and no derived put-away
+  flags (the API's body-boolean fallback applies). Worth remembering when
+  reading a log full of entries with no cards behind them.
+- **A flight can be FILED with a missing tach reading, and that is a third
+  state.** `POST /api/flights` still requires `tachEnd` by default — on the
+  post-flight form, filing without the number you just read off the panel is
+  almost always a slip — but `acknowledgeIncomplete: true` gets past it, the
+  same bargain the checkouts route strikes over a half-ticked card. Quick Log
+  always sends it, so its button is never disabled by a MISSING number (a
+  wrong one — tach end below start — still refuses, because that files a false
+  figure rather than an honest gap). The result is FILED with a hole in it,
+  which is deliberately not the same as OPEN: `isOpenSession` keys on `filedAt`
+  alone, so the airplane doesn't look like it never came back, while
+  `isIncompleteEntry`/`missingMeters` are what the log badges ("Needs tach
+  end"). The badge is load-bearing rather than cosmetic — an unmeasurable span
+  bills NOTHING (`flightCharge` returns null), so an entry nobody can find is
+  an entry nobody fixes and money the club never sees. Filling the reading in
+  from the log re-bills it, because every write re-runs `syncFlightCharges`.
+- **A fuel cost no longer implies a credit.** `fuelCredit` returns null when
+  `fuelPaidPersonally` is false, so club-card fills are recorded and bill
+  nothing. The field is ABSENT-MEANS-TRUE on `BillableFlight` and on the POST
+  body, which keeps every caller predating the toggle billing exactly what it
+  billed before — fixtures included. That default is also a TRAP, the same one
+  `capabilitiesFor`/`clubMember` has: forget the field and the club credits a
+  member for its own fuel, with nothing on screen to say so. It shipped that
+  way in the first cut — both `syncFlightCharges` call sites omitted it — and
+  an e2e test asserting on the statement is what caught it. `FlightForBilling`
+  (the db half, two call sites) therefore REQUIRES the field, so the next
+  omission is a compile error rather than a wrong statement.
+- **The knots on Tools › My plane are this app's arithmetic, not the manual's.**
+  The 1958 book is MPH throughout; N8318B's ASI reads knots. Every speed is
+  stored in the manual's MPH and converted, and the ROUNDING DIRECTION is a
+  safety property — ceilings down, stalls and approach speeds up, ranges
+  inward. Don't "tidy" that into `Math.round`, and don't hand-type a knots
+  figure into the data: a converted table typed by hand is a table with one
+  transposed digit in it. The page shows both units on every figure so the MPH
+  can be checked against the book, and says in a banner that the arcs actually
+  painted on the dial win over both.
+- **The Va and best-glide figures on that page came off the internet and must
+  keep saying so.** They are in `FROM_ELSEWHERE`, separately typed from the
+  manual's own figures, rendered in their own amber card after everything the
+  book does say, each with a "found online" chip, the airframe the number
+  actually belongs to, and why it can't simply be adopted. Do not promote one
+  into `REFERENCE_SECTIONS` — a borrowed number sitting among the sourced ones
+  is a number the club will fly as though it were certified data for this
+  airplane.
 - The session cookie is renamed (`lib/authCookies.ts`) because cookies are
   scoped to a host, not a port, and every local app would otherwise share
   NextAuth's default name. `proxy.ts` must be given the same config — it reads
