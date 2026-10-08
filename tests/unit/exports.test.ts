@@ -367,4 +367,29 @@ describe("financesWorkbook", () => {
     expect(sheet.rows[4][8]).toBeNull(); // the credit
     expect(sheet.rows[5][8]).toBe("Yes"); // the voided charge
   });
+
+  it("labels a run of months by its two ends", () => {
+    const sheets = financesWorkbook({
+      period: { from: "2026-06", to: "2026-08" },
+      clubWide: true,
+      now: NOW,
+      statements: [statement()],
+    });
+    expect(sheets[0].rows[1][0]).toBe("June 2026 – August 2026");
+    expect(sheets[0].name).toBe("Charges 2026-06 to 2026-08");
+    expect(sheets[1].name).toBe("Members 2026-06 to 2026-08");
+    // Sheet names are capped at 31 characters by the format.
+    for (const sheet of sheets) expect(sheet.name.length).toBeLessThanOrEqual(31);
+  });
+
+  it("treats a one-month range as that month", () => {
+    const [sheet] = financesWorkbook({
+      period: { from: "2026-08", to: "2026-08" },
+      clubWide: false,
+      now: NOW,
+      statements: [statement()],
+    });
+    expect(sheet.rows[1][0]).toBe("August 2026");
+    expect(sheet.name).toBe("Charges 2026-08");
+  });
 });

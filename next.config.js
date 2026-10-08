@@ -50,6 +50,20 @@ const nextConfig = {
   // "/" → the Plane Status tab (the first one), as a plain HTTP redirect rather than an RSC
   // redirect() (which can crash hydration when an authenticated user lands on
   // "/" straight after an OAuth callback).
+  // The service worker (public/sw.js) must never be served from an HTTP
+  // cache: the browser's update check is how a new build's worker — and with
+  // it the new build's pages — reaches a phone at all.
+  async headers() {
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [{ source: "/", destination: "/status", permanent: false }];
   },

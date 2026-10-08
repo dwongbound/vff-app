@@ -18,12 +18,13 @@ import ChipSelect from "@/components/common/ChipSelect";
 import InfoTip from "@/components/common/InfoTip";
 import LoadingDots from "@/components/common/LoadingDots";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
-import { uploadPhotos } from "@/components/PhotoUploader";
+import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { formatDay } from "@/lib/dates";
+import { squawkJob } from "@/lib/outbox";
 import {
   SQUAWK_STATUSES,
   SQUAWK_STATUS_HINTS,
@@ -38,6 +39,7 @@ import type { ApiSquawk } from "@/lib/types";
 export default function SquawksPage() {
   const { selected, loading: fleetLoading } = useAircraft();
   const { me } = useMe();
+  const outbox = useOutbox();
   const aircraftId = selected?.id ?? null;
 
   const [squawks, setSquawks] = useState<ApiSquawk[] | null>(null);
@@ -76,6 +78,8 @@ export default function SquawksPage() {
   useEffect(() => {
     load();
   }, [load]);
+  // A squawk queued with no signal just reached the club.
+  useOutboxSent(load);
 
   // Jump to the linked row, ONCE, after the first load that has rows in it.
   //
@@ -147,22 +151,24 @@ export default function SquawksPage() {
    * here for the Safety Officer exactly as one raised from a card does.
    */
   async function addSquawk(draft: SquawkDraft) {
-    if (!aircraftId) return;
+    if (!aircraftId || !selected || !me) return;
     setError(null);
     setAdding(true);
-    const result = await sendJson<ApiSquawk>("/api/squawks", "POST", {
-      aircraftId,
-      title: draft.title,
-      description: draft.description || null,
-    });
-    if (!result.ok || !result.data) {
+    // Through the outbox, photos and all: a fault noticed on the ramp is
+    // usually reported from the ramp. With no signal it waits on the device
+    // (the strip at the top says so) and files itself later.
+    const result = await outbox.submit(
+      squawkJob({
+        owner: { userId: me.id, userName: me.name },
+        label: `Squawk — ${draft.title}`,
+        aircraftId,
+        squawk: draft,
+      })
+    );
+    if (result.kind === "refused") {
       setAdding(false);
-      setError(result.error ?? "Could not file that squawk.");
+      setError(result.error);
       return;
-    }
-    // Photos go up after the row exists — they need an id to hang off.
-    if (draft.photos.length > 0) {
-      await uploadPhotos(draft.photos, "squawk", result.data.id);
     }
     setAdding(false);
     // A new squawk is NEW, which is not a grounding, so the banner can't have

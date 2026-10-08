@@ -106,8 +106,9 @@ export function serializeSignupCode(c: SignupCodeRow): ApiSignupCode {
 
 interface ChargeRow {
   id: string;
-  member: UserRow;
-  memberId: string;
+  /** Null on a club-level line — see the Charge model. */
+  member: UserRow | null;
+  memberId: string | null;
   kind: string;
   amountCents: number;
   description: string;
@@ -125,7 +126,7 @@ interface ChargeRow {
 export function serializeCharge(c: ChargeRow, viewerId: string): ApiCharge {
   return {
     id: c.id,
-    member: serializeUser(c.member),
+    member: c.member ? serializeUser(c.member) : null,
     kind: c.kind as ChargeKind,
     amountCents: c.amountCents,
     description: c.description,

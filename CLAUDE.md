@@ -136,6 +136,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   retired by clearing `active`, and DELETE is refused once it has let anyone in
   so the record of how they joined survives.
 - **Photo** — storage `key` + metadata; `flightId` / `squawkId` / `preflightId`.
+- `clientRequestId` (unique, nullable) on **Flight**, **Checkout** (sign-offs
+  only), **Squawk** and **Photo** — the outbox's idempotency key, so a
+  submission retried after its reply was lost returns the row it already wrote
+  instead of a duplicate. See `lib/idempotency.ts`.
 - **Position** (enum on `User.positions`) — club offices. Powers live in
   `lib/positions.ts`, never inline in a route. `INSTRUCTOR` (CFI) is in here
   too: not an elected office, but handed out by an admin from the same roster
@@ -150,7 +154,12 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   rather than a signed number, because a minus sign in a money box is the sort
   of thing that gets lost, and losing it bills somebody instead of paying them;
   a club-wide payback is refused outright.
-- **Charge** — one statement line, positive = owed, negative = credit. Kinds:
+- **Charge** — one statement line, positive = owed, negative = credit.
+  `memberId` is NULLABLE: a line with no member is the CLUB's own (an
+  insurance bill, a grant, an opening balance), same sign read from the club's
+  side — positive = owed to the club, negative = the club owes. Only ever
+  ONE_OFF, only ever filed with an explicit `club: true` (a missing memberId is
+  still "pick a member"), and only visible in the club-wide views. Kinds:
   `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE | PAYBACK` (the last two
   appended, the safe kind of enum change). PAYBACK is deliberately not negative
   DUES: a statement showing the club paying somebody $50 under "Dues" would be
@@ -171,7 +180,11 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 `postflight` · `servicing` (Checkouts › Add Fuel) · `tools/weight-balance` ·
 `tools/my-plane` ·
 `log` · `reservations` · `members` ·
-`finances` · `profile` ·
+`finances` (every month in one scroll, sticky month headers, older months
+lazy-loaded off an IntersectionObserver on `#app-scroll`; views Mine /
+Club (by person) — with "+ Charge or credit" on each month's header / Club
+(by month) — opening on OUTSTANDING lines only; every line action confirms
+in a `ConfirmModal`) · `profile` ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
 then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
@@ -305,7 +318,24 @@ owns the only splash in the app.
   403 rather than an empty month. GET one month's statements — your own, or
   everyone's with `&all=1` and `finance:read-all`. Reading a month is what materialises its
   dues, idempotently, which is why the club needs no cron).
-- `finances/charges` (POST one-off, `finance:manage`) · `finances/charges/[id]`
+- `finances/ledger` (same auth and privacy rule as `finances`) — what the
+  page actually reads: every month NEWEST FIRST, `months` at a time (default
+  3), `?before=YYYY-MM` for the next older page, `nextBefore: null` when the
+  books start. The FIRST page (no `before`) also materialises every standing
+  rule's months since the earliest rule started (`ensureRecurringChargesFor`,
+  one createMany) — a running balance over months nobody opened would
+  otherwise be missing their dues — and returns the `summary`: each member's
+  outstanding across ALL months plus `clubOutstandingCents` (the null-member
+  lines) and `paidCents` (every PAID line, netted). The page's "Club balance"
+  is that last one — the club's WORTH, money that has actually moved
+  (`paidContribution`) — with what's still unsettled bracketed beside it
+  ("missing $X" / "owes $X"); an unpaid line changes the bracket, never the
+  balance. The page builds its running balance DOWN from that figure
+  (`runningBalances`), which is what lets it be exact while holding only the
+  months scrolled to, and folds a line's Paid/Void/Delete into it as a
+  DIFFERENCE (`outstandingContribution`) rather than refetching.
+- `finances/charges` (POST one-off, `finance:manage`; `club: true` instead of
+  `memberId` files a club-level line, and sending both is a 400) · `finances/charges/[id]`
   (PATCH to void/restore/amend, or `{ paid }` to tick a line off as settled;
   DELETE only for hand-entered lines, and the UI confirms it in a dialog).
 - `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
@@ -560,14 +590,48 @@ owns the only splash in the app.
   from `recurringKind`, i.e. from the sign of the rule.
 - `aircraft.ts` — `normalizeTailNumber` (upper-case, space-free),
   `tailNumberError`, `modelError`. ✅tested
-- `offline.ts` — the difference between a card the club REFUSED and one that
-  never reached it. `completionOutcome` sorts a `sendJson` result into
-  `filed | unsent | refused`, keying on `status === null` (the fetch threw, so
-  the server can hold no opinion) rather than on the prose of an error message;
-  `unsentNotice` is the copy for the `unsent` case, in two versions because the
-  useful sentence changes the moment signal returns and the member is not
-  looking at the screen when it does. Neither version says "error": the walk is
-  whole and on the device, and the only missing ingredient is signal. ✅tested
+- `outbox.ts` — submissions kept on the device until the club has them. A JOB
+  is one press of Complete/File, FROZEN at that moment (photos included), and
+  is an ordered list of STEPS — the flight, then its photos, then each squawk
+  and its photos — where a later step's body can name an earlier one's result
+  (`OutboxRef`, resolved just before sending, never sent unresolved). Results
+  are recorded per step, so an interrupted job resumes mid-way; every step has
+  its OWN idempotency key, which covers the lost-reply case recording can't.
+  `classifyResponse` → `ok | retry | signedOut | refused` (a 2xx that isn't
+  JSON is a RETRY — a captive portal's login page). A refused PRIMARY step
+  (`PRIMARY_STEP`) refuses the job; a refused secondary one is skipped with its
+  dependents and the job lands `partial` (`settle`), kept so the member can read
+  why. Jobs carry `userId` and `sendableJobs` only ever sends the signed-in
+  member's own, oldest first. Builders: `checkoutSignOffJob` (PATCH the draft,
+  `onNotFound` → fresh POST), `flightJob`, `attachmentsJob`, `squawkJob`.
+  ✅tested
+- `outboxStore.ts` — IndexedDB (Blobs as Blobs; localStorage's 5 MB of strings
+  can't hold three photos), hand-written, with a MEMORY fallback where IDB isn't
+  usable (`durable: false`, which the details modal admits to).
+- `idempotency.ts` — `requestIdFrom` (strict: it lands in a unique index) and
+  `isUniqueViolation`. The routes' half: `POST /api/flights`, `POST` +
+  `PATCH /api/checkouts[/id]` (sign-offs only), `POST /api/squawks` and
+  `POST /api/photos` look the key up FIRST and return the row already written
+  (200), store it in `clientRequestId` (unique, nullable) on create, and catch
+  the P2002 of two copies racing. Another member's key is a 409, never their
+  row. `checkoutReplay.ts` is the checkout lookup, in lib/ because two routes
+  share it. ✅tested
+- `serviceWorker.ts` — registers `public/sw.js?v=<commit>` (PRODUCTION ONLY;
+  `next dev` unregisters any worker, which keeps e2e away from it) and empties
+  the API cache on sign-out and whenever the signed-in member changes
+  (`forgetOfflineDataIfUserChanged`) — cached reads are one member's flights and
+  statement.
+- `offline.ts` — every word the app says about being offline: `QUEUED_NOTICE`
+  (the line under a page's button after `submit` came back `queued`) and
+  `stripMessage` (the outbox strip's one line, red ▸ amber ▸ grey). ONE SHORT
+  LINE each, and a test holds them to it — a banner that takes a third of a
+  phone to say "nothing is wrong" teaches members to read past banners,
+  including the grounded one. Detail lives behind the strip's Details button.
+  Never "error", never "press it again". ✅tested
+- `swipe.ts` — the tab-swipe gesture's rules: `touchIntent` (a touch is a
+  SWIPE only if sideways beats vertical by `H_BIAS`, and once a scroll always a
+  scroll), `commitDistance`, `pullProgress` (the arrow's opacity). Only a full
+  pull, released, changes tab; no flick shortcut. ✅tested
 - `xlsx.ts` — rows → a real `.xlsx`, by hand and with no dependency, for the
   same reason `ics.ts` is hand-written. An xlsx is a ZIP of a few XML parts;
   this is those parts plus a STORE-only ZIP writer (`crc32` included, because
@@ -602,7 +666,10 @@ owns the only splash in the app.
   `STORAGE_DRIVER=none` switches it off. `getStorage()` is built on it, which
   is what stops the UI's "(no image support)" and the upload route's refusal
   from ever disagreeing. ✅tested
-- `api.ts` — `fetchJson`/`fetchJsonArray`/`sendJson` client helpers.
+- `api.ts` — `fetchJson`/`fetchJsonArray`/`sendJson` client helpers. The two
+  readers also note the worker's `x-vff-cached-at` header (`staleDataSince` /
+  `onStaleDataChange`), which is how the outbox strip knows to say "showing
+  what this device last saw".
 - `theme.ts` (light/dark/system) · `navDirection.ts` (swipe slide direction).
 
 ## Components
@@ -644,7 +711,12 @@ floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
 rather than centred on the pill — a menu is the answer to the thing you just
 touched, and on a five-tab bar "centred" is a different tab entirely),
 `SwipePager`/`SwipeProvider`
-(phone tab swipe), `LoadingProvider` (one shared splash), `AuthGate`,
+(touch tab swipe, phone AND tablet — the page never moves sideways; a clearly
+horizontal pull fades in an edge arrow and only a FULL pull, released, changes
+tab, so a vertical scroll that drifts laterally does nothing — rules in
+`lib/swipe.ts`. `touchcancel` never commits. `.app-scroll` is
+`overflow-x: hidden` for the same reason, and touches starting in an
+`overflow-x-auto` box are left to it), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
 sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
 (phone), `ReservationModal`, `FlightDetailModal`, `FlightEntryModal` (add a flight to
@@ -674,10 +746,12 @@ the clubhouse wifi is still in reach — preflight fetches `/runway` and
 `/postflight`, runway fetches `/postflight`. What it buys is that the
 client-side navigation at the end of a card needs no network; what it can't buy
 is a hard reload, which still fetches the document — see the offline gotcha),
-`useOnline` (`navigator.onLine` plus its two events, and it is only ever allowed
-to EXPLAIN a failure that already happened, never to stop a request being tried:
-it reports a network interface, not reachability, so a captive-portal wifi reads
-as online),
+`OutboxProvider` + `OutboxStrip` (the runner and the one-line strip at the top
+of the content column — wording in `stripMessage`; nothing in the ordinary
+case, and nothing for a job still on its FIRST attempt, or every online squawk
+would flash it. `aria-live`, not `role="status"`: the draft bar owns that role
+inside `<main>`, and `waitForCheckoutSaved` asks for it by role. Details opens
+a modal with Try sending now and a two-press Discard),
 `CheckoutList` (the collapsible
 section renderer shared by the preflight and runway pages — one section open at
 a time, sticky progress bar showing WHICH STEP you're on and your place in that
@@ -739,8 +813,12 @@ sits above the card the member came to walk; the solo-or-instructor banner is on
 it at every state, the minimums and the reasoning are behind the disclosure / `RulesModal` off the log's currency card /
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
-DateTimeField Dropdown InfoTip Input Modal RichText Select Textarea Toggle
-LoadingDots LoadingScreen`. `Toggle` is a switch with a label on EACH side
+ConfirmModal DateTimeField Dropdown InfoTip Input Modal RichText Select
+Textarea Toggle LoadingDots LoadingScreen`. `ConfirmModal` is the one "are
+you sure" — a title, a body saying WHAT will happen to WHICH thing, and a
+confirm button whose `tone` (`success`/`danger`/`primary`/`secondary`) is the
+stakes; refusals show inside it. `Button` has a `success` (green) variant for
+"settled/confirmed" actions. `Toggle` is a switch with a label on EACH side
 ("My card ( o) Club card") — for a binary choice where both sides deserve a
 name, which a checkbox can't do (it has a label and an unlabelled opposite) and
 a radio pair needs four lines and a legend for. The post-flight page keeps its
@@ -865,7 +943,7 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   recognise. The mark now lives in THREE files (favicon,
   `components/Logo.tsx`, square) — change one, change all three.
 - **There is a `public/` now, and Next's standalone output does not trace it.**
-  It holds the manifest's icons and nothing else so far. The Dockerfile needs
+  It holds the manifest's icons and the service worker (`sw.js`). The Dockerfile needs
   its own `COPY /app/public ./public` beside the `.next/static` one for exactly
   the same reason; miss it and the app boots fine while "Add to Home Screen"
   404s on its icon.
@@ -1042,29 +1120,44 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   then `getByRole("option", …)`), never `selectOption`. Its accessible name is
   "Status" followed by the current value, which is why specs match on the
   prefix.
-- **The app degrades offline; it is NOT an offline app, and the line between
-  those runs through the service worker it doesn't have.** What works with no
-  signal: every tick (localStorage, synchronously), and a client-side
-  navigation to a card that was prefetched while there still was signal
-  (`usePrefetchRoutes`). What does not: a HARD RELOAD, because the document
-  itself still comes off the network and there is nowhere else for it to come
-  from — so an airplane out of range is one pull-to-refresh away from a blank
-  page, with the drafts intact underneath it. The pages' own API reads fail too,
-  but degrade quietly: `fetchJsonArray` returns `[]`, so the card renders
-  without being able to say what the last recorded oil was. Adding a service
-  worker is what would move this line; until then don't describe the checkouts
-  as working offline without saying which half.
-- **A failed Complete is two different things and the pages must not merge
-  them.** `completionOutcome` (lib/offline.ts) splits them: a REFUSAL is the
-  server's own message and belongs in the red error slot, while UNSENT — the
-  fetch never got a reply — is not an error at all and gets an amber notice
-  saying the walk is safe on the device and to press Complete again. Both paths
-  call `draft.thaw()`, which is what makes the retry work: autosave comes back
-  on, the card on screen is untouched, and Complete is still the button. The
-  taxi & runway card is the one where UNSENT is the ORDINARY case — it ends at
-  the hold-short line, well past the clubhouse wifi. Deliberately no auto-retry
-  on the `online` event: a member who kept ticking after the failed press would
-  have a half-edited card filed out from under them.
+- **Offline has three layers now, and each one has a job the others can't do.**
+  (1) Drafts — every tick in localStorage, synchronously (`checkoutDraft.ts`,
+  `postflightDraft.ts`). (2) The OUTBOX — every Complete/File/squawk goes
+  through `useOutbox().submit(job)` (components/OutboxProvider.tsx), which
+  freezes it into IndexedDB and sends it; with signal the page hears `filed` in
+  the same breath as before, without it `queued`, and it goes by itself on load,
+  `online`, foregrounding and a 20 s tick while visible. (3) The SERVICE WORKER
+  (`public/sw.js`) — the pages, their hashed chunks and the last answer to each
+  API GET, so a hard reload in a hangar opens the app instead of a blank page.
+  What still does NOT work: anything in the BACKGROUND on iOS (no Background
+  Sync — the queue only moves while the app is open, and the strip says so), a
+  page never visited or warmed (the worker serves a small "not saved yet"
+  page), and booking/editing (only the submit paths above are queued).
+- **The outbox replaced "press Complete again", and the reasoning is worth
+  keeping.** The old rule was no auto-retry on `online`, because a member who
+  kept ticking after a failed press would have a half-edited card filed out from
+  under them. A FROZEN job answers that: what goes out is exactly what was
+  pressed, and the page clears the card (`draft.finish()`) on `queued` just as
+  on `filed`. A refusal is still the server's message in the red slot, with
+  `draft.thaw()` and the card left on screen; `submit` removes a job refused on
+  the spot, so the outbox only ever holds refusals the member wasn't there for.
+  Two pages read the outbox back: the runway card counts a QUEUED preflight as
+  done (`hasPending`), and `useCheckoutDraft` won't resume a draft row whose
+  sign-off is queued. Pages call `useOutboxSent(refresh)`, because a job landing
+  later changes what they show.
+- **A queued job is only ever sent as the member who made it.** On the clubhouse
+  iPad, member A's unsent flight must not go up under member B's session — the
+  server would file it as B's. `sendableJobs` filters on `userId`; another
+  member's jobs show in the strip as held for them.
+- **The service worker never handles a write, and never Next's RSC requests.**
+  POSTs are the outbox's (it can key, freeze and report them; a worker silently
+  replaying them can do none of that). RSC payloads depend on router-state
+  headers, so they pass through; when one fails offline Next falls back to a
+  full navigation, which the worker answers from the page cache. A page is only
+  cached when it is a real 200 HTML response and NOT a redirect — caching the
+  /login redirect under /preflight would show the login screen offline.
+  `sw.js` is excluded from proxy.ts's matcher (a redirected worker script
+  silently fails to update) and served `no-cache` from next.config.js.
 - `quick-log.spec.ts` sorts between `preflight` and `runway`, which is safe on
   both sides: it never signs off a card, so the runway spec's "the airplane has
   NOT been walked today" assertion is untouched. It reads the flight it just
@@ -1292,6 +1385,14 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   with "Another next dev server is already running". Clean up with
   `docker ps -aq --filter name=vff-app-vff-app-test | xargs -r docker rm -f`
   then `docker volume rm vff-app_test-next`.
+- **Typing an END reading pins the START box beside it** (Quick Log and the
+  post-flight form). A start box follows the best reading the page knows of
+  until the member edits it — but accepting a prefilled start fires no change
+  event, so a reading arriving late (today's preflight, on a slow ramp
+  connection) used to swap it AFTER the member had typed the end, and the form
+  filed a span nobody saw. The end box's `onChange` now marks its start as
+  edited too. Found by the iPhone Quick Log spec, which filed 5.3 hours for a
+  0.8-hour flight.
 - **Quick Log files a real flight.** The row it writes is the same `Flight` the
   post-flight form writes, bills the same way, advances the meters the same way
   and is corrected from the same modal. What it does NOT write is a checkout —

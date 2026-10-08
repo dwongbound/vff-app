@@ -9,6 +9,8 @@
 // POST /api/checkouts  { aircraftId, kind, answers, values, notes, complete }
 //      `fuelOnBoardGal` / `oilQuarts` are NOT accepted: they're derived from
 //      `values` (the readings recorded on the consumables items).
+//      `requestId` (sign-offs only) makes a retried sign-off return the run
+//      it already filed — see lib/idempotency.ts.
 //      `complete: true` stamps completedAt, which is what makes a run count as
 //      a signed-off checkout. A partial run can be posted too — that's the
 //      checkout pages autosaving; it is then finished, or discarded, through
@@ -39,6 +41,8 @@ import {
   parseAnswers,
   parseValues,
 } from "@/lib/checkouts";
+import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
+import { alreadySignedOff } from "@/lib/checkoutReplay";
 
 const INCLUDE = {
   aircraft: { select: { id: true, tailNumber: true } },
@@ -135,6 +139,15 @@ export async function POST(req: Request) {
   const complete = body.complete === true;
   const checkout = checkoutFor(kind);
 
+  // A sign-off retried after its reply was lost. Only a SIGN-OFF carries a
+  // key: a draft that lands twice is already harmless, because the second one
+  // supersedes the first (below). See lib/idempotency.ts.
+  const requestId = complete ? requestIdFrom(body.requestId) : null;
+  if (requestId) {
+    const replay = await alreadySignedOff(requestId, user.id);
+    if (replay) return replay;
+  }
+
   // Completing a card with items still unticked is ALLOWED, and it is the
   // member's call rather than the app's — an item that doesn't apply, or a
   // check that couldn't be made today, shouldn't leave the club with no record
@@ -181,21 +194,32 @@ export async function POST(req: Request) {
   // left off" on their next visit.
   await supersedeOpenRuns({ userId: user.id, aircraftId, kind });
 
-  const created = await prisma.checkout.create({
-    data: {
-      aircraftId,
-      userId: user.id,
-      kind,
-      checkoutVersion: checkout.version,
-      answers,
-      values,
-      fuelOnBoardGal,
-      oilQuarts,
-      notes: body.notes ? String(body.notes).trim() : null,
-      completedAt: complete ? new Date() : null,
-    },
-    include: INCLUDE,
-  });
+  let created;
+  try {
+    created = await prisma.checkout.create({
+      data: {
+        aircraftId,
+        userId: user.id,
+        kind,
+        checkoutVersion: checkout.version,
+        answers,
+        values,
+        fuelOnBoardGal,
+        oilQuarts,
+        notes: body.notes ? String(body.notes).trim() : null,
+        completedAt: complete ? new Date() : null,
+        clientRequestId: requestId,
+      },
+      include: INCLUDE,
+    });
+  } catch (error) {
+    // Two copies of one sign-off racing: the loser returns the winner's row.
+    if (requestId && isUniqueViolation(error)) {
+      const replay = await alreadySignedOff(requestId, user.id);
+      if (replay) return replay;
+    }
+    throw error;
+  }
 
   // A SIGNED-OFF card belongs to a flight. A draft doesn't yet — half a
   // walkaround is not a flight anyone has committed to, and opening a log row

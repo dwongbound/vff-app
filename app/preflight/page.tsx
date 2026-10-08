@@ -18,7 +18,7 @@ import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import Textarea from "@/components/common/Textarea";
 import CheckoutList, { type ItemNote } from "@/components/CheckoutList";
-import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
+import PhotoUploader from "@/components/PhotoUploader";
 import CheckoutDraftBar from "@/components/CheckoutDraftBar";
 import CompleteCheckoutButton from "@/components/CompleteCheckoutButton";
 import { useCheckoutDraft } from "@/components/useCheckoutDraft";
@@ -26,10 +26,11 @@ import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModa
 import { MyLimitsCard } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
-import { useOnline } from "@/components/useOnline";
+import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
 import { usePrefetchRoutes } from "@/components/usePrefetchRoutes";
-import { fetchJsonArray, sendJson } from "@/lib/api";
-import { completionOutcome, unsentNotice } from "@/lib/offline";
+import { fetchJsonArray } from "@/lib/api";
+import { QUEUED_NOTICE } from "@/lib/offline";
+import { attachmentsJob, checkoutSignOffJob } from "@/lib/outbox";
 import {
   PREFLIGHT_CHECKOUT,
   isComplete,
@@ -82,13 +83,12 @@ export default function PreflightPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   /**
-   * A Complete that never reached the club. Not an error — see lib/offline —
-   * so it gets its own state rather than a message in `error`: the walk is
-   * intact, the button still works, and the only thing to do is press it again
-   * with signal.
+   * A Complete that's waiting in the outbox for signal. Not an error — see
+   * lib/offline — so it gets its own state rather than a message in `error`:
+   * the walk is signed for and on the device, and the app will send it.
    */
-  const [unsent, setUnsent] = useState(false);
-  const online = useOnline();
+  const [queued, setQueued] = useState(false);
+  const outbox = useOutbox();
 
   // The rest of the sequence, fetched while the clubhouse wifi is still in
   // reach. The flight happens between this card and the next two, which is
@@ -119,6 +119,9 @@ export default function PreflightPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+  // Something queued earlier just reached the club — a squawk raised on this
+  // walk, say, which changes the open count this page draws.
+  useOutboxSent(refresh);
 
   /**
    * Send up anything that was waiting for a row to hang off.
@@ -132,7 +135,7 @@ export default function PreflightPage() {
    */
   const flushAttachments = useCallback(
     async (checkoutId: string) => {
-      if (!selected) return;
+      if (!selected || !me) return;
       if (photos.length === 0 && squawkDrafts.length === 0) return;
 
       // Taken and cleared BEFORE the uploads: another autosave landing while
@@ -142,20 +145,18 @@ export default function PreflightPage() {
       setPhotos([]);
       setSquawkDrafts([]);
 
-      if (pendingPhotos.length) {
-        await uploadPhotos(pendingPhotos, "checkout", checkoutId);
-      }
-      for (const draft of pendingSquawks) {
-        const squawk = await sendJson<ApiSquawk>("/api/squawks", "POST", {
-          aircraftId: selected.id,
-          checkoutId,
-          title: draft.title,
-          description: draft.description || null,
-        });
-        if (squawk.ok && squawk.data && draft.photos.length) {
-          await uploadPhotos(draft.photos, "squawk", squawk.data.id);
-        }
-      }
+      // Through the outbox, so a squawk raised a moment before the signal
+      // drops is kept on the device and sent later rather than lost with the
+      // request. Once queued it no longer depends on this page being open.
+      const job = attachmentsJob({
+        owner: { userId: me.id, userName: me.name },
+        label: `Squawks and photos — ${selected.tailNumber} preflight`,
+        aircraftId: selected.id,
+        checkoutId,
+        photos: pendingPhotos,
+        squawks: pendingSquawks,
+      });
+      if (job) await outbox.submit(job);
 
       // A new squawk changes the open count the Status tab shows. It can no
       // longer ground the airplane by itself — only the Safety Officer's triage
@@ -163,7 +164,7 @@ export default function PreflightPage() {
       if (pendingSquawks.length > 0) notifyAircraftChanged();
       await refresh();
     },
-    [selected, photos, squawkDrafts, refresh]
+    [selected, me, photos, squawkDrafts, refresh, outbox]
   );
 
   // What the airplane's open squawks add up to, counted once. Up here rather
@@ -227,7 +228,7 @@ export default function PreflightPage() {
   async function resetCard() {
     setError(null);
     setSaved(null);
-    setUnsent(false);
+    setQueued(false);
     const result = await draft.reset();
     if (!result.ok) {
       setError(result.error ?? "Could not discard the saved checkout.");
@@ -291,10 +292,10 @@ export default function PreflightPage() {
   }: {
     acknowledgeIncomplete: boolean;
   }) {
-    if (!selected) return;
+    if (!selected || !me) return;
     setError(null);
     setSaved(null);
-    setUnsent(false);
+    setQueued(false);
     setBusy(true);
     // Stop autosaving for the duration. A debounced sync coming due while this
     // request is in flight would POST a fresh DRAFT a moment after the walk was
@@ -313,42 +314,43 @@ export default function PreflightPage() {
       acknowledgeIncomplete,
     };
 
-    // Autosave has almost certainly created the row already; PATCH it so one
-    // walkaround stays one row. The POST is the case where the very first sync
-    // hasn't landed yet — a member who ticks the last box within the debounce.
-    const result = draft.serverId
-      ? await sendJson<ApiCheckout>(
-          `/api/checkouts/${draft.serverId}`,
-          "PATCH",
-          payload
-        )
-      : await sendJson<ApiCheckout>("/api/checkouts", "POST", {
-          aircraftId: selected.id,
-          kind: "PREFLIGHT",
-          ...payload,
-        });
-
-    const outcome = completionOutcome(
-      result,
-      "Could not save the preflight checkout."
+    // Frozen into the outbox: the card as it is right now, plus anything still
+    // held on the page for it (a photo attached seconds ago, a squawk raised on
+    // the last item). With signal it's filed straight away and this reads
+    // exactly as it always did; without, it waits on the device and goes by
+    // itself — see lib/outbox.ts.
+    //
+    // Autosave has almost certainly created the row already, so the job
+    // PATCHes it and one walkaround stays one row. With no row yet (the member
+    // ticked the last box inside the debounce) it POSTs a fresh one.
+    const result = await outbox.submit(
+      checkoutSignOffJob({
+        owner: { userId: me.id, userName: me.name },
+        label: `Preflight — ${selected.tailNumber}`,
+        kind: "PREFLIGHT",
+        aircraftId: selected.id,
+        serverId: draft.serverId,
+        payload,
+        photos,
+        squawks: squawkDrafts,
+      })
     );
 
-    if (outcome.kind !== "filed") {
+    if (result.kind === "refused") {
       setBusy(false);
-      // The sign-off didn't take, so the walk is still live work — put autosave
-      // back rather than leaving the member ticking into nothing.
+      // The club said no, so the walk is still live work — put autosave back
+      // rather than leaving the member ticking into nothing, and keep every
+      // photo and squawk on the page.
       draft.thaw();
-      // A refusal is something to read; a request that never landed is not.
-      // The card stays exactly as it is either way, so Complete remains the
-      // right button — see lib/offline for why these are told apart at all.
-      if (outcome.kind === "refused") setError(outcome.error);
-      else setUnsent(true);
+      setError(result.error);
       return;
     }
 
-    // Anything still held on the page — a photo attached seconds ago, a squawk
-    // raised on the last item — needs the row, so it goes up now.
-    await flushAttachments(outcome.data.id);
+    // Filed or queued, the page's part is done: what was pressed is either
+    // with the club or frozen in the outbox, so the photos and squawks it held
+    // have gone with it.
+    setPhotos([]);
+    setSquawkDrafts([]);
 
     // The row has stopped being a draft: it's the airplane's record. Drop the
     // device copy so the next visit opens a clean card rather than offering to
@@ -359,11 +361,16 @@ export default function PreflightPage() {
     // The card has done two things, and the second is new enough to say out
     // loud: signing off a preflight OPENS the flight's log entry, carrying the
     // meters and the clock this walk just read. See lib/flightSession.ts.
-    setSaved(
-      outcome.data.flightId
-        ? "Preflight checkout completed, and this flight is now open in the log. Next: the runway checkout, once you're sitting in it."
-        : "Preflight checkout completed. Next: the runway checkout, once you're sitting in it."
-    );
+    if (result.kind === "queued") {
+      setQueued(true);
+    } else {
+      const filed = result.data as ApiCheckout | null;
+      setSaved(
+        filed?.flightId
+          ? "Preflight checkout completed, and this flight is now open in the log. Next: the runway checkout, once you're sitting in it."
+          : "Preflight checkout completed. Next: the runway checkout, once you're sitting in it."
+      );
+    }
 
     // Start clean for the next run — clean meaning "a fresh card", which
     // includes a fresh clock reading rather than the one from the run that was
@@ -690,17 +697,11 @@ export default function PreflightPage() {
           rather than met with a button that won't press and no explanation. */}
       <div className="space-y-2 pb-2">
         {/* Amber rather than red, and above the error slot rather than in it:
-            nothing has gone wrong with the walk. The card is whole and on the
-            device; it just hasn't been handed to the club yet. `role="status"`
-            because the wording changes on its own the moment signal returns,
-            while the member is looking at the airplane rather than the phone. */}
-        {unsent && (
-          <p
-            role="status"
-            className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
-          >
-            <span className="font-semibold">{unsentNotice(online).lead}</span>{" "}
-            {unsentNotice(online).body}
+            nothing has gone wrong with the walk. It's signed for and in the
+            outbox; it just hasn't been handed to the club yet. */}
+        {queued && (
+          <p aria-live="polite" className="text-sm text-amber-700 dark:text-amber-300">
+            {QUEUED_NOTICE}
           </p>
         )}
         {error && (

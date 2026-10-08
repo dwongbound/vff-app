@@ -2,7 +2,7 @@
 // Reusable button. Add variants/sizes here as the app grows.
 import { ButtonHTMLAttributes } from "react";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost";
+type Variant = "primary" | "secondary" | "danger" | "success" | "ghost";
 type Size = "sm" | "md" | "lg";
 
 const VARIANT_CLASSES: Record<Variant, string> = {
@@ -11,6 +11,9 @@ const VARIANT_CLASSES: Record<Variant, string> = {
     "bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 " +
     "dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600 dark:hover:bg-gray-700",
   danger: "bg-red-600 text-white hover:bg-red-700 disabled:bg-red-400",
+  // Money settled, a thing confirmed done. Green is otherwise only ever a
+  // credit's colour in this app, so it stays rare on a button too.
+  success: "bg-green-600 text-white hover:bg-green-700 disabled:bg-green-400",
   ghost:
     "bg-transparent text-gray-700 hover:bg-gray-100 " +
     "dark:text-gray-300 dark:hover:bg-gray-800",

@@ -446,3 +446,82 @@ export function isBillablePeriod(
 ): boolean {
   return period <= currentPeriod(now);
 }
+
+// ── The ledger: every month at once ────────────────────────────────────────
+//
+// The Finances page used to be one month at a time, which meant the only way
+// to learn that March's dues were never paid was to go and open March. It is
+// now one long statement, newest first, loaded a few months at a time as you
+// scroll — so the helpers below are the arithmetic that stays true across a
+// list that is only ever PARTLY loaded.
+
+/** Every period from `newest` back to `oldest`, inclusive, newest first. */
+export function periodsBetween(newest: Period, oldest: Period): Period[] {
+  const out: Period[] = [];
+  for (let p = newest; p >= oldest; p = shiftPeriod(p, -1)) out.push(p);
+  return out;
+}
+
+/**
+ * What one line adds to what is still owed: its amount while it stands
+ * unsettled, nothing once it's paid or voided. The same rule `totals` applies
+ * to `outstandingCents`, stated for a single line so a change to one line can
+ * be applied to a total as a difference.
+ */
+export function outstandingContribution(charge: ChargeLike): number {
+  if (charge.voided || charge.paidAt) return 0;
+  return charge.amountCents;
+}
+
+/**
+ * What one line has actually MOVED, from the club's side: its amount once it's
+ * been paid, nothing while it's still owed (or voided). The other half of
+ * `outstandingContribution` — every standing line is in exactly one of the two
+ * — and the club's worth is the sum of this over every line it has.
+ */
+export function paidContribution(charge: ChargeLike): number {
+  if (charge.voided || !charge.paidAt) return 0;
+  return charge.amountCents;
+}
+
+/**
+ * The running balance down a statement read NEWEST FIRST.
+ *
+ * The page never holds the whole history — older months arrive as you scroll
+ * — so the balance can't be built up from the first line ever written. It is
+ * built DOWN from the one figure the server can give exactly, what is owed
+ * right now, by taking each line back off as you pass it. The figure beside a
+ * line is therefore "what was still owed once this line had been written",
+ * and paid or voided lines leave it where it was, which is how a settled month
+ * reads as flat.
+ */
+export function runningBalances(
+  newestFirst: ChargeLike[],
+  outstandingNowCents: number
+): number[] {
+  let running = outstandingNowCents;
+  return newestFirst.map((charge) => {
+    const after = running;
+    running -= outstandingContribution(charge);
+    return after;
+  });
+}
+
+/**
+ * The club's position across its members: what members owe the club, and what
+ * the club owes members. Kept as TWO figures rather than netted, because a
+ * member owed $50 back doesn't cancel another member's unpaid $50 — both are
+ * money somebody has to go and settle.
+ */
+export function clubPosition(memberOutstandingCents: number[]): {
+  owedToClubCents: number;
+  owedByClubCents: number;
+} {
+  let owedToClubCents = 0;
+  let owedByClubCents = 0;
+  for (const cents of memberOutstandingCents) {
+    if (cents > 0) owedToClubCents += cents;
+    else owedByClubCents += -cents;
+  }
+  return { owedToClubCents, owedByClubCents };
+}

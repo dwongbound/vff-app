@@ -20,6 +20,7 @@
 import { usePathname } from "next/navigation";
 import Navbar from "./Navbar";
 import SwipePager from "./SwipePager";
+import OutboxStrip from "./OutboxStrip";
 import { SwipeProvider } from "./SwipeProvider";
 import { APP_SCROLL_ID } from "@/lib/appScroll";
 
@@ -44,6 +45,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Extra bottom padding below `md` so content can scroll clear of the
             floating bottom nav bar (see Navbar.tsx). */}
         <main className="mx-auto max-w-5xl px-4 pb-28 pt-6 md:pb-6">
+          {/* What's on this device and not yet with the club, and whether the
+              page is live. Above the pager so it doesn't fade with a swipe,
+              and renders nothing at all in the ordinary case. */}
+          {!chromeless && <OutboxStrip />}
           <SwipePager>{children}</SwipePager>
         </main>
       </div>

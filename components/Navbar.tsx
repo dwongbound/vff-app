@@ -30,6 +30,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
+import { forgetOfflineDataOnSignOut } from "@/lib/serviceWorker";
 import { useEffect, useRef, useState } from "react";
 import Banner from "./common/Banner";
 import Dropdown, { useLatchDropdown } from "./common/Dropdown";
@@ -515,7 +516,13 @@ export default function Navbar() {
       {/* Replaying the tour has its own button in the top bar now, so it's not
           repeated here. */}
       <button
-        onClick={() => signOut({ callbackUrl: "/login" })}
+        // The cached reads go first: they're this member's flights and
+        // statement, and the next person to pick up this device shouldn't be
+        // able to read them with the wifi off. See lib/serviceWorker.ts.
+        onClick={async () => {
+          await forgetOfflineDataOnSignOut();
+          signOut({ callbackUrl: "/login" });
+        }}
         className="block w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         Log out

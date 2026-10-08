@@ -3,6 +3,9 @@
 //   subject  — "flight" | "squawk" | "checkout"
 //   subjectId— the row it documents (must already exist and be yours)
 //   caption  — optional
+//   requestId— optional idempotency key (lib/idempotency.ts): a retried upload
+//              that already landed returns that photo instead of storing the
+//              bytes a second time
 //
 // The bytes go to object storage (lib/storage: local disk in dev, an
 // S3-compatible bucket in prod) and this table keeps the index. Images are
@@ -14,6 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { getStorage, photoKey, storageStatus } from "@/lib/storage";
 import { serializePhoto } from "@/lib/serialize";
 import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES } from "@/lib/constants";
+import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
 
 type Subject = "flight" | "squawk" | "checkout";
 
@@ -45,6 +49,14 @@ export async function POST(req: Request) {
   const subject = String(form.get("subject") ?? "") as Subject;
   const subjectId = String(form.get("subjectId") ?? "");
   const caption = form.get("caption") ? String(form.get("caption")).trim() : null;
+  const requestId = requestIdFrom(form.get("requestId"));
+
+  // Checked before anything touches storage, so a retry costs a lookup rather
+  // than a second copy of the bytes in the bucket.
+  if (requestId) {
+    const replay = await alreadyUploaded(requestId, user.id);
+    if (replay) return replay;
+  }
 
   if (!["flight", "squawk", "checkout"].includes(subject) || !subjectId) {
     return NextResponse.json(
@@ -84,20 +96,46 @@ export async function POST(req: Request) {
 
   await getStorage().put(key, bytes, file.type);
 
-  const photo = await prisma.photo.create({
-    data: {
-      key,
-      contentType: file.type,
-      sizeBytes: bytes.byteLength,
-      caption,
-      uploadedById: user.id,
-      flightId: subject === "flight" ? subjectId : null,
-      squawkId: subject === "squawk" ? subjectId : null,
-      checkoutId: subject === "checkout" ? subjectId : null,
-    },
-  });
+  let photo;
+  try {
+    photo = await prisma.photo.create({
+      data: {
+        key,
+        contentType: file.type,
+        sizeBytes: bytes.byteLength,
+        caption,
+        uploadedById: user.id,
+        flightId: subject === "flight" ? subjectId : null,
+        squawkId: subject === "squawk" ? subjectId : null,
+        checkoutId: subject === "checkout" ? subjectId : null,
+        clientRequestId: requestId,
+      },
+    });
+  } catch (error) {
+    // Lost a race with another copy of this upload. Its bytes are the ones the
+    // index points at, so ours go back out of the bucket.
+    if (requestId && isUniqueViolation(error)) {
+      await getStorage().delete(key).catch(() => {});
+      const raced = await alreadyUploaded(requestId, user.id);
+      if (raced) return raced;
+    }
+    throw error;
+  }
 
   return NextResponse.json(serializePhoto(photo), { status: 201 });
+}
+
+/** The photo a retried upload already stored, or null. */
+async function alreadyUploaded(requestId: string, userId: string) {
+  const row = await prisma.photo.findUnique({ where: { clientRequestId: requestId } });
+  if (!row) return null;
+  if (row.uploadedById !== userId) {
+    return NextResponse.json(
+      { error: "That request id belongs to another photo." },
+      { status: 409 }
+    );
+  }
+  return NextResponse.json(serializePhoto(row), { status: 200 });
 }
 
 /** The user id that owns a subject row, or null when it doesn't exist. */

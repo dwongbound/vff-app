@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   chargesForFlight,
+  clubPosition,
+  outstandingContribution,
+  paidContribution,
+  periodsBetween,
+  runningBalances,
   currentPeriod,
   flightCharge,
   formatMoney,
@@ -391,5 +396,75 @@ describe("paybacks", () => {
       { amountCents: -5_000, voided: false },
     ]);
     expect(month.balanceCents).toBe(20_000);
+  });
+});
+
+describe("the all-months ledger", () => {
+  it("lists periods newest first, inclusive, across a year boundary", () => {
+    expect(periodsBetween("2026-02", "2025-11")).toEqual([
+      "2026-02",
+      "2026-01",
+      "2025-12",
+      "2025-11",
+    ]);
+    expect(periodsBetween("2026-02", "2026-02")).toEqual(["2026-02"]);
+    expect(periodsBetween("2026-01", "2026-02")).toEqual([]);
+  });
+
+  it("counts a line toward what's owed only while it stands unsettled", () => {
+    expect(outstandingContribution({ amountCents: 2500, voided: false })).toBe(2500);
+    expect(outstandingContribution({ amountCents: -900, voided: false })).toBe(-900);
+    expect(
+      outstandingContribution({ amountCents: 2500, voided: false, paidAt: "2026-08-02" })
+    ).toBe(0);
+    expect(outstandingContribution({ amountCents: 2500, voided: true })).toBe(0);
+  });
+
+  it("counts a line toward the club's worth only once it's paid", () => {
+    expect(paidContribution({ amountCents: 2500, voided: false })).toBe(0);
+    expect(
+      paidContribution({ amountCents: 2500, voided: false, paidAt: "2026-08-02" })
+    ).toBe(2500);
+    // A paid credit is money that left the club.
+    expect(
+      paidContribution({ amountCents: -900, voided: false, paidAt: "2026-08-02" })
+    ).toBe(-900);
+    expect(
+      paidContribution({ amountCents: 2500, voided: true, paidAt: "2026-08-02" })
+    ).toBe(0);
+    // Every standing line is in exactly one half.
+    for (const line of [
+      { amountCents: 700, voided: false },
+      { amountCents: 700, voided: false, paidAt: "2026-08-02" },
+    ]) {
+      expect(paidContribution(line) + outstandingContribution(line)).toBe(700);
+    }
+  });
+
+  it("builds the running balance DOWN from what's owed now", () => {
+    // Newest first: a $50 charge, a paid $100 line, a $30 credit, a voided $5.
+    const lines = [
+      { amountCents: 5000, voided: false },
+      { amountCents: 10000, voided: false, paidAt: "2026-08-03" },
+      { amountCents: -3000, voided: false },
+      { amountCents: 500, voided: true },
+    ];
+    // Owed now: 50 - 30 = $20 (earlier, unloaded months owe nothing here).
+    expect(runningBalances(lines, 2000)).toEqual([2000, -3000, -3000, 0]);
+  });
+
+  it("keeps an unloaded history's balance under the oldest loaded line", () => {
+    // $250 still owed from months not yet scrolled to.
+    expect(runningBalances([{ amountCents: 1000, voided: false }], 26000)).toEqual([
+      26000,
+    ]);
+  });
+
+  it("keeps what members owe and what the club owes apart", () => {
+    expect(clubPosition([5000, -2000, 0, 1500])).toEqual({
+      owedToClubCents: 6500,
+      owedByClubCents: 2000,
+    });
+    expect(clubPosition([])).toEqual({ owedToClubCents: 0, owedByClubCents: 0 });
   });
 });

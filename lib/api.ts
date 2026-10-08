@@ -1,6 +1,43 @@
 // Small client-side fetch helpers.
 
 /**
+ * The header the service worker (public/sw.js) puts on a read it answered
+ * from its cache because the network didn't. Its value is when that copy was
+ * fetched.
+ */
+const CACHED_AT_HEADER = "x-vff-cached-at";
+
+let staleSince: string | null = null;
+const staleListeners = new Set<(at: string | null) => void>();
+
+/**
+ * Note whether a read came off the network or out of the worker's cache.
+ *
+ * One flag for the whole app rather than per request: the question a member
+ * needs answered is "is what I'm looking at live", and that's true or false of
+ * the connection, not of one list. A fresh read clears it, because a fresh
+ * read means we're back.
+ */
+function noteFreshness(res: Response) {
+  const at = res.headers.get(CACHED_AT_HEADER);
+  const next = at ? (staleSince && staleSince < at ? staleSince : at) : null;
+  if (next === staleSince) return;
+  staleSince = next;
+  staleListeners.forEach((l) => l(staleSince));
+}
+
+/** When the oldest cached read on screen was fetched, or null when all live. */
+export function staleDataSince(): string | null {
+  return staleSince;
+}
+
+/** Hear about the above changing. Returns the unsubscribe. */
+export function onStaleDataChange(listener: (at: string | null) => void): () => void {
+  staleListeners.add(listener);
+  return () => staleListeners.delete(listener);
+}
+
+/**
  * Fetch a URL that is expected to return a JSON array. Returns [] on any
  * network error, non-2xx response, or non-array body, so callers can render
  * an empty list instead of crashing on `.map(...)`.
@@ -9,13 +46,27 @@ export async function fetchJsonArray<T>(
   url: string,
   init?: RequestInit
 ): Promise<T[]> {
+  return (await fetchJsonList<T>(url, init)) ?? [];
+}
+
+/**
+ * The same, but null on failure rather than [] — for the callers where "the
+ * request failed" and "there are none" must not look alike. The fleet is the
+ * one that matters: a refetch that fails with no signal used to come back as
+ * an empty fleet, and every page then said "No airplane set up yet".
+ */
+export async function fetchJsonList<T>(
+  url: string,
+  init?: RequestInit
+): Promise<T[] | null> {
   try {
     const res = await fetch(url, init);
-    if (!res.ok) return [];
+    noteFreshness(res);
+    if (!res.ok) return null;
     const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data) ? data : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -30,6 +81,7 @@ export async function fetchJsonObject<T>(
 ): Promise<T | null> {
   try {
     const res = await fetch(url, init);
+    noteFreshness(res);
     if (!res.ok) return null;
     const data = await res.json();
     return data && typeof data === "object" && !Array.isArray(data)

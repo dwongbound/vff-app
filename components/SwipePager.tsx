@@ -1,43 +1,64 @@
 "use client";
-// Interactive phone tab-swipe. The current page follows the finger as you drag
-// left/right; the navbar highlight previews the tab you're heading toward. On
-// release it either commits (page finishes sliding out, the next one fades in)
-// or snaps back. The nav bars live outside this wrapper, so they never move —
-// only the content does.
+// Touch tab-swipe (phone AND tablet). The page itself never moves sideways:
+// a vertical scroll that drifts a few pixels laterally used to drag the whole
+// page off to one side, and you then had to put it back. Instead a horizontal
+// pull fades in a plain circled ARROW at the edge you're pulling toward, and only once it's fully pulled does letting go change tab. Short
+// of that, releasing does nothing at all; there is no flick shortcut, because
+// a flick is exactly what an accidental lateral brush looks like.
+//
+// The gesture has to be clearly sideways to start (lib/swipe.ts),
+// and once a touch has been read as a vertical scroll it stays one for its
+// whole life. A touch that begins inside something that is MEANT to scroll
+// sideways (a wide table in an `overflow-x-auto` box, a range slider) is left
+// alone so that scrolling keeps working.
+//
+// The navbar highlight previews the target tab once the arrow is fully pulled. The
+// nav bars live outside this wrapper, so they never move.
 import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { scrollAppToTop } from "@/lib/appScroll";
 import { consumeNavDirection } from "@/lib/navDirection";
+import { commitDistance, pullProgress, touchIntent } from "@/lib/swipe";
 import { useSwipe } from "./SwipeProvider";
 
 // useLayoutEffect warns during SSR; fall back to useEffect on the server (the
 // pre-paint positioning it buys us only matters on the client anyway).
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
-const PREVIEW_RATIO = 0.3; // drag this fraction of the width → preview the target
-const COMMIT_RATIO = 0.4; //  …this fraction (or a quick flick) → actually go there
-const FLICK_MS = 250; //       a swipe faster than this commits on less distance
-const FLICK_PX = 45;
-const OUT_MS = 200; //         current page finishing its slide out
-const IN_MS = 250; //          next page fading in
+/** The next page fading in after a committed swipe. */
+const IN_MS = 250;
+
+// True when the touch starts inside something that scrolls horizontally on
+// purpose, or a control whose own drag is sideways.
+function inHorizontalScroller(target: EventTarget | null): boolean {
+  let node = target instanceof Element ? target : null;
+  while (node && node !== document.body) {
+    if (node instanceof HTMLInputElement && node.type === "range") return true;
+    if (node instanceof HTMLElement && node.scrollWidth > node.clientWidth + 1) {
+      const ox = getComputedStyle(node).overflowX;
+      if (ox === "auto" || ox === "scroll") return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
 
 export default function SwipePager({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { tabsRef, activeIndexRef, navigateRef, setPreviewIndex } = useSwipe();
   const elRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
 
-  // On a committed swipe, land the new route with NO transform and a quick
-  // fade. Crucially the incoming side never carries a transform: a route-level
-  // loader or a modal is `position: fixed`, and a transformed ancestor would
-  // become its containing block and drag the "full-page" overlay around. A fade
-  // reads as a transition without that hazard. Runs before paint so nothing
-  // flashes at the wrong offset.
+  // On a committed swipe, land the new route with a quick fade. Never a
+  // transform: a route-level loader or a modal is `position: fixed`, and a
+  // transformed ancestor would become its containing block and drag the
+  // "full-page" overlay around. Runs before paint so nothing flashes.
   useIsoLayoutEffect(() => {
     const el = elRef.current;
     if (!el) return;
     setPreviewIndex(null); // the real active tab is authoritative again
     const dir = consumeNavDirection();
-    el.style.transform = "";
     if (dir === 0) {
       el.style.transition = "";
       el.style.opacity = "";
@@ -50,118 +71,157 @@ export default function SwipePager({ children }: { children: React.ReactNode }) 
     el.style.opacity = "1";
   }, [pathname, setPreviewIndex]);
 
-  // The drag itself. Attaches once (all deps are stable refs/setters) and reads
+  // The gesture. Attaches once (all deps are stable refs/setters) and reads
   // live tab info from the shared refs, so it never goes stale.
   useIsoLayoutEffect(() => {
-    const el = elRef.current;
-    if (!el) return;
+    const left = leftRef.current;
+    const right = rightRef.current;
+    if (!left || !right) return;
     let startX = 0;
     let startY = 0;
-    let startT = 0;
     let mode: "none" | "deciding" | "drag" = "none";
     let dx = 0;
     let preview: number | null = null;
 
+    // The tab a pull of `d` px heads toward, or null if there isn't one.
+    const neighborFor = (d: number): number | null => {
+      const n = activeIndexRef.current + (d < 0 ? 1 : -1); // finger left → next tab
+      return n >= 0 && n < tabsRef.current.length ? n : null;
+    };
+
+    // Opacity is the whole indicator: fully opaque = fully pulled. Written to
+    // the DOM directly rather than through state, so a drag doesn't re-render
+    // the page 60 times a second.
+    const paint = (arrow: HTMLDivElement, progress: number, animate: boolean) => {
+      arrow.style.transition = animate ? "opacity 150ms ease-out" : "none";
+      arrow.style.opacity = String(progress);
+    };
+
+    /** Fade both arrows out — the pull is over. */
+    const hideArrows = () => {
+      paint(left, 0, true);
+      paint(right, 0, true);
+    };
+
+    /** Forget the gesture and drop any tab highlight it was previewing. */
     const clear = () => {
       mode = "none";
       dx = 0;
-      preview = null;
+      if (preview !== null) {
+        preview = null;
+        setPreviewIndex(null);
+      }
     };
 
+    /** Start watching a one-finger touch, unless something else owns it. */
     const onStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1 || window.innerWidth >= 640) {
-        clear();
-        return;
-      }
+      mode = "none";
+      if (e.touches.length !== 1) return;
       if (window.location.pathname === "/login") return; // no tabs on the auth page
       // Don't hijack touches while a dialog is open — its own scroll/controls
       // should win.
       if (document.querySelector('[role="dialog"]')) return;
+      if (inHorizontalScroller(e.target)) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
-      startT = Date.now();
       mode = "deciding";
     };
 
+    /** Classify the touch, then — once it's a swipe — track the pull. */
     const onMove = (e: TouchEvent) => {
       if (mode === "none") return;
       const mx = e.touches[0].clientX - startX;
       const my = e.touches[0].clientY - startY;
-      // Decide horizontal-drag vs vertical-scroll on the first decisive move.
       if (mode === "deciding") {
-        if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
-        if (Math.abs(mx) <= Math.abs(my)) {
-          clear();
+        const intent = touchIntent(mx, my);
+        if (intent === "undecided") return;
+        // Anything that isn't clearly sideways is a scroll, for good.
+        if (intent === "scroll") {
+          mode = "none";
           return;
         }
         mode = "drag";
-        el.style.transition = "none";
       }
-      // We own this horizontal gesture now — stop the browser from also
-      // scrolling sideways or firing its native back/forward swipe.
+      // We own this gesture now — stop the browser from also scrolling or
+      // firing its native back/forward swipe.
       if (e.cancelable) e.preventDefault();
-      const hrefs = tabsRef.current;
-      const active = activeIndexRef.current;
-      const dir = mx < 0 ? 1 : -1; // finger left → next (right-hand) tab
-      const neighbor = active + dir;
-      const hasNeighbor = neighbor >= 0 && neighbor < hrefs.length;
       dx = mx;
-      const w = window.innerWidth || 1;
-      // Rubber-band when there's no tab that way.
-      el.style.transform = `translateX(${hasNeighbor ? dx : dx * 0.3}px)`;
-      const next = hasNeighbor && Math.abs(dx) > w * PREVIEW_RATIO ? neighbor : null;
+      const target = neighborFor(dx);
+      const progress = pullProgress(dx, window.innerWidth, target !== null);
+      paint(dx > 0 ? left : right, progress, false);
+      paint(dx > 0 ? right : left, 0, false);
+      const next = progress >= 1 ? target : null;
       if (next !== preview) {
         preview = next;
         setPreviewIndex(next);
       }
     };
 
+    /** Let go: change tab only if the pull was a full one. */
     const onEnd = () => {
       if (mode !== "drag") {
-        clear();
+        mode = "none";
         return;
       }
-      const hrefs = tabsRef.current;
-      const active = activeIndexRef.current;
-      const w = window.innerWidth || 1;
-      const dir = dx < 0 ? 1 : -1;
-      const neighbor = active + dir;
-      const hasNeighbor = neighbor >= 0 && neighbor < hrefs.length;
-      const flick = Date.now() - startT < FLICK_MS && Math.abs(dx) > FLICK_PX;
-      const commit = hasNeighbor && (Math.abs(dx) > w * COMMIT_RATIO || flick);
-      if (commit) {
-        // Align both pages at the top first: the incoming route always mounts
-        // scrolled to the top, so without this the slide picks up a vertical
-        // jump when you swipe from a scrolled position. The content column is
-        // what scrolls now, not the window (see lib/appScroll.ts).
+      const target = neighborFor(dx);
+      const armed = target !== null && Math.abs(dx) >= commitDistance(window.innerWidth);
+      hideArrows();
+      if (armed) {
+        // The incoming route mounts at the top; get there first so the fade
+        // isn't paired with a scroll jump.
         scrollAppToTop();
-        setPreviewIndex(neighbor);
-        el.style.transition = `transform ${OUT_MS}ms ease-out`;
-        el.style.transform = `translateX(${dir > 0 ? -w : w}px)`;
-        const href = hrefs[neighbor];
-        window.setTimeout(() => navigateRef.current(href), OUT_MS);
-      } else {
-        // Snap back.
-        setPreviewIndex(null);
-        el.style.transition = `transform ${OUT_MS}ms ease-out`;
-        el.style.transform = "translateX(0)";
+        preview = null; // keep the highlight on the target until the route lands
+        navigateRef.current(tabsRef.current[target]);
       }
+      clear();
+    };
+
+    // The system took the touch away (an incoming call, an iOS edge gesture).
+    // Never a commit, however far the pull had got: the member didn't let go.
+    const onCancel = () => {
+      hideArrows();
       clear();
     };
 
     window.addEventListener("touchstart", onStart, { passive: true });
     // Non-passive so onMove can preventDefault once it locks into a horizontal
-    // drag (needed to suppress the browser's own swipe navigation).
+    // pull (needed to suppress vertical scroll and the browser's swipe-back).
     window.addEventListener("touchmove", onMove, { passive: false });
     window.addEventListener("touchend", onEnd, { passive: true });
-    window.addEventListener("touchcancel", onEnd, { passive: true });
+    window.addEventListener("touchcancel", onCancel, { passive: true });
     return () => {
       window.removeEventListener("touchstart", onStart);
       window.removeEventListener("touchmove", onMove);
       window.removeEventListener("touchend", onEnd);
-      window.removeEventListener("touchcancel", onEnd);
+      window.removeEventListener("touchcancel", onCancel);
     };
   }, [tabsRef, activeIndexRef, navigateRef, setPreviewIndex]);
 
-  return <div ref={elRef}>{children}</div>;
+  return (
+    <>
+      <div ref={elRef}>{children}</div>
+      {/* The two pull indicators. Fixed to the content column's edges — the
+          left one clears the rail from `md` up — and invisible until pulled. */}
+      <SwipeArrow ref={leftRef} side="left" />
+      <SwipeArrow ref={rightRef} side="right" />
+    </>
+  );
+}
+
+/** A plain circle with a chevron, hidden until a pull fades it in. */
+function SwipeArrow({ ref, side }: { ref: React.Ref<HTMLDivElement>; side: "left" | "right" }) {
+  return (
+    <div
+      ref={ref}
+      aria-hidden="true"
+      style={{ opacity: 0 }}
+      className={`pointer-events-none fixed top-1/2 z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900 ${
+        side === "left" ? "left-3 md:left-63" : "right-3"
+      }`}
+    >
+      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        {side === "left" ? <path d="M15 18l-6-6 6-6" /> : <path d="M9 18l6-6-6-6" />}
+      </svg>
+    </div>
+  );
 }

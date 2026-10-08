@@ -4,7 +4,7 @@
 //      "open" (the default) is everything except CLOSED — including
 //      REVIEWED_OK_TO_FLY, which is reviewed but not fixed and so is exactly
 //      what the next pilot should read before walking out.
-// POST /api/squawks  { aircraftId, title, description, flightId, checkoutId }
+// POST /api/squawks  { aircraftId, title, description, flightId, checkoutId, requestId }
 //
 // Anyone in the club can raise one — that's the point, and it's why filing is
 // NOT behind `squawk:manage`. A member never picks the status: everything
@@ -18,12 +18,29 @@ import {
   isSquawkStatus,
   type SquawkStatus,
 } from "@/lib/squawks";
+import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
 
 const INCLUDE = {
   reportedBy: { select: { id: true, name: true, email: true } },
   resolvedBy: { select: { id: true, name: true, email: true } },
   photos: true,
 } as const;
+
+/** The squawk a retried request already filed, or null. See lib/idempotency. */
+async function alreadyFiled(requestId: string, userId: string) {
+  const row = await prisma.squawk.findUnique({
+    where: { clientRequestId: requestId },
+    include: INCLUDE,
+  });
+  if (!row) return null;
+  if (row.reportedById !== userId) {
+    return NextResponse.json(
+      { error: "That request id belongs to another squawk." },
+      { status: 409 }
+    );
+  }
+  return NextResponse.json(serializeSquawk(row), { status: 200 });
+}
 
 export async function GET(req: Request) {
   const user = await getSessionUser();
@@ -75,6 +92,12 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
+  // A retry of a squawk that already landed returns it rather than filing the
+  // same fault twice. See lib/idempotency.ts.
+  const requestId = requestIdFrom(body.requestId);
+  const replay = requestId ? await alreadyFiled(requestId, user.id) : null;
+  if (replay) return replay;
+
   const aircraftId = String(body.aircraftId ?? "");
   const title = String(body.title ?? "").trim();
   if (!title) {
@@ -92,17 +115,27 @@ export async function POST(req: Request) {
   // Status is deliberately NOT read off the body: a member filing a squawk is
   // reporting what they saw, not ruling on whether the airplane flies. It
   // starts at NEW (the column default) and only `squawk:manage` moves it.
-  const created = await prisma.squawk.create({
-    data: {
-      aircraftId,
-      reportedById: user.id,
-      title,
-      description: body.description ? String(body.description).trim() : null,
-      flightId: body.flightId ? String(body.flightId) : null,
-      checkoutId: body.checkoutId ? String(body.checkoutId) : null,
-    },
-    include: INCLUDE,
-  });
+  let created;
+  try {
+    created = await prisma.squawk.create({
+      data: {
+        aircraftId,
+        reportedById: user.id,
+        title,
+        description: body.description ? String(body.description).trim() : null,
+        flightId: body.flightId ? String(body.flightId) : null,
+        checkoutId: body.checkoutId ? String(body.checkoutId) : null,
+        clientRequestId: requestId,
+      },
+      include: INCLUDE,
+    });
+  } catch (error) {
+    if (requestId && isUniqueViolation(error)) {
+      const raced = await alreadyFiled(requestId, user.id);
+      if (raced) return raced;
+    }
+    throw error;
+  }
 
   return NextResponse.json(serializeSquawk(created), { status: 201 });
 }
