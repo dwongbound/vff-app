@@ -18,6 +18,7 @@ import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
+import { forgetOfflineDataOnSignOut } from "@/lib/serviceWorker";
 
 function isPublicPath(pathname: string): boolean {
   return pathname === "/login" || pathname.startsWith("/login/");
@@ -47,7 +48,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         if (httpStatus === 401) {
           // Token's user is gone — clear the cookie and send to /login.
-          signOut({ callbackUrl: "/login" });
+          void forgetOfflineDataOnSignOut().then(() =>
+            signOut({ callbackUrl: "/login" })
+          );
           return;
         }
         setVerified(true);

@@ -3,7 +3,7 @@
 // the "+" FAB is how you book. Runs on real device presets (see
 // playwright.config.ts projects) rather than a narrow desktop window.
 import { expect, test } from "@playwright/test";
-import { clearCheckoutDrafts, openPostflightSection, signIn } from "./helpers";
+import { clearCheckoutDrafts, clearOpenSessions, openPostflightSection, signIn } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -183,4 +183,51 @@ test("the fuel card toggle works with a finger", async ({ page }) => {
 
   await toggle.tap();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
+});
+
+// A vertical scroll that drifts sideways used to drag the whole page off to one
+// side. The content column can't scroll horizontally at all now; tab changes
+// are SwipePager's job, and it never moves the page (see lib/swipe.ts).
+test("the page can't be pushed sideways", async ({ page }) => {
+  await page.goto("/postflight");
+  // The shell renders once sign-in is confirmed, not with the first byte.
+  const column = page.locator("#app-scroll");
+  await expect(column).toBeVisible();
+  expect(await column.evaluate((el) => getComputedStyle(el).overflowX)).toBe("hidden");
+});
+
+// The offline strip has to stay out of the way on the screen it matters most
+// on: one line, whatever it's saying. See lib/offline.ts.
+test("a flight filed offline shows one short line, then sends itself", async ({
+  page,
+  context,
+}) => {
+  await clearOpenSessions(page);
+  await page.goto("/quick-log");
+  const main = page.getByRole("main");
+  const tachStart = main.getByLabel("Tach start", { exact: true });
+  await expect(tachStart).not.toHaveValue("");
+  const start = Number(await tachStart.inputValue());
+  await main.getByLabel("Tach end", { exact: true }).fill((start + 0.4).toFixed(1));
+  await main.getByLabel("Landed at", { exact: true }).fill("KTOA");
+
+  await context.setOffline(true);
+  try {
+    await main.getByRole("button", { name: /^File/ }).tap();
+    const strip = main.getByText("1 flight waiting for signal");
+    await expect(strip).toBeVisible();
+    // One line of text-xs plus its padding — a wrapped strip would be ~40px.
+    const box = await strip.boundingBox();
+    expect(box!.height).toBeLessThan(24);
+
+    const sent = page.waitForResponse(
+      (r) => r.url().endsWith("/api/flights") && r.request().method() === "POST" && r.status() < 300,
+      { timeout: 45_000 }
+    );
+    await context.setOffline(false);
+    await sent;
+    await expect(strip).toHaveCount(0);
+  } finally {
+    await context.setOffline(false);
+  }
 });

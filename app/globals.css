@@ -81,6 +81,13 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    /* Never sideways. Left unset, `overflow-y: auto` drags the x axis to
+       `auto` with it, so any page a pixel too wide could be panned left/right
+       by a vertical scroll that drifted — and then had to be pushed back into
+       view. Tab changes by swipe are SwipePager's job, and it never moves the
+       page; content that is meant to scroll sideways (wide tables) does so in
+       its own `overflow-x-auto` box. */
+    overflow-x: hidden;
     overscroll-behavior: contain;
   }
 

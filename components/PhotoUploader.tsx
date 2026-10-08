@@ -3,8 +3,9 @@
 //
 // It holds Files locally and does NOT upload on pick: the row a photo attaches
 // to (flight, squawk, checkout) usually doesn't exist yet when you're taking
-// the picture. The parent form submits, gets an id back, and then calls
-// uploadPhotos() — which is why this is a controlled component over File[].
+// the picture. The parent form hands the File[] to the outbox with the rest of
+// the submission (lib/outbox.ts), which uploads each one against the row the
+// submission creates — which is why this is a controlled component over File[].
 //
 // On phones `capture="environment"` makes the camera the default source, so
 // photographing the Hobbs meter is two taps.
@@ -133,30 +134,3 @@ export default function PhotoUploader({
   );
 }
 
-/**
- * Upload the picked files against a row that now exists. Returns the ids of
- * everything that made it; failures are reported but never lose the rest of
- * the form's work (the flight is already saved by this point).
- */
-export async function uploadPhotos(
-  files: File[],
-  subject: "flight" | "squawk" | "checkout",
-  subjectId: string
-): Promise<{ uploaded: number; failed: number }> {
-  let uploaded = 0;
-  let failed = 0;
-  for (const file of files) {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("subject", subject);
-    form.append("subjectId", subjectId);
-    try {
-      const res = await fetch("/api/photos", { method: "POST", body: form });
-      if (res.ok) uploaded += 1;
-      else failed += 1;
-    } catch {
-      failed += 1;
-    }
-  }
-  return { uploaded, failed };
-}

@@ -545,6 +545,13 @@ model Flight {
   // the lesson debrief, the trip write-up, the thing worth reading a year later.
   logEntry String?
 
+  // The submitting device's idempotency key (lib/idempotency.ts). A filing
+  // retried after its reply was lost — the airplane taxied out of wifi range
+  // mid-request — carries the same key, and the route hands back THIS row
+  // rather than inserting a second flight. Null on anything filed by a client
+  // that predates the outbox, and on sessions not yet filed.
+  clientRequestId String? @unique
+
   squawks Squawk[]
   photos  Photo[]
 
@@ -688,6 +695,9 @@ model Squawk {
   resolvedAt   DateTime?
   resolution   String?
 
+  // Idempotency key — see Flight.clientRequestId.
+  clientRequestId String? @unique
+
   photos Photo[]
 
   createdAt DateTime @default(now())
@@ -750,6 +760,12 @@ model Checkout {
   notes       String?
   completedAt DateTime? // null while a run is in progress
 
+  // Idempotency key of the request that SIGNED THIS RUN OFF (drafts carry
+  // none). A sign-off retried after a lost reply finds the run already
+  // completed; matching keys is how the route tells "that was me" from "this
+  // card was signed off on another device".
+  clientRequestId String? @unique
+
   squawks Squawk[]
   photos  Photo[]
 
@@ -776,6 +792,10 @@ model Photo {
   contentType String
   sizeBytes   Int
   caption     String?
+
+  // Idempotency key — see Flight.clientRequestId. A photo retried after a
+  // lost reply would otherwise be stored twice.
+  clientRequestId String? @unique
 
   uploadedBy   User   @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
   uploadedById String
@@ -834,11 +854,18 @@ model RecurringCharge {
 
 // One line on a member's statement. Positive cents = the member owes it;
 // negative = a credit in their favour (fuel they paid for out of pocket).
+//
+// A line with NO member is the club's own: a one-off the Finance Officer
+// records against the club's books rather than against anybody's statement —
+// an insurance bill, a grant, an opening balance. Same sign convention, read
+// from the club's side: positive = owed TO the club, negative = the club owes.
+// Only ever ONE_OFF (every derived kind is somebody's), and only ever visible
+// in the club-wide views, since no member's statement can contain it.
 model Charge {
   id String @id @default(cuid())
 
-  member   User   @relation("ChargeMember", fields: [memberId], references: [id], onDelete: Cascade)
-  memberId String
+  member   User?   @relation("ChargeMember", fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String?
 
   kind        ChargeKind
   amountCents Int

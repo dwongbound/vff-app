@@ -26,7 +26,8 @@ import LoadingDots from "@/components/common/LoadingDots";
 import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
 import Toggle from "@/components/common/Toggle";
-import PhotoUploader, { uploadPhotos } from "@/components/PhotoUploader";
+import PhotoUploader from "@/components/PhotoUploader";
+import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
 import CheckoutList from "@/components/CheckoutList";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
@@ -36,7 +37,9 @@ import { useMe } from "@/components/MeProvider";
 import type { PostflightForm } from "@/lib/postflightDraft";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
-import { fetchJsonArray, sendJson } from "@/lib/api";
+import { fetchJsonArray } from "@/lib/api";
+import { QUEUED_NOTICE } from "@/lib/offline";
+import { flightJob, hasPending } from "@/lib/outbox";
 import {
   TURNOFF_CHECKOUT,
   initialValues,
@@ -55,11 +58,9 @@ import {
 } from "@/lib/hours";
 import type {
   ApiCheckout,
-  ApiFlight,
   ApiFlightSummary,
   ApiMember,
   ApiReservation,
-  ApiSquawk,
 } from "@/lib/types";
 
 /**
@@ -158,6 +159,9 @@ export default function PostflightPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /** Filed into the outbox with no signal — see lib/offline. */
+  const [queued, setQueued] = useState(false);
+  const outbox = useOutbox();
 
   // See the reservations page for why this isn't just `openBookings === null`.
   const showSplash = fleetLoading || (selected !== null && openBookings === null);
@@ -197,6 +201,12 @@ export default function PostflightPage() {
   useEffect(() => {
     loadSession();
   }, [loadSession]);
+  // A flight filed with no signal just reached the club: the session it closed
+  // is closed now, and its booking is spoken for.
+  useOutboxSent(() => {
+    void loadSession();
+    void loadBookings();
+  });
 
   // Today's preflight walk, for the start meters below. Only TODAY's: a reading
   // from last week is a number about a different flight, and quietly prefilling
@@ -518,7 +528,7 @@ export default function PostflightPage() {
     tach != null ? flightCostCents(meters, selected?.hourlyRateCents) : null;
 
   async function submit() {
-    if (!selected) return;
+    if (!selected || !me) return;
     setError(null);
     setSaved(null);
 
@@ -528,11 +538,12 @@ export default function PostflightPage() {
     }
 
     setBusy(true);
+    setQueued(false);
     // Stop saving for the duration: a write landing between the POST and the
     // form being cleared would store a draft of an entry that has just been
     // filed, and the next visit would offer to restore it.
     draft.freeze();
-    const result = await sendJson<ApiFlight>("/api/flights", "POST", {
+    const body = {
       aircraftId: selected.id,
       // The entry this form is finishing, when there is one. The server looks
       // for it as well (a stale tab must not open a second row for the same
@@ -562,30 +573,30 @@ export default function PostflightPage() {
       turnoffAnswers,
       turnoffValues,
       notes: notes.trim() || null,
-    });
+    };
 
-    if (!result.ok || !result.data) {
+    // Through the outbox: the flight, then its photos and squawks against the
+    // row it creates — all frozen at this press. Standing at the tail with no
+    // signal is a normal place to be filing this form, and the old answer was
+    // an error and a form you had to keep open. See lib/outbox.ts.
+    const result = await outbox.submit(
+      flightJob({
+        owner: { userId: me.id, userName: me.name },
+        label: `Post-flight — ${selected.tailNumber}`,
+        aircraftId: selected.id,
+        body,
+        photos,
+        squawks: squawkDrafts,
+      })
+    );
+
+    if (result.kind === "refused") {
       setBusy(false);
       // The flight didn't file, so this is still live work — start saving again
       // rather than leaving the member typing into nothing.
       draft.thaw();
-      setError(result.error ?? "Could not save the flight.");
+      setError(result.error);
       return;
-    }
-
-    const flightId = result.data.id;
-    if (photos.length) await uploadPhotos(photos, "flight", flightId);
-    // `pending`, not `draft`: that name belongs to the autosave hook now.
-    for (const pending of squawkDrafts) {
-      const squawk = await sendJson<ApiSquawk>("/api/squawks", "POST", {
-        aircraftId: selected.id,
-        flightId,
-        title: pending.title,
-        description: pending.description || null,
-      });
-      if (squawk.ok && squawk.data && pending.photos.length) {
-        await uploadPhotos(pending.photos, "squawk", squawk.data.id);
-      }
     }
 
     setBusy(false);
@@ -593,11 +604,15 @@ export default function PostflightPage() {
     // reading it hasn't got one, and claiming "0.0 hours" would be the app
     // asserting something nobody told it.
     const filedHours = tachHours(meters);
-    setSaved(
-      filedHours != null
-        ? `Filed ${formatHours(filedHours)} hours on ${selected.tailNumber}. Thanks for closing it out.`
-        : `Filed on ${selected.tailNumber} with no start reading — add it from the flight log and the hours will follow.`
-    );
+    if (result.kind === "queued") {
+      setQueued(true);
+    } else {
+      setSaved(
+        filedHours != null
+          ? `Filed ${formatHours(filedHours)} hours on ${selected.tailNumber}. Thanks for closing it out.`
+          : `Filed on ${selected.tailNumber} with no start reading — add it from the flight log and the hours will follow.`
+      );
+    }
 
     // Reset for the next flight, but keep the meters in sync with what the
     // airplane now reads.
@@ -640,6 +655,10 @@ export default function PostflightPage() {
     // copy goes — otherwise the next visit offers to restore a filed flight.
     draft.finish();
 
+    // Queued: nothing has changed at the club yet, and with no signal a
+    // refresh would only fail. `useOutboxSent` (above) refreshes when it lands.
+    if (result.kind === "queued") return;
+
     // The filed flight advanced the airplane's meters, so everyone's view of
     // it is stale — one event, which the provider turns into one refetch.
     notifyAircraftChanged();
@@ -660,6 +679,11 @@ export default function PostflightPage() {
     );
   }
 
+  const flightQueued = hasPending(outbox.jobs, me?.id ?? null, {
+    type: "flight",
+    aircraftId: selected.id,
+  });
+
   return (
     <div className="space-y-4">
       <header>
@@ -675,7 +699,10 @@ export default function PostflightPage() {
           believable — a number that appears in a box with no explanation is one
           members type over. Quiet rather than loud: it's confirmation, not a
           warning, so it reads as a line rather than as a banner. */}
-      {session && (
+      {/* Not while this member's last filing is still in the outbox: the
+          server still has that session open, but it's the flight they've
+          just filed, and offering to close it out again would be wrong. */}
+      {session && !flightQueued && (
         <div
           className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm
             text-indigo-900 dark:border-indigo-900/60 dark:bg-indigo-950/40
@@ -759,7 +786,14 @@ export default function PostflightPage() {
             value={tachEnd}
             onChange={(e) => {
               setTachEnd(e.target.value);
-              setEdited((f) => (f.tachEnd ? f : { ...f, tachEnd: true }));
+              // Typing the end pins the START too: the member has read it
+              // against the panel and is working from it, and a reading that
+              // arrives late (the session, today's walk) must not swap it under
+              // them. Accepting a prefilled start fires no change event of its
+              // own, so this is the only signal that they did.
+              setEdited((f) =>
+                f.tachEnd && f.tachStart ? f : { ...f, tachEnd: true, tachStart: true }
+              );
             }}
             hint={endHint("tachEnd")}
           />
@@ -783,7 +817,10 @@ export default function PostflightPage() {
             value={hobbsEnd}
             onChange={(e) => {
               setHobbsEnd(e.target.value);
-              setEdited((f) => (f.hobbsEnd ? f : { ...f, hobbsEnd: true }));
+              // Same rule as the tach end.
+              setEdited((f) =>
+                f.hobbsEnd && f.hobbsStart ? f : { ...f, hobbsEnd: true, hobbsStart: true }
+              );
             }}
             hint={endHint("hobbsEnd")}
           />
@@ -1091,6 +1128,11 @@ export default function PostflightPage() {
       </CollapsibleSection>
 
       <div className="space-y-2 pb-2">
+        {queued && (
+          <p aria-live="polite" className="text-sm text-amber-700 dark:text-amber-300">
+            {QUEUED_NOTICE}
+          </p>
+        )}
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
             {error}

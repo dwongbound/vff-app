@@ -6,6 +6,12 @@
 //
 // A negative amount is allowed and means a credit — an officer refunding
 // something the automatic fuel credit doesn't cover.
+//
+// `club: true` in place of a `memberId` records the line against the CLUB's
+// own books rather than anybody's statement — an insurance bill, a grant, an
+// opening balance. Same sign: positive = owed to the club, negative = the club
+// owes. It has to be asked for by name: a missing memberId is still "pick a
+// member", so a form that forgot the field can't quietly file a club line.
 import { NextResponse } from "next/server";
 import { getCapableUser } from "@/lib/auth";
 import { parseDollars, periodOf } from "@/lib/finance";
@@ -33,9 +39,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
+  const clubLine = body.club === true;
   const memberId = typeof body.memberId === "string" ? body.memberId : "";
-  if (!memberId) {
+  if (!clubLine && !memberId) {
     return NextResponse.json({ error: "Pick a member." }, { status: 400 });
+  }
+  if (clubLine && memberId) {
+    return NextResponse.json(
+      { error: "A club line belongs to no member — send one or the other." },
+      { status: 400 }
+    );
   }
 
   const description =
@@ -55,12 +68,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const member = await prisma.user.findUnique({
-    where: { id: memberId },
-    select: { id: true },
-  });
-  if (!member) {
-    return NextResponse.json({ error: "No such member." }, { status: 404 });
+  if (!clubLine) {
+    const member = await prisma.user.findUnique({
+      where: { id: memberId },
+      select: { id: true },
+    });
+    if (!member) {
+      return NextResponse.json({ error: "No such member." }, { status: 404 });
+    }
   }
 
   const incurredOn = body.incurredOn ? new Date(String(body.incurredOn)) : new Date();
@@ -70,7 +85,7 @@ export async function POST(req: Request) {
 
   const created = await prisma.charge.create({
     data: {
-      memberId,
+      memberId: clubLine ? null : memberId,
       kind: "ONE_OFF",
       amountCents,
       description,
