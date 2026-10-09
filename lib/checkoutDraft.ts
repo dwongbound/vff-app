@@ -127,12 +127,6 @@ export function draftKey({ memberId, aircraftId, kind }: DraftIdentity): string 
   return `${DRAFT_KEY_PREFIX}:${memberId}:${aircraftId}:${kind}`;
 }
 
-/** Is this a key this module owns? Used by the sweep, which must not touch
- *  anything else the app (or another app on localhost) has stored. */
-export function isDraftKey(key: string): boolean {
-  return key.startsWith(`${DRAFT_KEY_PREFIX}:`);
-}
-
 /**
  * Read a stored draft back, or null if it can't be trusted.
  *

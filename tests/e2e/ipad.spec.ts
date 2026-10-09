@@ -72,3 +72,30 @@ test("the content column clears the rail", async ({ page }) => {
   expect(heading).not.toBeNull();
   expect(heading!.x).toBeGreaterThanOrEqual(rail!.x + rail!.width);
 });
+
+test("double-tap zoom is off on a tablet too, pinch-zoom kept", async ({ page }) => {
+  for (const selector of ["html", "#app-scroll", "main"]) {
+    const value = await page
+      .locator(selector)
+      .first()
+      .evaluate((el) => getComputedStyle(el).touchAction);
+    expect(value, selector).toBe("manipulation");
+  }
+  const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
+  expect(viewport ?? "").not.toMatch(/maximum-scale|user-scalable\s*=\s*(no|0)/);
+});
+
+test("Finances keeps its table on a tablet, with the + panel above it", async ({ page }) => {
+  await page.goto("/finances");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(main.getByRole("table").first()).toBeVisible();
+  await expect(main.getByRole("button", { name: "Add money", exact: true })).toBeVisible();
+  const overflow = await page.evaluate(() => {
+    const scroller = document.getElementById("app-scroll")!;
+    return scroller.scrollWidth - scroller.clientWidth;
+  });
+  expect(overflow).toBeLessThanOrEqual(0);
+});

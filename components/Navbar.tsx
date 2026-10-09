@@ -178,21 +178,22 @@ const NAV: NavItem[] = [
     mobileLabel: "Tools",
     icon: CALCULATOR_ICON,
     children: [
-      {
-        href: "/tools/weight-balance",
-        label: "Weight & Balance",
-        mobileLabel: "W&B",
-        icon: SCALE_ICON,
-      },
       // The airplane's own manual, as numbers. A tool rather than a Plane
       // Status tab because it never changes: Status answers "what is the
       // airplane doing today", and a stall speed is true of the TYPE and was
-      // true in 1958.
+      // true in 1958. Listed FIRST: it's the page people open
+      // to look something up, W&B is the one they work through.
       {
         href: "/tools/my-plane",
         label: "My plane",
         mobileLabel: "Plane",
         icon: ID_CARD_ICON,
+      },
+      {
+        href: "/tools/weight-balance",
+        label: "Weight & Balance",
+        mobileLabel: "W&B",
+        icon: SCALE_ICON,
       },
     ],
   },

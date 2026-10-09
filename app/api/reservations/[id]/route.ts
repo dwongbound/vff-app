@@ -1,8 +1,11 @@
-// Edit or cancel one booking. Members own their own; admins can move or
-// cancel anyone's (someone has to be able to clear the board for maintenance).
+// Edit or delete one booking. Members own their own; admins can move or
+// delete anyone's (someone has to be able to clear the board for maintenance).
 //
-// DELETE marks the row CANCELED rather than removing it, so the calendar
-// history stays honest and a canceled slot can still be explained.
+// DELETE removes the row. It used to mark it CANCELED and keep it "so the
+// calendar history stays honest", but nothing ever read a canceled booking
+// back — every query filtered them out — so they were rows that only grew. A
+// flight already filed against the booking keeps its log entry: the
+// Flight → Reservation link is SetNull, not Cascade.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -130,11 +133,6 @@ export async function DELETE(
     return NextResponse.json({ error: "That's not your booking." }, { status: 403 });
   }
 
-  const canceled = await prisma.reservation.update({
-    where: { id },
-    data: { status: "CANCELED" },
-    include: INCLUDE,
-  });
-
-  return NextResponse.json(serializeReservation(canceled, user.id));
+  await prisma.reservation.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
 }

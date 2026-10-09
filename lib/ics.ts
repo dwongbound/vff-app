@@ -130,11 +130,12 @@ export function buildIcs(
 
 /** A filename-safe slug, for the downloaded file. */
 export function icsFilename(parts: (string | null | undefined)[]): string {
+  // Case is KEPT: a tail number is written in capitals ("N8318B"), and a file
+  // called n8318b-….ics reads as somebody else's airplane.
   const slug = parts
     .filter(Boolean)
     .join("-")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^A-Za-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return `${slug || "reservation"}.ics`;
 }

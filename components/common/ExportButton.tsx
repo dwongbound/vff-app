@@ -34,25 +34,14 @@ export default function ExportButton({
 
   function download() {
     setError(null);
-    let url: string | null = null;
+    let sheets: Sheet[];
     try {
-      // The Uint8Array itself, never its `.buffer`: a typed array is a view
-      // into a buffer that may be larger than it, so handing Blob the buffer
-      // would write bytes that aren't ours.
-      const blob = new Blob([buildXlsx(build())], { type: XLSX_MIME });
-      url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      sheets = build();
     } catch {
       setError("Couldn't build the export.");
+      return;
     }
-    // Revoking immediately can cancel the download in some browsers; one tick
-    // is enough for the click to have been handed off.
-    if (url) setTimeout(() => URL.revokeObjectURL(url), 0);
+    if (!downloadWorkbook(filename, sheets)) setError("Couldn't build the export.");
   }
 
   return (
@@ -65,4 +54,33 @@ export default function ExportButton({
       </Button>
     </div>
   );
+}
+
+/**
+ * Build the workbook and hand it to the browser as a download; false if
+ * building it threw. Shared with exports that gather their rows first (the
+ * Finances export window fetches the months it was asked for).
+ */
+export function downloadWorkbook(filename: string, sheets: Sheet[]): boolean {
+  let url: string | null = null;
+  let ok = true;
+  try {
+    // The Uint8Array itself, never its `.buffer`: a typed array is a view
+    // into a buffer that may be larger than it, so handing Blob the buffer
+    // would write bytes that aren't ours.
+    const blob = new Blob([buildXlsx(sheets)], { type: XLSX_MIME });
+    url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } catch {
+    ok = false;
+  }
+  // Revoking immediately can cancel the download in some browsers; one tick
+  // is enough for the click to have been handed off.
+  if (url) setTimeout(() => URL.revokeObjectURL(url), 0);
+  return ok;
 }

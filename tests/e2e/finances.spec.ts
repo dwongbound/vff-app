@@ -12,7 +12,11 @@ import { clearOpenSessions, gotoTab, signIn } from "./helpers";
 // The page is every month at once now — newest first, sticky month headers,
 // older months loaded as you scroll — with three views: Mine, Club (by
 // person) and Club (by month). Every change to a line (Paid, Void, the trash
-// can) goes through a confirmation dialog first.
+// can, a month's "Mark all paid") happens ON THE SPOT except Delete, the one
+// action with no undo and the only one that asks first.
+// Money is added through ONE dashed "+" panel: a member can only claim a
+// reimbursement for themselves; the Finance Officer can reimburse anyone,
+// charge members (split or each), and move the club's own funds.
 //
 // Cast (from prisma/seed.ts):
 //   admin@vffclub.test  — club admin, holds every capability implicitly
@@ -87,7 +91,45 @@ async function unsettled(page: Page): Promise<number> {
   return match[1] === "owes" ? -cents : cents;
 }
 
-async function openView(page: Page, view: "Mine" | "Club (by person)" | "Club (by month)") {
+/** Open the dashed "+" panel's modal (officer label; a member's differs). */
+async function openAdd(page: Page, label = "Add money") {
+  await page.getByRole("main").getByRole("button", { name: label, exact: true }).click();
+  const modal = page.getByRole("dialog");
+  await expect(modal).toBeVisible();
+  return modal;
+}
+
+/** Pick one of the officer modal's four modes. */
+async function mode(modal: ReturnType<Page["getByRole"]>, name: string) {
+  await modal
+    .getByRole("group", { name: "What kind of money" })
+    .getByRole("button", { name, exact: true })
+    .click();
+}
+
+/** This caller's ledger lines, every month, straight from the API. */
+async function ledgerLines(page: Page, all = false) {
+  const lines: {
+    id: string;
+    description: string;
+    amountCents: number;
+    kind: string;
+    paidAt: string | null;
+    member: { name: string } | null;
+  }[] = [];
+  let before: string | null = null;
+  for (let i = 0; i < 100; i++) {
+    const q: string = `${all ? "all=1&" : ""}months=24${before ? `&before=${before}` : ""}`;
+    const res: { months: { charges: typeof lines }[]; nextBefore: string | null } =
+      await page.request.get(`/api/finances/ledger?${q}`).then((r) => r.json());
+    for (const m of res.months) lines.push(...m.charges);
+    before = res.nextBefore;
+    if (!before) break;
+  }
+  return lines;
+}
+
+async function openView(page: Page, view: "Me" | "Club (by person)" | "Club (by month)") {
   const main = page.getByRole("main");
   await main.getByRole("button", { name: view, exact: true }).click();
   await expect(main.getByRole("button", { name: view, exact: true })).toHaveAttribute(
@@ -116,6 +158,8 @@ test("a member's statement materialises this month's dues on first read", async 
   await expect(row).toBeVisible();
   await expect(row.getByText("Dues")).toBeVisible();
   await expect(row.getByText("$250.00").first()).toBeVisible();
+  // There is no running-balance column any more.
+  await expect(main.getByRole("columnheader", { name: "Balance" })).toHaveCount(0);
 });
 
 test("reading the books twice does not bill them twice", async ({ page }) => {
@@ -138,29 +182,92 @@ test("reading the books twice does not bill them twice", async ({ page }) => {
   ).toHaveCount(1);
 });
 
-test("a plain member cannot add charges, for a member or for the club", async ({
+test("the headline is red when you owe the club and green when it owes you", async ({
   page,
 }) => {
+  await signIn(page, "alex@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible();
+
+  const ledger = await page.request.get("/api/finances/ledger").then((r) => r.json());
+  const owed = ledger.summary.members.reduce(
+    (sum: number, m: { outstandingCents: number }) => sum + m.outstandingCents,
+    0
+  );
+  const verdict = main.locator("[data-tone]");
+  const tone = owed > 0 ? "owe" : owed < 0 ? "owed" : "settled";
+  await expect(verdict).toHaveAttribute("data-tone", tone);
+  await expect(verdict).toContainText(
+    { owe: "You owe the club", owed: "The club owes you", settled: "You're all settled" }[tone]
+  );
+
+  // The colour, not just the words: red for owing, green for being owed.
+  // (Checked on the class — Tailwind 4's palette is oklch, which doesn't
+  // compare as RGB.)
+  const words = verdict.getByText(/You owe the club|The club owes you|all settled/);
+  const expected = { owe: /text-red-/, owed: /text-green-/, settled: /text-gray-/ }[tone];
+  await expect(words).toHaveClass(expected);
+  await expect(main.getByText(/^\$[\d,]+\.\d\d$/).first()).toHaveClass(expected);
+});
+
+test("a member can only claim a reimbursement for themselves", async ({ page }) => {
+  const label = unique("Oil — 2 quarts");
   await signIn(page, "alex@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
 
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible();
-  await expect(main.getByRole("button", { name: "One Off" })).toBeHidden();
-  await expect(main.getByRole("button", { name: "Recurring" })).toBeHidden();
-  // No line actions on a member's own statement either.
+  // No officer tools: the panel is the claim, and lines carry no buttons.
+  await expect(main.getByRole("button", { name: "Add money" })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Void" })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Mark all paid" })).toHaveCount(0);
 
-  // And not through the API either — the button being absent is a UI courtesy,
-  // `finance:manage` is the actual rule.
-  const res = await page.request.post("/api/finances/charges", {
-    data: { memberId: "anyone", description: "Nice try", amountDollars: 10 },
+  const before = (await page.request.get("/api/finances/ledger").then((r) => r.json()))
+    .summary.members[0]?.outstandingCents ?? 0;
+
+  const modal = await openAdd(page, "Claim a reimbursement");
+  await expect(modal.getByRole("heading", { name: "Claim a reimbursement" })).toBeVisible();
+  // One form only: no member picker, no other modes.
+  await expect(modal.getByLabel("Member")).toHaveCount(0);
+  await expect(modal.getByRole("group", { name: "What kind of money" })).toHaveCount(0);
+  await modal.getByLabel("What for").fill(label);
+  await modal.getByLabel("Amount", { exact: true }).fill("18.40");
+  await expect(modal.getByText("The club will owe you $18.40.")).toBeVisible();
+  await modal.getByRole("button", { name: "Claim reimbursement" }).click();
+  await expect(modal).toBeHidden({ timeout: 30_000 });
+
+  // On their own statement, as money owed back, under its own kind.
+  const row = main.getByRole("row").filter({ hasText: label });
+  await expect(row.getByText("-$18.40")).toBeVisible({ timeout: 30_000 });
+  await expect(row.getByText("Reimbursement")).toBeVisible();
+  const after = (await page.request.get("/api/finances/ledger").then((r) => r.json()))
+    .summary.members[0]?.outstandingCents ?? 0;
+  expect(after).toBe(before - 1840);
+
+  // The API holds the line, not the form.
+  const forSomeoneElse = await page.request.post("/api/finances/charges", {
+    data: {
+      reimbursement: true,
+      memberId: await memberId(page, "Robin Patel"),
+      description: "Not mine",
+      amountDollars: 5,
+    },
   });
-  expect(res.status()).toBe(403);
-  const club = await page.request.post("/api/finances/charges", {
-    data: { club: true, description: "Nice try", amountDollars: 10 },
+  expect(forSomeoneElse.status()).toBe(403);
+  for (const data of [
+    { memberId: "anyone", description: "Nice try", amountDollars: 10 },
+    { club: true, description: "Nice try", amountDollars: 10 },
+  ]) {
+    const res = await page.request.post("/api/finances/charges", { data });
+    expect(res.status()).toBe(403);
+  }
+  const split = await page.request.post("/api/finances/charges/split", {
+    data: { mode: "each", description: "Nice try", amountDollars: 10 },
   });
-  expect(club.status()).toBe(403);
+  expect(split.status()).toBe(403);
+  const paid = await page.request.post("/api/finances/charges/paid", { data: { ids: ["x"] } });
+  expect(paid.status()).toBe(403);
 });
 
 test("asking for the club's ledger without the office returns your own", async ({
@@ -178,29 +285,32 @@ test("asking for the club's ledger without the office returns your own", async (
     )
   );
   expect([...owners].every((n) => n === "Alex Rivera")).toBe(true);
-  expect(page1.summary.clubOutstandingCents).toBe(0);
+  // And the summary is theirs alone: one member, and it's them.
+  expect(
+    page1.summary.members.every((m: { member: { name: string } }) => m.member.name === "Alex Rivera")
+  ).toBe(true);
 });
 
-test("the Finance Officer charges a member, and it lands on their statement", async ({
+test("the Finance Officer charges one member, and it lands on their statement", async ({
   page,
 }) => {
   const label = unique("Headset replacement");
   await signIn(page, "robin@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
 
-  const main = page.getByRole("main");
-  await main.getByRole("button", { name: "One Off" }).click();
-
-  const modal = page.getByRole("dialog");
-  await expect(modal.getByText("Charge a member")).toBeVisible();
-  await modal.getByLabel("Member").selectOption({ label: "Alex Rivera" });
+  const modal = await openAdd(page);
+  await mode(modal, "Charge");
+  await modal.getByRole("button", { name: "Choose people" }).click();
+  await modal.getByRole("checkbox", { name: "Alex Rivera" }).check();
   await modal.getByLabel("What for").fill(label);
-  await modal.getByLabel("Amount", { exact: true }).fill("42.50");
-  await modal.getByRole("button", { name: "Add charge" }).click();
+  await modal.getByLabel("Total", { exact: true }).fill("42.50");
+  await expect(modal.getByText("1 person × $42.50 = $42.50.")).toBeVisible();
+  await modal.getByRole("button", { name: "Charge 1 person" }).click();
   await expect(modal).toBeHidden({ timeout: 30_000 });
 
   // Club (by person) groups the month by member, so the line sits in Alex's card.
   await openView(page, "Club (by person)");
+  const main = page.getByRole("main");
   const card = main
     .getByRole("region", { name: monthName(0) })
     .locator("div")
@@ -214,31 +324,102 @@ test("the Finance Officer charges a member, and it lands on their statement", as
   // And the member sees it on their own statement, positive = they owe it.
   await signIn(page, "alex@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
-  const mine = page.getByRole("main");
-  const row = mine.getByRole("row").filter({ hasText: label });
+  const row = page.getByRole("main").getByRole("row").filter({ hasText: label });
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect(row.getByText("$42.50")).toBeVisible();
 });
 
-test("a credit is stored negative and reads as money owed back", async ({
-  page,
-}) => {
+test("a total split between chosen members lands to the cent", async ({ page }) => {
+  const label = unique("Hangar door repair");
+  await signIn(page, "robin@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+
+  const roster: { name: string; clubMember: boolean }[] = await page.request
+    .get("/api/members")
+    .then((r) => r.json());
+  const three = roster
+    .filter((m) => m.clubMember)
+    .map((m) => m.name)
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 3);
+
+  const modal = await openAdd(page);
+  await mode(modal, "Charge");
+  await modal.getByRole("button", { name: /^Split a total/ }).click();
+  await modal.getByRole("button", { name: "Choose people" }).click();
+  for (const name of three) await modal.getByRole("checkbox", { name }).check();
+  await modal.getByLabel("What for").fill(label);
+  await modal.getByLabel("Total", { exact: true }).fill("100");
+  // The preview says where the odd cent goes before anything is written.
+  await expect(
+    modal.getByText("$100.00 split 3 ways: 1 × $33.34 and 2 × $33.33.")
+  ).toBeVisible();
+  await modal.getByRole("button", { name: "Charge 3 people" }).click();
+  await expect(modal).toBeHidden({ timeout: 30_000 });
+
+  const lines = (await ledgerLines(page, true)).filter((c) =>
+    c.description.startsWith(label)
+  );
+  expect(lines).toHaveLength(3);
+  // Each line says it's a share, and the shares add back up to the bill.
+  for (const line of lines) expect(line.description).toContain("share of $100.00");
+  expect(lines.reduce((sum, c) => sum + c.amountCents, 0)).toBe(10_000);
+  const byName = Object.fromEntries(lines.map((c) => [c.member!.name, c.amountCents]));
+  // Odd cents go to the first by name, so they're the same people every time.
+  expect(byName[three[0]]).toBe(3334);
+  expect(byName[three[1]]).toBe(3333);
+  expect(byName[three[2]]).toBe(3333);
+
+  for (const line of lines) await page.request.delete(`/api/finances/charges/${line.id}`);
+});
+
+test("charging everyone the same amount bills every flying member", async ({ page }) => {
+  const label = unique("Fly-in lunch");
+  await signIn(page, "robin@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+
+  const roster: { clubMember: boolean }[] = await page.request
+    .get("/api/members")
+    .then((r) => r.json());
+  const flying = roster.filter((m) => m.clubMember).length;
+
+  const modal = await openAdd(page);
+  await mode(modal, "Charge");
+  await modal.getByRole("button", { name: /^Each pays/ }).click();
+  await expect(modal.getByRole("button", { name: `Everyone (${flying})` })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await modal.getByLabel("What for").fill(label);
+  await modal.getByLabel("Per person", { exact: true }).fill("12");
+  const total = `$${(12 * flying).toFixed(2)}`;
+  await expect(
+    modal.getByText(`${flying} people × $12.00 = ${total}.`)
+  ).toBeVisible();
+  await modal.getByRole("button", { name: `Charge ${flying} people` }).click();
+  await expect(modal).toBeHidden({ timeout: 30_000 });
+
+  const lines = (await ledgerLines(page, true)).filter((c) => c.description === label);
+  expect(lines).toHaveLength(flying);
+  expect(lines.every((c) => c.amountCents === 1200 && c.kind === "ONE_OFF")).toBe(true);
+  // Every line is somebody's, and nobody is billed twice.
+  expect(new Set(lines.map((c) => c.member!.name)).size).toBe(flying);
+
+  for (const line of lines) await page.request.delete(`/api/finances/charges/${line.id}`);
+});
+
+test("the Finance Officer can reimburse any member", async ({ page }) => {
   const label = unique("Fuel receipt — Tacoma");
   await signIn(page, "robin@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
 
-  const main = page.getByRole("main");
-  await main.getByRole("button", { name: "One Off" }).click();
-
-  const modal = page.getByRole("dialog");
-  // The direction toggle owns the sign — the amount field stays positive, so a
-  // typo can't turn a refund into a charge.
-  await modal.getByRole("button", { name: /^Credit/ }).click();
-  await expect(modal.getByText("Credit a member")).toBeVisible();
+  const modal = await openAdd(page);
+  await mode(modal, "Reimburse");
   await modal.getByLabel("Member").selectOption({ label: "Alex Rivera" });
   await modal.getByLabel("What for").fill(label);
   await modal.getByLabel("Amount", { exact: true }).fill("60.00");
-  await modal.getByRole("button", { name: "Add credit" }).click();
+  await expect(modal.getByText("The club will owe Alex Rivera $60.00.")).toBeVisible();
+  await modal.getByRole("button", { name: "Add reimbursement" }).click();
   await expect(modal).toBeHidden({ timeout: 30_000 });
 
   await signIn(page, "alex@vffclub.test");
@@ -247,7 +428,7 @@ test("a credit is stored negative and reads as money owed back", async ({
   await expect(row.getByText("-$60.00")).toBeVisible({ timeout: 30_000 });
 });
 
-test("the month header's button adds a line to THAT month", async ({ page }) => {
+test("the month header's + adds a line to THAT month", async ({ page }) => {
   const label = unique("Back-dated checkout fee");
   await signIn(page, "robin@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
@@ -256,21 +437,21 @@ test("the month header's button adds a line to THAT month", async ({ page }) => 
   const main = page.getByRole("main");
   // Last month: always loaded on the first page (three months at a time).
   const section = main.getByRole("region", { name: monthName(1) });
-  await section.getByRole("button", { name: "+ Charge or credit" }).click();
+  await section.getByRole("button", { name: `Add money in ${monthName(1)}` }).click();
 
   const modal = page.getByRole("dialog");
   await expect(modal.getByText(monthName(1))).toBeVisible();
   // The date box is bounded to the month the header named.
   const date = modal.getByLabel("Date");
-  const min = await date.getAttribute("min");
-  const max = await date.getAttribute("max");
-  expect(min).toMatch(/-01$/);
-  expect(await date.inputValue()).toBe(max);
+  expect(await date.getAttribute("min")).toMatch(/-01$/);
+  expect(await date.inputValue()).toBe(await date.getAttribute("max"));
 
-  await modal.getByLabel("Member").selectOption({ label: "Alex Rivera" });
+  await mode(modal, "Charge");
+  await modal.getByRole("button", { name: "Choose people" }).click();
+  await modal.getByRole("checkbox", { name: "Alex Rivera" }).check();
   await modal.getByLabel("What for").fill(label);
-  await modal.getByLabel("Amount", { exact: true }).fill("12.00");
-  await modal.getByRole("button", { name: "Add charge" }).click();
+  await modal.getByLabel("Total", { exact: true }).fill("12.00");
+  await modal.getByRole("button", { name: "Charge 1 person" }).click();
   await expect(modal).toBeHidden({ timeout: 30_000 });
 
   // It lands under last month's header, not this month's.
@@ -299,26 +480,31 @@ test("voiding a line asks first, then strikes it through rather than deleting it
   const row = main.getByRole("row").filter({ hasText: label });
   await expect(row).toBeVisible({ timeout: 30_000 });
 
-  // Cancelling the dialog changes nothing.
+  // No dialog: the row is struck through on the spot, and Paid greys out —
+  // settle it OR unwind it, not both. (Wait for the save itself before the
+  // reload below: the row changes before the server has it, by design.)
+  const saved = page.waitForResponse(
+    (r) => r.url().includes("/api/finances/charges/") && r.request().method() === "PATCH"
+  );
   await row.getByRole("button", { name: "Void" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("Void this line?")).toBeVisible();
-  await dialog.getByRole("button", { name: "Cancel" }).click();
-  await expect(dialog).toBeHidden();
-  await expect(row.getByText("voided")).toBeHidden();
-
-  await row.getByRole("button", { name: "Void" }).click();
-  await dialog.getByRole("button", { name: "Void" }).click();
-  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  expect((await saved).ok()).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(row).toHaveAttribute("data-state", "voided");
+  await expect(row.getByText("voided")).toBeVisible();
+  await expect(row.getByRole("button", { name: "Paid", exact: true })).toBeDisabled();
 
   // The line stays on the statement — the trail of what was charged and unwound
-  // is the point, so a void is not a delete.
-  await expect(row.getByText("voided")).toBeVisible({ timeout: 30_000 });
-  await row.getByRole("button", { name: "Restore" }).click();
-  await dialog.getByRole("button", { name: "Restore" }).click();
-  await expect(row.getByRole("button", { name: "Void" })).toBeVisible({
-    timeout: 30_000,
+  // is the point, so a void is not a delete. And it sticks on the server.
+  await page.reload();
+  await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
+    timeout: 60_000,
   });
+  await openView(page, "Club (by person)");
+  await expect(row).toHaveAttribute("data-state", "voided", { timeout: 30_000 });
+
+  await row.getByRole("button", { name: "Restore" }).click();
+  await expect(row).toHaveAttribute("data-state", "open");
+  await expect(row.getByRole("button", { name: "Void" })).toBeEnabled();
 });
 
 test("marking a line paid takes it off the outstanding list, and can be undone", async ({
@@ -333,7 +519,7 @@ test("marking a line paid takes it off the outstanding list, and can be undone",
   });
   await gotoTab(page, "/finances", "Finances");
 
-  // By month opens on what's OUTSTANDING, across members.
+  // By month lists every member's lines together.
   await openView(page, "Club (by month)");
   const main = page.getByRole("main");
   const row = main.getByRole("row").filter({ hasText: label });
@@ -343,31 +529,81 @@ test("marking a line paid takes it off the outstanding list, and can be undone",
   const worthBefore = await figure(page, "Club balance");
   const missingBefore = await unsettled(page);
 
+  // No dialog: the row turns green on the spot and Void greys out.
   await row.getByRole("button", { name: "Paid", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("Mark this line paid?")).toBeVisible();
-  await dialog.getByRole("button", { name: "Mark paid" }).click();
-  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(row).toHaveAttribute("data-state", "paid");
+  await expect(row).toHaveClass(/bg-green-/);
+  await expect(row.getByText(/✓ paid/)).toBeVisible();
+  await expect(row.getByRole("button", { name: "Void" })).toBeDisabled();
 
-  // Settled lines leave the to-chase list…
-  await expect(row).toHaveCount(0);
-  // …and the club's figure drops by exactly the line, with no reload.
+  // The club's figures move by exactly the line, with no reload. The club's
+  // worth is money that has MOVED: paying adds the line to the balance and
+  // takes it out of the "missing" bracket beside it.
   await expect.poll(() => figure(page, "Members owe the club")).toBe(owedBefore - 3300);
-  // The club's worth is money that has MOVED: paying adds the line to the
-  // balance and takes it out of the "missing" bracket beside it.
   await expect.poll(() => figure(page, "Club balance")).toBe(worthBefore + 3300);
   await expect.poll(() => unsettled(page)).toBe(missingBefore - 3300);
 
-  // …but they're still there, marked, one toggle away.
-  await main.getByRole("switch", { name: "Show settled lines" }).click();
-  await expect(row.getByText(/✓ paid/)).toBeVisible();
+  // The header filter opens on Everything; Outstanding hides what's settled…
+  const filter = main.getByRole("switch", { name: "Show settled lines" });
+  await expect(filter).toHaveAttribute("aria-checked", "true");
+  await filter.click();
+  await expect(row).toHaveCount(0);
+  // …and it's still there, marked, one flip away.
+  await filter.click();
+  await expect(row).toHaveAttribute("data-state", "paid");
+
+  // Paid sticks on the server.
+  const stored = (await ledgerLines(page, true)).find((c) => c.description === label);
+  expect(stored?.paidAt).toBeTruthy();
 
   await row.getByRole("button", { name: "Unpay" }).click();
-  await dialog.getByRole("button", { name: "Mark unpaid" }).click();
-  await expect(row.getByText(/✓ paid/)).toBeHidden({ timeout: 30_000 });
+  await expect(row).toHaveAttribute("data-state", "open");
+  await expect(row.getByText(/✓ paid/)).toBeHidden();
   await expect.poll(() => figure(page, "Members owe the club")).toBe(owedBefore);
   await expect.poll(() => figure(page, "Club balance")).toBe(worthBefore);
   await expect.poll(() => unsettled(page)).toBe(missingBefore);
+});
+
+test("Mark all paid settles a whole month in one tap", async ({ page }) => {
+  const a = unique("Month-end line A");
+  const b = unique("Month-end line B");
+  await signIn(page, "robin@vffclub.test");
+  const alex = await memberId(page, "Alex Rivera");
+  // Two months back: inside the first page, and clear of the months the
+  // other specs write into.
+  for (const description of [a, b]) {
+    await addCharge(page, { memberId: alex, description, amountDollars: 20, incurredOn: dayIn(2) });
+  }
+  await gotoTab(page, "/finances", "Finances");
+  await openView(page, "Club (by person)");
+
+  const main = page.getByRole("main");
+  const section = main.getByRole("region", { name: monthName(2) });
+  await expect(section.getByRole("row").filter({ hasText: a })).toBeVisible({ timeout: 30_000 });
+  const worthBefore = await figure(page, "Club balance");
+
+  // On the spot, like a single line's Paid — no dialog.
+  await section.getByRole("button", { name: "Mark all paid" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  for (const label of [a, b]) {
+    await expect(section.getByRole("row").filter({ hasText: label }).getByText(/✓ paid/)).toBeVisible();
+  }
+  // Nothing left open in that month, so the button goes.
+  await expect(section.getByRole("button", { name: "Mark all paid" })).toHaveCount(0);
+  await expect(section.getByText("$0.00 outstanding")).toBeVisible();
+  // And the club's worth went up by at least the two lines we know about.
+  expect(await figure(page, "Club balance")).toBeGreaterThanOrEqual(worthBefore + 4000);
+
+  // Every line in that month is settled on the server, voided ones aside.
+  const res = await page.request
+    .get(`/api/finances?period=${dayIn(2).slice(0, 7)}&all=1`)
+    .then((r) => r.json());
+  const lines = res.statements.flatMap(
+    (s: { charges: { voided: boolean; paidAt: string | null }[] }) => s.charges
+  );
+  expect(lines.filter((c: { voided: boolean; paidAt: string | null }) => !c.voided && !c.paidAt)).toHaveLength(0);
 });
 
 test("the trash can deletes a hand-entered line after confirming", async ({ page }) => {
@@ -385,9 +621,14 @@ test("the trash can deletes a hand-entered line after confirming", async ({ page
   const row = main.getByRole("row").filter({ hasText: label });
   await expect(row).toBeVisible({ timeout: 30_000 });
 
-  // Derived lines (dues) get no trash can — the API would refuse it.
+  // Every line has a trash can, derived ones included.
   const dues = main.getByRole("row").filter({ hasText: "Monthly membership" }).first();
-  await expect(dues.getByRole("button", { name: "Delete" })).toHaveCount(0);
+  await expect(dues.getByRole("button", { name: "Delete" })).toBeVisible();
+
+  // Cancelling the dialog changes nothing.
+  await row.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(row).toBeVisible();
 
   await row.getByRole("button", { name: "Delete" }).click();
   const dialog = page.getByRole("dialog");
@@ -397,8 +638,7 @@ test("the trash can deletes a hand-entered line after confirming", async ({ page
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect(row).toHaveCount(0);
 
-  // Gone on the server too, not just from the screen.
-  // A reload opens on Mine again, like every visit.
+  // Gone on the server too, not just from the screen. A reload opens on Mine.
   await page.reload();
   await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
     timeout: 60_000,
@@ -408,30 +648,90 @@ test("the trash can deletes a hand-entered line after confirming", async ({ page
   await expect(main.getByRole("row").filter({ hasText: label })).toHaveCount(0);
 });
 
-test("a club-level line moves the club's balance without touching any member", async ({
+test("deleting a DERIVED line sticks — the month's next read doesn't rebuild it", async ({
   page,
 }) => {
-  const label = unique("Hangar insurance");
+  await signIn(page, "robin@vffclub.test");
+  // Somebody else's dues this month (the seeded rule starts this month):
+  // nobody else in the suite reads them.
+  const roster: { name: string; clubMember: boolean }[] = await page.request
+    .get("/api/members")
+    .then((r) => r.json());
+  const victim = roster
+    .filter((m) => m.clubMember)
+    .map((m) => m.name)
+    .find((n) => !["Alex Rivera", "Robin Patel", "Club Admin"].includes(n))!;
+
+  await gotoTab(page, "/finances", "Finances");
+  await openView(page, "Club (by month)");
+  const main = page.getByRole("main");
+  const section = main.getByRole("region", { name: monthName(0) });
+  const row = section
+    .getByRole("row")
+    .filter({ hasText: victim })
+    .filter({ hasText: "Monthly membership" });
+  await expect(row).toHaveCount(1, { timeout: 30_000 });
+  const owedBefore = await figure(page, "Members owe the club");
+  const wasOpen = (await row.getAttribute("data-state")) === "open";
+
+  await row.getByRole("button", { name: "Delete" }).click();
+  const dialog = page.getByRole("dialog");
+  // It says why this one is different from a hand-entered line.
+  await expect(dialog.getByText("won’t be rebuilt from its recurring rule")).toBeVisible();
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  await expect(row).toHaveCount(0);
+  if (wasOpen) {
+    await expect.poll(() => figure(page, "Members owe the club")).toBe(owedBefore - 25_000);
+  }
+
+  // Reading the books is what materialises dues — and it must NOT write this
+  // one back. Reload twice to be sure the read really ran.
+  for (let i = 0; i < 2; i++) {
+    await page.reload();
+    await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
+      timeout: 60_000,
+    });
+  }
+  await openView(page, "Club (by month)");
+  await expect(main.getByRole("region", { name: monthName(0) })).toBeVisible({ timeout: 30_000 });
+  await expect(row).toHaveCount(0);
+  // Nor on the monthly statement API.
+  const res = await page.request
+    .get(`/api/finances?period=${dayIn(0).slice(0, 7)}&all=1`)
+    .then((r) => r.json());
+  const mine = res.statements.find(
+    (st: { member: { name: string } }) => st.member.name === victim
+  );
+  expect(
+    mine.charges.filter((c: { description: string }) => c.description === "Monthly membership")
+  ).toHaveLength(0);
+});
+
+test("club funds move the club's balance on the spot, and touch no member", async ({
+  page,
+}) => {
+  const label = unique("Annual insurance premium");
   await signIn(page, "robin@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
   await openView(page, "Club (by person)");
 
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Club balance" })).toBeVisible();
-  const clubBefore = await figure(page, "Club-level lines");
+  // There is no separate "club-level" figure: a line with no member IS the
+  // club's balance.
+  await expect(main.getByRole("heading", { name: "Club-level lines" })).toHaveCount(0);
   const balanceBefore = await figure(page, "Club balance");
   const missingBefore = await unsettled(page);
   const owedBefore = await figure(page, "Members owe the club");
 
-  await main.getByRole("button", { name: "One Off" }).click();
-  const modal = page.getByRole("dialog");
-  await modal.getByLabel("Member").selectOption({ label: "The club itself — no member" });
-  await expect(modal.getByText("A line on the club's books")).toBeVisible();
-  await modal.getByRole("button", { name: /^Credit/ }).click();
+  const modal = await openAdd(page);
+  await mode(modal, "Club funds");
+  await modal.getByRole("button", { name: /^Money out/ }).click();
   await modal.getByLabel("What for").fill(label);
   await modal.getByLabel("Amount", { exact: true }).fill("1200");
-  await expect(modal.getByText("The club's books will show $1,200.00 the club owes.")).toBeVisible();
-  await modal.getByRole("button", { name: "Add credit" }).click();
+  await expect(modal.getByText("The club balance goes down $1,200.00.")).toBeVisible();
+  await modal.getByRole("button", { name: "Take from club" }).click();
   await expect(modal).toBeHidden({ timeout: 30_000 });
 
   // Its own card, named for the club rather than for anybody.
@@ -441,37 +741,128 @@ test("a club-level line moves the club's balance without touching any member", a
     .filter({ has: page.getByRole("heading", { name: "Club (no member)" }) })
     .filter({ has: page.getByRole("table") })
     .last();
-  await expect(card.getByRole("row").filter({ hasText: label })).toBeVisible({
-    timeout: 30_000,
-  });
+  const row = card.getByRole("row").filter({ hasText: label });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  // Nobody to chase, so nothing to mark paid: no Paid, no Unpay, no green.
+  await expect(row.getByRole("button", { name: "Paid", exact: true })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Unpay" })).toHaveCount(0);
+  await expect(row).toHaveAttribute("data-state", "open");
 
-  // Unpaid, it moves the club's own figure and the bracket — the club now
-  // owes $1,200 more — but not the balance: no money has moved yet. And it
-  // touches no member.
-  await expect.poll(() => figure(page, "Club-level lines")).toBe(clubBefore - 120_000);
-  await expect.poll(() => unsettled(page)).toBe(missingBefore - 120_000);
-  expect(await figure(page, "Club balance")).toBe(balanceBefore);
+  // It counts at once: the balance drops, nothing becomes "missing", no
+  // member's figure moves.
+  await expect.poll(() => figure(page, "Club balance")).toBe(balanceBefore - 120_000);
+  expect(await unsettled(page)).toBe(missingBefore);
   expect(await figure(page, "Members owe the club")).toBe(owedBefore);
+
+  // Voiding takes it back out of the balance; restoring puts it back.
+  await row.getByRole("button", { name: "Void" }).click();
+  await expect.poll(() => figure(page, "Club balance")).toBe(balanceBefore);
+  await row.getByRole("button", { name: "Restore" }).click();
+  await expect.poll(() => figure(page, "Club balance")).toBe(balanceBefore - 120_000);
 
   // By month names it "Club" in the member column.
   await openView(page, "Club (by month)");
-  const row = main.getByRole("row").filter({ hasText: label });
-  await expect(row.getByRole("cell", { name: "Club", exact: true })).toBeVisible();
+  const monthRow = main.getByRole("row").filter({ hasText: label });
+  await expect(monthRow.getByRole("cell", { name: "Club", exact: true })).toBeVisible();
+  // It isn't OUTSTANDING (nobody owes it), so the Outstanding filter hides it.
+  const filter = main.getByRole("switch", { name: "Show settled lines" });
+  await filter.click();
+  await expect(monthRow).toHaveCount(0);
+  await filter.click();
 
-  // Paying the bill is what takes it off the club's worth, and out of the
-  // bracket.
-  await row.getByRole("button", { name: "Paid", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("Records that the club has paid this $1,200.00.")).toBeVisible();
-  await dialog.getByRole("button", { name: "Mark paid" }).click();
-  await expect.poll(() => figure(page, "Club balance")).toBe(balanceBefore - 120_000);
-  await expect.poll(() => unsettled(page)).toBe(missingBefore);
+  // Deleting it — the one confirmed action — gives the balance back.
+  await monthRow.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect.poll(() => figure(page, "Club balance")).toBe(balanceBefore);
 
   // Nobody's statement shows it.
   await signIn(page, "alex@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
   await expect(page.getByRole("main").getByRole("heading", { name: "Your balance" })).toBeVisible();
   await expect(page.getByRole("main").getByText(label)).toHaveCount(0);
+});
+
+test("a member chip narrows both club views to that member, with a loader while it does", async ({
+  page,
+}) => {
+  await signIn(page, "robin@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+  await openView(page, "Club (by person)");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Club balance" })).toBeVisible();
+
+  // Slow the narrowed read down so the loader is certainly on screen to see.
+  await page.route("**/api/finances/ledger?*member=*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await route.continue();
+  });
+
+  const chip = main.getByRole("button", { name: /^Alex Rivera / });
+  await chip.click();
+  await expect(main.getByRole("status", { name: "Filtering" })).toBeVisible();
+  await expect(main.getByRole("status", { name: "Filtering" })).toBeHidden({ timeout: 30_000 });
+  await expect(chip).toHaveAttribute("aria-pressed", "true");
+  await expect(main.getByRole("button", { name: "Clear filter: Alex Rivera" })).toBeVisible();
+
+  // By person: every member card is Alex's.
+  const names = await main.locator("section h3").allTextContents();
+  expect(names.length).toBeGreaterThan(0);
+  expect(new Set(names)).toEqual(new Set(["Alex Rivera"]));
+  // The summary stays club-wide — it's what the chips come from.
+  await expect(main.getByRole("button", { name: /^Robin Patel / })).toBeVisible();
+
+  // By month keeps the filter: every member cell is Alex.
+  await openView(page, "Club (by month)");
+  await expect(main.getByRole("status", { name: "Filtering" })).toBeHidden({ timeout: 30_000 });
+  const cells = main.getByRole("row").locator("td:nth-child(2)");
+  await expect(cells.first()).toBeVisible();
+  expect(new Set(await cells.allTextContents())).toEqual(new Set(["Alex Rivera"]));
+
+  // Clearing it brings everyone back.
+  await main.getByRole("button", { name: "Clear filter: Alex Rivera" }).click();
+  await expect(main.getByRole("status", { name: "Filtering" })).toBeHidden({ timeout: 30_000 });
+  await expect
+    .poll(async () => new Set(await cells.allTextContents()).size)
+    .toBeGreaterThan(1);
+
+  // And "Me" never carries a club filter.
+  await chip.click();
+  await expect(chip).toHaveAttribute("aria-pressed", "true");
+  await openView(page, "Me");
+  await openView(page, "Club (by person)");
+  await expect(main.getByRole("button", { name: /^Alex Rivera / })).toHaveAttribute(
+    "aria-pressed",
+    "false"
+  );
+});
+
+test("money boxes carry a $ and fill in the cents; each person's share is bold", async ({
+  page,
+}) => {
+  await signIn(page, "robin@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+  const modal = await openAdd(page);
+  await mode(modal, "Charge");
+  // The tabs are single words.
+  const tabs = modal.getByRole("group", { name: "What kind of money" }).getByRole("button");
+  await expect(tabs).toHaveText(["Reimburse", "Charge", "Club funds", "Recurring"]);
+
+  const total = modal.getByLabel("Total", { exact: true });
+  await expect(modal.getByText("$", { exact: true })).toBeVisible();
+  // Junk is refused as it's typed; leaving the box fills in the cents.
+  await total.pressSequentially("5a9,0");
+  await expect(total).toHaveValue("590");
+  await modal.getByLabel("What for").click();
+  await expect(total).toHaveValue("590.00");
+
+  await modal.getByRole("button", { name: "Choose people" }).click();
+  const boxes = modal.getByRole("checkbox");
+  for (let i = 0; i < 3; i++) await boxes.nth(i).check();
+  // $590 three ways: the per-person figures are the bold ones.
+  const preview = modal.getByRole("status");
+  await expect(preview).toHaveText("$590.00 split 3 ways: 2 × $196.67 and 1 × $196.66.");
+  await expect(preview.locator("strong")).toHaveText(["$196.67", "$196.66"]);
+  await modal.getByRole("button", { name: "Cancel" }).click();
 });
 
 test("a club line has to be asked for by name", async ({ page }) => {
@@ -541,7 +932,7 @@ test("older months load as you scroll, under a header that sticks", async ({ pag
   // scroller has room to go): its header must be parked at the top of the
   // scroller rather than scrolled away with the rows.
   const current = main.getByRole("heading", { name: monthName(0), exact: true });
-  const bar = current.locator("xpath=..");
+  const bar = current.locator("xpath=ancestor::div[contains(@class, 'sticky')][1]");
   expect(await bar.evaluate((el) => getComputedStyle(el).position)).toBe("sticky");
   const offsets = await bar.evaluate((el) => {
     const scroller = document.getElementById("app-scroll")!;
@@ -588,28 +979,114 @@ test("the ledger API pages back a few months at a time until the books start", a
   expect(new Set(seen).size).toBe(seen.length);
 });
 
-test("Mine keeps a running balance that starts at what you owe now", async ({ page }) => {
+/**
+ * Read a downloaded .xlsx as text. The app's writer is STORE-only (no
+ * compression — see lib/xlsx.ts), so every cell's text sits in the file as-is
+ * and a substring check is a real check of what's in the spreadsheet.
+ */
+async function downloadedText(download: import("@playwright/test").Download): Promise<string> {
+  const path = await download.path();
+  const fs = await import("node:fs/promises");
+  return (await fs.readFile(path)).toString("latin1");
+}
+
+test("a member's export asks for months and kinds, and holds only their own lines", async ({
+  page,
+}) => {
   await signIn(page, "alex@vffclub.test");
   await gotoTab(page, "/finances", "Finances");
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible();
 
-  const ledger = await page.request.get("/api/finances/ledger").then((r) => r.json());
-  const owed = ledger.summary.members.reduce(
-    (sum: number, m: { outstandingCents: number }) => sum + m.outstandingCents,
-    0
-  );
-  const money = (cents: number) =>
-    `${cents < 0 ? "-" : ""}$${(Math.abs(cents) / 100).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+  await main.getByRole("button", { name: "Export", exact: true }).click();
+  const modal = page.getByRole("dialog");
+  // Defaults: all time, every kind; no People section for a member.
+  await expect(modal.getByLabel("Months")).toHaveValue("all");
+  for (const kind of ["Dues", "Flight time", "Reimbursement"]) {
+    await expect(modal.getByRole("checkbox", { name: kind })).toBeChecked();
+  }
+  await expect(modal.getByText("People")).toHaveCount(0);
 
-  // The headline is what's owed across every month…
-  await expect(main.getByText(money(Math.abs(owed)), { exact: true }).first()).toBeVisible();
-  // …and the newest line's running balance is that same figure.
-  const firstRow = main.getByRole("table").first().getByRole("row").nth(1);
-  await expect(firstRow.getByRole("cell").last()).toHaveText(money(owed));
+  await modal.getByLabel("Months").selectOption("this-month");
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    modal.getByRole("button", { name: "Download .xlsx" }).click(),
+  ]);
+  const thisMonth = dayIn(0).slice(0, 7);
+  expect(download.suggestedFilename()).toBe(`finances-${thisMonth}-mine.xlsx`);
+  const text = await downloadedText(download);
+  expect(text).toContain("Monthly membership");
+  expect(text).toContain("Alex Rivera");
+  expect(text).not.toContain("Robin Patel");
+  await expect(modal).toBeHidden();
+});
+
+test("the Finance Officer's export narrows to chosen people and kinds", async ({ page }) => {
+  await signIn(page, "robin@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+  await openView(page, "Club (by person)");
+  const main = page.getByRole("main");
+
+  await main.getByRole("button", { name: "Export", exact: true }).click();
+  const modal = page.getByRole("dialog");
+  await expect(modal.getByRole("button", { name: "Everyone" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+
+  // Dues only, Alex only, this month.
+  await modal.getByLabel("Months").selectOption("this-month");
+  await modal.getByRole("button", { name: "Clear all" }).click();
+  await modal.getByRole("checkbox", { name: "Dues" }).check();
+  await modal.getByRole("button", { name: "Choose people" }).click();
+  await modal.getByRole("checkbox", { name: "Alex Rivera" }).check();
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    modal.getByRole("button", { name: "Download .xlsx" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe(`finances-${dayIn(0).slice(0, 7)}-club.xlsx`);
+  const text = await downloadedText(download);
+  expect(text).toContain("Alex Rivera");
+  expect(text).toContain("Dues");
+  // Nobody else, and no other kind of line.
+  expect(text).not.toContain("Robin Patel");
+  expect(text).not.toContain("Flight time");
+
+  // Asking for nothing is refused in the window rather than downloading an
+  // empty file.
+  await main.getByRole("button", { name: "Export", exact: true }).click();
+  await modal.getByRole("button", { name: "Clear all" }).click();
+  await modal.getByRole("button", { name: "Download .xlsx" }).click();
+  await expect(modal.getByText("Pick at least one kind of line.")).toBeVisible();
+  await modal.getByRole("button", { name: "Cancel" }).click();
+});
+
+test("an all-time export reads every month, not just the ones scrolled to", async ({
+  page,
+}) => {
+  const label = unique("Ancient fee");
+  await signIn(page, "robin@vffclub.test");
+  // Twenty months back: far beyond the three the page loads first.
+  await addCharge(page, {
+    memberId: await memberId(page, "Alex Rivera"),
+    description: label,
+    amountDollars: 3,
+    incurredOn: dayIn(20),
+  });
+  await gotoTab(page, "/finances", "Finances");
+  await openView(page, "Club (by month)");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("row").filter({ hasText: label })).toHaveCount(0);
+
+  await main.getByRole("button", { name: "Export", exact: true }).click();
+  const modal = page.getByRole("dialog");
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    modal.getByRole("button", { name: "Download .xlsx" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^finances-\d{4}-\d{2}-to-\d{4}-\d{2}-club\.xlsx$/);
+  expect(await downloadedText(download)).toContain(label);
 });
 
 // A tach span no seeded flight comes near: the log is real club history, all of
@@ -714,4 +1191,16 @@ test("filing a flight bills the tach hours and credits the fuel", async ({
   });
   await expect(hours.getByText("$742.50")).toBeVisible({ timeout: 30_000 });
   await expect(hours.getByText("$985.50")).toBeHidden();
+
+  // Deleting a derived line tombstones it: correcting the flight again must
+  // rebuild the fuel credit but NOT the deleted flight-time charge.
+  const flightLine = rebuilt.find((c: { kind: string }) => c.kind === "FLIGHT");
+  const deleted = await page.request.delete(`/api/finances/charges/${flightLine.id}`);
+  expect(deleted.ok()).toBeTruthy();
+  const again = await page.request.patch(`/api/flights/${flightId}`, {
+    data: { tachEnd: 2006 },
+  });
+  expect(again.ok()).toBeTruthy();
+  const afterDelete = await chargesForFlight();
+  expect(afterDelete.map((c: { kind: string }) => c.kind)).toEqual(["FUEL_CREDIT"]);
 });

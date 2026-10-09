@@ -6,7 +6,6 @@ import {
   POSITION_LABELS,
   can,
   capabilitiesFor,
-  isEmpowered,
   isInstructor,
   parsePositions,
 } from "@/lib/positions";
@@ -74,12 +73,13 @@ describe("positions", () => {
     expect(capabilitiesFor(admin).size).toBe(ALL_CAPABILITIES.length);
   });
 
-  // A plain member holds no OFFICE powers — but membership itself carries two
+  // A plain member holds no OFFICE powers — but membership itself carries
   // capabilities, so "nothing" was only ever true while every account was a
   // flying member. Spelled out rather than counted, so adding a capability to
   // an office can't quietly satisfy this test.
   it("gives a plain member membership and no office powers", () => {
     expect([...capabilitiesFor(nobody)].sort()).toEqual([
+      "finance:claim-own",
       "finance:read-own",
       "reservation:book",
     ]);
@@ -99,6 +99,7 @@ describe("positions", () => {
     // The two that make the difference between a tab and no tab.
     expect(can(cfi, "reservation:book")).toBe(false);
     expect(can(cfi, "finance:read-own")).toBe(false);
+    expect(can(cfi, "finance:claim-own")).toBe(false);
     // And nothing an officer holds.
     expect(can(cfi, "squawk:manage")).toBe(false);
     expect(can(cfi, "finance:manage")).toBe(false);
@@ -123,12 +124,6 @@ describe("positions", () => {
     expect(can({ isAdmin: false, positions: [], clubMember: undefined }, "finance:read-own")).toBe(
       true
     );
-  });
-
-  it("knows which offices are titles and which carry powers", () => {
-    expect(isEmpowered("FINANCE_OFFICER")).toBe(true);
-    expect(isEmpowered("PRESIDENT")).toBe(false);
-    expect(isEmpowered("INSTRUCTOR")).toBe(true);
   });
 });
 

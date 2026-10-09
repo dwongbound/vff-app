@@ -14,12 +14,15 @@
 // corrected (see lib/ledger.ts), so a decision to unwind something isn't
 // silently reversed by an unrelated edit.
 //
-// DELETE is allowed only for hand-entered lines. A derived line has a source
-// row that would just recreate it, so deleting one would be a lie that heals
-// itself on the next edit.
+// DELETE works on every line. A hand-entered one (ONE_OFF, REIMBURSEMENT) is
+// removed outright. A DERIVED one can't be — its source row would just write
+// it back (dues on the next read of the month, a flight's charge on the next
+// edit of the flight) — so it's TOMBSTONED instead: `deletedAt` is set, every
+// read skips it, and the row keeps its place in the unique indexes so nothing
+// rebuilds over it. Either way it's gone from every statement and total.
 import { NextResponse } from "next/server";
 import { getCapableUser } from "@/lib/auth";
-import { parseDollars } from "@/lib/finance";
+import { isHandEntered, parseDollars } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 import { serializeCharge } from "@/lib/serialize";
 
@@ -50,9 +53,9 @@ export async function PATCH(
 
   const existing = await prisma.charge.findUnique({
     where: { id },
-    select: { id: true },
+    select: { id: true, deletedAt: true },
   });
-  if (!existing) {
+  if (!existing || existing.deletedAt) {
     return NextResponse.json({ error: "No such charge." }, { status: 404 });
   }
 
@@ -125,22 +128,21 @@ export async function DELETE(
   const { id } = await params;
   const existing = await prisma.charge.findUnique({
     where: { id },
-    select: { id: true, kind: true },
+    select: { id: true, kind: true, deletedAt: true },
   });
-  if (!existing) {
+  if (!existing || existing.deletedAt) {
     return NextResponse.json({ error: "No such charge." }, { status: 404 });
   }
 
-  if (existing.kind !== "ONE_OFF") {
-    return NextResponse.json(
-      {
-        error:
-          "That line comes from a flight or a recurring rule — void it instead, or change what it came from.",
-      },
-      { status: 409 }
-    );
+  // Hand-entered = written by a person rather than derived from a source row:
+  // an officer's one-off, or a reimbursement somebody filed.
+  if (isHandEntered(existing.kind)) {
+    await prisma.charge.delete({ where: { id } });
+  } else {
+    await prisma.charge.update({
+      where: { id },
+      data: { deletedAt: new Date(), deletedById: officer.id },
+    });
   }
-
-  await prisma.charge.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

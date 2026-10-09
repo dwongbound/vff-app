@@ -39,13 +39,14 @@ export async function GET(req: Request) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const mine = url.searchParams.get("mine") === "1";
-  const includeCanceled = url.searchParams.get("includeCanceled") === "1";
 
   const rows = await prisma.reservation.findMany({
     where: {
       ...(aircraftId ? { aircraftId } : {}),
       ...(mine ? { userId: user.id } : {}),
-      ...(includeCanceled ? {} : { status: "CONFIRMED" }),
+      // Older databases may still hold CANCELED rows from before DELETE
+      // removed them; they are never shown.
+      status: "CONFIRMED",
       // A booking is "in the window" if it overlaps it at all, so a long
       // cross-country that starts before the window still shows up.
       ...(from ? { endsAt: { gt: new Date(from) } } : {}),

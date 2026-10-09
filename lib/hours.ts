@@ -53,11 +53,6 @@ export function tachHours(m: Pick<Meters, "tachStart" | "tachEnd">): number | nu
   return round2(end - start);
 }
 
-/** Both tach readings are in — the flight has a measurable span. */
-export function hasTachSpan(m: Pick<Meters, "tachStart" | "tachEnd">): boolean {
-  return tachHours(m) !== null;
-}
-
 /** Hobbs (elapsed) time, or null when the airplane has no Hobbs entry. */
 export function hobbsHours(
   m: Pick<Meters, "hobbsStart" | "hobbsEnd">

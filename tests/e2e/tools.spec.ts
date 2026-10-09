@@ -35,6 +35,30 @@ test("the rail's Tools group opens onto Weight & Balance", async ({ page }) => {
   await expect(page.getByText(`${TAIL_NUMBER} — Cessna 172`)).toBeVisible();
 });
 
+test("Tools lists My plane first, and its speeds lead with the manual's MPH", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Tools" }).click();
+  const tools = page.getByRole("link", { name: /^(My plane|Weight & Balance)$/ });
+  await expect(tools).toHaveText(["My plane", "Weight & Balance"]);
+
+  await tools.first().click();
+  await expect(page.getByRole("heading", { name: "My plane", exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText(/Speeds are shown in MPH/)).toBeVisible();
+
+  // Vne: the book's 160 MPH big, the 139 kt conversion under it.
+  const vne = page.getByRole("listitem").filter({ hasText: "Never exceed" });
+  const figures = vne.locator("span.font-mono.block");
+  await expect(figures).toHaveText(["160 MPH", "139 kt"]);
+
+  // The stall table leads with MPH too: the first speed cell's top line.
+  const stall = page.getByRole("table").first().getByRole("cell").nth(1);
+  await expect(stall.locator("span").first()).toHaveText(/MPH$/);
+  await expect(stall.locator("span").last()).toHaveText(/kt$/);
+});
+
 test("it starts from the airplane's own weighing, not a default", async ({ page }) => {
   await gotoTab(page, "/tools/weight-balance", "Weight & Balance");
 

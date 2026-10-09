@@ -231,3 +231,64 @@ test("a flight filed offline shows one short line, then sends itself", async ({
     await context.setOffline(false);
   }
 });
+
+test("Finances on a phone is a list, not a table, and nothing scrolls sideways", async ({
+  page,
+}) => {
+  await page.goto("/finances");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  // The five-column table only exists from `sm` up; a phone gets stacked lines.
+  await expect(main.getByRole("table")).toHaveCount(0);
+  const dues = main.getByRole("listitem").filter({ hasText: "Monthly membership" }).first();
+  await expect(dues).toBeVisible();
+  await expect(dues.getByText("$250.00")).toBeVisible();
+
+  // The three views fit across the width as equal segments.
+  for (const view of ["Me", "Club (by person)", "Club (by month)"]) {
+    await expect(main.getByRole("button", { name: view, exact: true })).toBeVisible();
+  }
+  await main.getByRole("button", { name: "Club (by person)", exact: true }).click();
+  await expect(main.getByRole("heading", { name: "Club balance" })).toBeVisible();
+
+  // Nothing on the page is wider than the phone — and if something is, name it.
+  const { overflow, culprits } = await page.evaluate(() => {
+    const scroller = document.getElementById("app-scroll")!;
+    const edge = scroller.getBoundingClientRect().right;
+    const culprits = [...scroller.querySelectorAll("*")]
+      .filter((el) => el.getBoundingClientRect().right > edge + 0.5)
+      // Innermost offenders only: a parent widened by its child adds nothing.
+      .filter((el, _, all) => !all.some((other) => other !== el && el.contains(other)))
+      .slice(0, 5)
+      .map((el) => `<${el.tagName.toLowerCase()} class="${el.className}">${(el.textContent ?? "").slice(0, 40)}`);
+    return { overflow: scroller.scrollWidth - scroller.clientWidth, culprits };
+  });
+  expect(overflow, culprits.join("\n")).toBeLessThanOrEqual(0);
+
+  // The dashed + panel opens the add-money sheet.
+  await main.getByRole("button", { name: "Add money", exact: true }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("group", { name: "What kind of money" })).toBeVisible();
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(sheet).toBeHidden();
+});
+
+test("double-tap zoom is off, but pinch-zoom is left alone", async ({ page }) => {
+  // `manipulation` = pan + pinch-zoom, no double-tap zoom, on every element
+  // (touch-action isn't inherited, so the root alone wouldn't reach inside
+  // the app's scroller).
+  for (const selector of ["html", "#app-scroll", "main button", "main"]) {
+    const value = await page
+      .locator(selector)
+      .first()
+      .evaluate((el) => getComputedStyle(el).touchAction);
+    expect(value, selector).toBe("manipulation");
+  }
+  // And it's done without locking the viewport's scale, which would also
+  // kill pinch-zoom for anyone who needs it to read the page.
+  const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
+  expect(viewport ?? "").not.toMatch(/maximum-scale|user-scalable\s*=\s*(no|0)/);
+});

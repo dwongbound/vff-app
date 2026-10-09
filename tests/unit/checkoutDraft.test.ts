@@ -12,7 +12,6 @@ import {
   clearDraft,
   draftHasProgress,
   draftKey,
-  isDraftKey,
   parseDraft,
   pruneDrafts,
   readDraft,
@@ -113,12 +112,6 @@ describe("draftKey", () => {
     expect(draftKey(IDENTITY)).not.toBe(
       draftKey({ ...IDENTITY, aircraftId: "aircraft-2" })
     );
-  });
-
-  it("recognises its own keys and nothing else", () => {
-    expect(isDraftKey(draftKey(IDENTITY))).toBe(true);
-    expect(isDraftKey("theme")).toBe(false);
-    expect(isDraftKey("vff:something-else:member-1")).toBe(false);
   });
 });
 

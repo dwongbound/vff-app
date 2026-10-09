@@ -137,6 +137,11 @@ enum ChargeKind {
   // "Monthly membership" on the statement and in the dues half of every total.
   // Stored negative, like every other credit. Appended, as above.
   PAYBACK
+  // Money the club owes a member for something they bought for it — filed by
+  // the member themselves (`finance:claim-own`) or by an officer for them.
+  // Its own kind so an officer reading the books can tell a self-filed claim
+  // from a line they wrote. Stored negative. Appended, as above.
+  REIMBURSEMENT
 }
 
 model User {
@@ -210,6 +215,7 @@ model User {
   charges                 Charge[]          @relation("ChargeMember")
   chargesRaised           Charge[]          @relation("ChargeAuthor")
   chargesMarkedPaid       Charge[]          @relation("ChargePaidBy")
+  chargesDeleted          Charge[]          @relation("ChargeDeleter")
   recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
   recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
 
@@ -910,6 +916,17 @@ model Charge {
   createdBy   User?   @relation("ChargeAuthor", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?
 
+  // Deleted by an officer — a TOMBSTONE, set only on a DERIVED line (dues,
+  // flight time, fuel credit, landing fee, payback). A hand-entered line is
+  // simply deleted; a derived one can't be, because its source would write it
+  // straight back: the next read of the month re-materialises dues, the next
+  // edit of the flight rebuilds its charge. The tombstone keeps the row's place
+  // in the unique indexes so neither does, and every read skips it — so to
+  // everyone it's gone, which is what the officer asked for.
+  deletedAt   DateTime?
+  deletedBy   User?     @relation("ChargeDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedById String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -923,5 +940,6 @@ model Charge {
   @@unique([servicingId, kind])
   @@index([memberId, period])
   @@index([period])
+  @@index([deletedAt])
   @@map("charges")
 }

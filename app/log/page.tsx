@@ -30,7 +30,7 @@ import { fetchJsonArray, fetchJsonObject, sendJson } from "@/lib/api";
 import {
   SIGNATURE_LABELS,
   SIGNATURE_TONES,
-  isAwaitingSignature,
+  isAwaitingSignatureFrom,
   signatureState,
 } from "@/lib/flightSignature";
 import {
@@ -141,7 +141,7 @@ function FlightLog() {
   const awaiting = useMemo(
     () =>
       asInstructor
-        ? all.filter((f) => f.instructor?.id === me?.id && isAwaitingSignature(f))
+        ? all.filter((f) => me != null && isAwaitingSignatureFrom(f, me.id))
         : [],
     [all, asInstructor, me?.id]
   );
