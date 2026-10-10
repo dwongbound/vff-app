@@ -110,9 +110,9 @@ describe("buildIcs", () => {
 });
 
 describe("icsFilename", () => {
-  it("slugs the parts", () => {
-    expect(icsFilename(["N8318B", "2026-08-04"])).toBe("n8318b-2026-08-04.ics");
-    expect(icsFilename(["Cross-country!", null, undefined])).toBe("cross-country.ics");
+  it("slugs the parts, keeping a tail number's capitals", () => {
+    expect(icsFilename(["N8318B", "2026-08-04"])).toBe("N8318B-2026-08-04.ics");
+    expect(icsFilename(["Cross-country!", null, undefined])).toBe("Cross-country.ics");
   });
 
   it("falls back when there's nothing usable", () => {

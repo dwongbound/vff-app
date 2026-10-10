@@ -106,7 +106,18 @@ export type Capability =
    * flight charge is raised against them, so a tab that can only ever say
    * "nothing here" is worse than no tab.
    */
-  | "finance:read-own";
+  | "finance:read-own"
+  /**
+   * File a reimbursement against your OWN statement — the receipt for
+   * something you bought for the club out of pocket.
+   *
+   * Membership, like `finance:read-own`: anyone with a statement can say "the
+   * club owes me for this". It can only ever credit the person filing it, it
+   * lands as an unpaid line the Finance Officer still has to pay out (or
+   * void), and it carries its own kind (REIMBURSEMENT) so it's never mistaken
+   * for a line an officer wrote.
+   */
+  | "finance:claim-own";
 
 const POSITION_CAPABILITIES: Record<Position, Capability[]> = {
   PRESIDENT: [],
@@ -129,6 +140,7 @@ const POSITION_CAPABILITIES: Record<Position, Capability[]> = {
 const MEMBERSHIP_CAPABILITIES: Capability[] = [
   "reservation:book",
   "finance:read-own",
+  "finance:claim-own",
 ];
 
 /** Every capability that exists — what an admin implicitly holds. */
@@ -140,6 +152,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "maintenance:manage",
   "reservation:book",
   "finance:read-own",
+  "finance:claim-own",
 ];
 
 /** The minimum a permission check needs to know about someone. */
@@ -182,11 +195,6 @@ export function capabilitiesFor(user: Principal): Set<Capability> {
 export function can(user: Principal, capability: Capability): boolean {
   if (user.isAdmin) return true;
   return capabilitiesFor(user).has(capability);
-}
-
-/** Offices that actually carry powers — used to explain the roster's badges. */
-export function isEmpowered(position: Position): boolean {
-  return POSITION_CAPABILITIES[position].length > 0;
 }
 
 /**

@@ -83,12 +83,16 @@ export interface ServicingForBilling extends BillableServicing {
 export async function syncServicingCharges(servicing: ServicingForBilling) {
   const existing = await prisma.charge.findMany({
     where: { servicingId: servicing.id },
-    select: { kind: true, voided: true },
+    select: { kind: true, voided: true, deletedAt: true },
   });
-  const voidedKinds = new Set(existing.filter((c) => c.voided).map((c) => c.kind));
+  // Voided or DELETED by an officer: a decision about this line, which a later
+  // edit of the fill-up must not quietly reverse by writing it back.
+  const voidedKinds = new Set(
+    existing.filter((c) => c.voided || c.deletedAt).map((c) => c.kind)
+  );
 
   await prisma.charge.deleteMany({
-    where: { servicingId: servicing.id, voided: false },
+    where: { servicingId: servicing.id, voided: false, deletedAt: null },
   });
 
   const line = servicingCredit(servicing, servicing.aircraft.tailNumber);
@@ -110,14 +114,16 @@ export async function syncServicingCharges(servicing: ServicingForBilling) {
 export async function syncFlightCharges(flight: FlightForBilling) {
   const existing = await prisma.charge.findMany({
     where: { flightId: flight.id },
-    select: { id: true, kind: true, voided: true },
+    select: { id: true, kind: true, voided: true, deletedAt: true },
   });
+  // Voided or DELETED (tombstoned) by an officer — either way a decision a
+  // later correction to the flight must not quietly undo.
   const voidedKinds = new Set(
-    existing.filter((c) => c.voided).map((c) => c.kind)
+    existing.filter((c) => c.voided || c.deletedAt).map((c) => c.kind)
   );
 
   await prisma.charge.deleteMany({
-    where: { flightId: flight.id, voided: false },
+    where: { flightId: flight.id, voided: false, deletedAt: null },
   });
 
   const lines = chargesForFlight(

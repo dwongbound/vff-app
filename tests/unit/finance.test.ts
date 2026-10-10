@@ -5,7 +5,12 @@ import {
   outstandingContribution,
   paidContribution,
   periodsBetween,
-  runningBalances,
+  splitCents,
+  chargeShares,
+  balanceContribution,
+  cleanMoneyInput,
+  finishMoneyInput,
+  owedContribution,
   currentPeriod,
   flightCharge,
   formatMoney,
@@ -20,7 +25,6 @@ import {
   periodOf,
   servicingCredit,
   periodStart,
-  recentPeriods,
   recurringKind,
   ruleAppliesTo,
   shiftPeriod,
@@ -56,11 +60,6 @@ describe("periods", () => {
     expect(shiftPeriod("2026-01", -1)).toBe("2025-12");
     expect(shiftPeriod("2026-12", 1)).toBe("2027-01");
     expect(shiftPeriod("2026-08", 0)).toBe("2026-08");
-  });
-
-  it("lists recent periods newest first", () => {
-    const list = recentPeriods(3, new Date(2026, 7, 4));
-    expect(list).toEqual(["2026-08", "2026-07", "2026-06"]);
   });
 
   it("formats a heading", () => {
@@ -441,23 +440,53 @@ describe("the all-months ledger", () => {
     }
   });
 
-  it("builds the running balance DOWN from what's owed now", () => {
-    // Newest first: a $50 charge, a paid $100 line, a $30 credit, a voided $5.
-    const lines = [
-      { amountCents: 5000, voided: false },
-      { amountCents: 10000, voided: false, paidAt: "2026-08-03" },
-      { amountCents: -3000, voided: false },
-      { amountCents: 500, voided: true },
-    ];
-    // Owed now: 50 - 30 = $20 (earlier, unloaded months owe nothing here).
-    expect(runningBalances(lines, 2000)).toEqual([2000, -3000, -3000, 0]);
+  it("counts a club line (no member) toward the balance at once, never as owed", () => {
+    const club = { member: null, amountCents: -120_000, voided: false };
+    expect(balanceContribution(club)).toBe(-120_000);
+    expect(owedContribution(club)).toBe(0);
+    // Its paid flag means nothing — there is nobody to have paid.
+    expect(balanceContribution({ ...club, paidAt: "2026-10-01" })).toBe(-120_000);
+    expect(balanceContribution({ ...club, voided: true })).toBe(0);
+
+    const member = { member: { id: "m" }, amountCents: 5000, voided: false };
+    expect(balanceContribution(member)).toBe(0);
+    expect(owedContribution(member)).toBe(5000);
+    expect(balanceContribution({ ...member, paidAt: "2026-10-01" })).toBe(5000);
+    expect(owedContribution({ ...member, paidAt: "2026-10-01" })).toBe(0);
+    // The db shape (memberId) reads the same way.
+    expect(balanceContribution({ memberId: null, amountCents: 700, voided: false })).toBe(700);
   });
 
-  it("keeps an unloaded history's balance under the oldest loaded line", () => {
-    // $250 still owed from months not yet scrolled to.
-    expect(runningBalances([{ amountCents: 1000, voided: false }], 26000)).toEqual([
-      26000,
-    ]);
+  it("keeps a money box to digits and two decimal places", () => {
+    expect(cleanMoneyInput("$1,2a3.456")).toBe("123.45");
+    expect(cleanMoneyInput("12.")).toBe("12.");
+    expect(cleanMoneyInput("1.2.3")).toBe("1.23");
+    expect(cleanMoneyInput("")).toBe("");
+  });
+
+  it("fills in the cents when a money box is left", () => {
+    expect(finishMoneyInput("590")).toBe("590.00");
+    expect(finishMoneyInput("12.5")).toBe("12.50");
+    expect(finishMoneyInput("0.5")).toBe("0.50");
+    expect(finishMoneyInput(".")).toBe("");
+    expect(finishMoneyInput("")).toBe("");
+  });
+
+  it("splits a total to the cent, odd cents to the first shares", () => {
+    expect(splitCents(10000, 3)).toEqual([3334, 3333, 3333]);
+    expect(splitCents(25000, 8)).toEqual(Array(8).fill(3125));
+    expect(splitCents(2, 3)).toEqual([1, 1, 0]);
+    expect(splitCents(-10000, 3)).toEqual([-3334, -3333, -3333]);
+    for (const [total, n] of [[9999, 7], [1, 4], [123457, 11]]) {
+      expect(splitCents(total, n).reduce((a, b) => a + b, 0)).toBe(total);
+    }
+    expect(splitCents(10000, 0)).toEqual([]);
+  });
+
+  it("charges either a shared total or the same amount each", () => {
+    expect(chargeShares(9000, 3, "split")).toEqual([3000, 3000, 3000]);
+    expect(chargeShares(9000, 3, "each")).toEqual([9000, 9000, 9000]);
+    expect(chargeShares(9000, 0, "each")).toEqual([]);
   });
 
   it("keeps what members owe and what the club owes apart", () => {

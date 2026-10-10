@@ -56,7 +56,9 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   signed W&B revision — which changes with every radio swap, so it's columns.
   Either half missing ⇒ the tool declines rather than assuming an airplane.
 - **Reservation** — `startsAt`/`endsAt`, `purpose`, `status`. Overlap enforced
-  in the API via `lib/reservations.ts`; cancel = `CANCELED`, never deleted.
+  in the API via `lib/reservations.ts`; DELETE removes the row (owner or admin; the UI calls it Delete). The
+  `CANCELED` status is legacy — older databases may still hold such rows, and
+  GET filters them out.
   `instructorId` is the CFI a lesson is booked with — only ever set when
   `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
   rather than leaving a stale name on a booking that changed.
@@ -155,13 +157,23 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   of thing that gets lost, and losing it bills somebody instead of paying them;
   a club-wide payback is refused outright.
 - **Charge** — one statement line, positive = owed, negative = credit.
-  `memberId` is NULLABLE: a line with no member is the CLUB's own (an
-  insurance bill, a grant, an opening balance), same sign read from the club's
-  side — positive = owed to the club, negative = the club owes. Only ever
-  ONE_OFF, only ever filed with an explicit `club: true` (a missing memberId is
-  still "pick a member"), and only visible in the club-wide views. Kinds:
-  `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE | PAYBACK` (the last two
-  appended, the safe kind of enum change). PAYBACK is deliberately not negative
+  `memberId` is NULLABLE: a line with no member is the CLUB's own money (a
+  deposit, a grant, an insurance bill it paid) — positive = money in,
+  negative = money out. With nobody to chase it has NO paid/unpaid state: it
+  counts toward the club balance the moment it exists, unless voided, and is
+  never outstanding (`isClubLine` / `balanceContribution` / `owedContribution`
+  in lib/finance.ts; the UI shows it no Paid button). Only ever ONE_OFF, only
+  ever filed with an explicit `club: true` (a missing memberId is still "pick
+  a member"), and only visible in the club-wide views.
+  `deletedAt`/`deletedById` TOMBSTONE a deleted DERIVED line (dues, flight,
+  fuel credit, landing fee, payback): its source would only write it back, so
+  the row stays — holding its place in the unique indexes — and every read
+  skips it. Hand-entered lines (`isHandEntered`) are removed outright. Kinds:
+  `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE | PAYBACK |
+  REIMBURSEMENT` (the last three appended, the safe kind of enum change).
+  REIMBURSEMENT is money owed to a member for something they bought for the
+  club, often filed by the member themselves — its own kind so an officer can
+  tell a self-filed claim from a line they wrote. PAYBACK is deliberately not negative
   DUES: a statement showing the club paying somebody $50 under "Dues" would be
   wrong on the line a member reads AND in the dues half of every total that
   groups by kind.
@@ -177,14 +189,23 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 ## Pages (`app/*/page.tsx`)
 
 `login` · `quick-log` · `status` (+ `status/squawks`) · `preflight` · `runway` ·
-`postflight` · `servicing` (Checkouts › Add Fuel) · `tools/weight-balance` ·
-`tools/my-plane` ·
+`postflight` · `servicing` (Checkouts › Add Fuel) · `tools/my-plane` ·
+`tools/weight-balance` (that order in the nav — My plane first) ·
 `log` · `reservations` · `members` ·
-`finances` (every month in one scroll, sticky month headers, older months
-lazy-loaded off an IntersectionObserver on `#app-scroll`; views Mine /
-Club (by person) — with "+ Charge or credit" on each month's header / Club
-(by month) — opening on OUTSTANDING lines only; every line action confirms
-in a `ConfirmModal`) · `profile` ·
+`finances` (every month in one scroll, sticky month headers carrying "Mark
+all paid" for officers, older months lazy-loaded off an IntersectionObserver
+on `#app-scroll`; views Mine / Club (by person) — with a "+" on each month's
+header / Club (by month); an Everything/Outstanding switch beside the view
+switch filters all three (Everything by default); the club summary's member
+chips narrow the club views to one member, server-side, with a loader while
+it lands. Paid turns a row green and Void strikes it through, both on the
+spot; only Delete confirms. Lines are a TABLE from `sm` up and a
+stacked LIST below it — one or the other via `useIsWide`, never both in the
+DOM. Money is added through ONE dashed "+" panel →
+`components/finances/AddMoneyModal.tsx`: a member gets only "Claim a
+reimbursement"; an officer gets Reimburse / Charge members / Club funds /
+Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
+`profile` ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
 then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
@@ -210,9 +231,10 @@ leaf to a group later moves a link people have learned. `tools/my-plane` is the
 airplane's own manual as data: V-speeds, arcs, stall matrix, climb rates,
 runway distances, engine limits, every figure with an (i) and a page number.
 STATIC FACTS ONLY — no tach, no Hobbs, nothing that moves with the flying, because a spec sheet with one
-stale number on it is a page you can't trust at a glance. Speeds are shown in
-KNOTS (what N8318B's instrument reads) with the manual's own MPH beside each
-one; see `lib/pohReference.ts` for why the conversion rounds the way it does.
+stale number on it is a page you can't trust at a glance. Speeds LEAD with the
+manual's own MPH (the published figure, checkable against the page number),
+with KNOTS — what N8318B's instrument reads — under each one; see
+`lib/pohReference.ts` for why the conversion rounds the way it does.
 Weight & Balance stores nothing: a W&B is true of one load on one day, so the
 page is pure calculator over the aircraft's stored basis.
 Plane Status › Overview also carries the MAINTENANCE sheet (`MaintenancePanel`),
@@ -325,19 +347,34 @@ owns the only splash in the app.
   rule's months since the earliest rule started (`ensureRecurringChargesFor`,
   one createMany) — a running balance over months nobody opened would
   otherwise be missing their dues — and returns the `summary`: each member's
-  outstanding across ALL months plus `clubOutstandingCents` (the null-member
-  lines) and `paidCents` (every PAID line, netted). The page's "Club balance"
-  is that last one — the club's WORTH, money that has actually moved
-  (`paidContribution`) — with what's still unsettled bracketed beside it
-  ("missing $X" / "owes $X"); an unpaid line changes the bracket, never the
-  balance. The page builds its running balance DOWN from that figure
-  (`runningBalances`), which is what lets it be exact while holding only the
-  months scrolled to, and folds a line's Paid/Void/Delete into it as a
-  DIFFERENCE (`outstandingContribution`) rather than refetching.
-- `finances/charges` (POST one-off, `finance:manage`; `club: true` instead of
-  `memberId` files a club-level line, and sending both is a 400) · `finances/charges/[id]`
+  outstanding across ALL months (member lines only) and `paidCents`, the
+  club's WORTH: paid member lines plus every standing club line
+  (`balanceContribution`). There is NO running balance column — the headline
+  is the balance. "Club balance" is `paidCents`, with what members still owe
+  or are owed bracketed beside it ("missing $X" / "owes $X"); an unpaid member
+  line changes the bracket, never the balance. `&member=<id>` (club-wide
+  readers) narrows the MONTHS to one member — the summary's chips — while the
+  summary itself stays club-wide. The page folds a line's Paid/Void/Delete
+  (and a month's Mark all paid) into that summary as a DIFFERENCE
+  (`owedContribution` / `balanceContribution`) rather than refetching.
+- `finances/charges` (POST). Three shapes: `reimbursement: true` (positive
+  dollars, stored negative as kind REIMBURSEMENT — a member may file one for
+  THEMSELVES with `finance:claim-own`, anyone else's needs `finance:manage`);
+  `club: true` (the "Club funds" form — the club's own money, officer only,
+  which changes the club's balance on the spot); or `memberId` (the
+  officer's signed one-off). Sending a member and `club` together is a 400.
+  `finances/charges/split` (POST, `finance:manage`) — one amount over many
+  members, `mode: "split"` (a TOTAL, shared to the cent by `splitCents`, odd
+  cents to the first BY NAME, each line saying "share of $X") or `"each"`;
+  no `memberIds` = every `clubMember`. One transaction.
+  `finances/charges/paid` (POST `{ ids }`, `finance:manage`) — the month
+  header's "Mark all paid"; skips voided and already-paid lines and returns
+  every named line as it now stands. · `finances/charges/[id]`
   (PATCH to void/restore/amend, or `{ paid }` to tick a line off as settled;
-  DELETE only for hand-entered lines, and the UI confirms it in a dialog).
+  DELETE on ANY line — hand-entered ones removed, derived ones tombstoned.
+  On the page, Paid/Unpay/Void/Restore and a month's Mark all paid happen ON
+  THE SPOT, drawn first and put back if the server refuses; Delete is the only
+  action behind a `ConfirmModal`).
 - `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
   refuses once it has billed anyone; deactivate instead). Both take a POSITIVE
   `amountDollars` plus a `payback` boolean and combine them server-side; PATCH
@@ -564,7 +601,8 @@ owns the only splash in the app.
   `squawk:manage`; MAINTENANCE_OFFICER holds `maintenance:manage` (the write
   side of the due list — reading it is open to every member, because "the annual
   is out next week" is not privileged); INSTRUCTOR holds `flight:sign`. MEMBERSHIP (rather than any
-  office) carries `reservation:book` + `finance:read-own`, which is what an
+  office) carries `reservation:book` + `finance:read-own` +
+  `finance:claim-own` (file a reimbursement for yourself), which is what an
   instructor-only account lacks — `Principal.clubMember` is optional and absent
   means TRUE, so every caller predating instructor accounts still behaves.
   `isInstructor()` is the one place a position is tested DIRECTLY, and the
@@ -641,6 +679,9 @@ owns the only splash in the app.
   synchronous one in the browser, and the export has to build on the device).
   `buildXlsx` returns `Uint8Array<ArrayBuffer>` — the buffer parameter is
   spelled out because a bare `Uint8Array` isn't a `BlobPart`. ✅tested
+- `ledgerView.ts` — the Finances page's grouping and narrowing of WIRE lines
+  (ApiCharge): `statementsFor` (club lines first, then by name),
+  `exportPeriods`/`monthsSpanned`/`selectLines` for the export window. ✅tested
 - `exports.ts` — the club's own spreadsheets, rebuilt from what the app knows:
   `flightLogSheet`, `maintenanceSheet`, `financesWorkbook`. The COLUMN ORDER IS
   THE CLUB'S, off the Google Sheet these replace, which is why the flight log
@@ -794,13 +835,21 @@ envelope as inline SVG — plotted against CG in INCHES rather than the POH's
 moment axis so the limits can be checked against the printed numbers by eye,
 with takeoff and landing both marked and the axes stretching to contain a load
 that falls outside), `SquawkPanel`,
-`ExportButton` (the "Export" button on the flight log, Finances and the
-maintenance panel: builds the workbook LAZILY in the click handler — sheets as
-a prop would rebuild every row on every render of a page whose export nobody
-pressed — and downloads it client-side, exactly as `ReservationModal` does its
-.ics. Each caller exports WHAT IS ON SCREEN: the log follows the Club/Mine
-switch, and Finances keys on `data.clubWide` rather than the toggle, so the
-file can only hold what the API actually returned),
+`ExportButton` (the "Export" button on the flight log and the maintenance
+panel: builds the workbook LAZILY in the click handler — sheets as a prop
+would rebuild every row on every render of a page whose export nobody
+pressed — and downloads it client-side via `downloadWorkbook`, exactly as
+`ReservationModal` does its .ics. Each caller exports WHAT IS ON SCREEN: the
+log follows the Club/Mine switch),
+`finances/ExportFinancesModal` (Finances' Export is a WINDOW instead: months —
+all time by default, this month, last 3/12, or a range — kinds of line (all
+by default) and, for a club-wide reader, people (everyone by default, the
+club's own money as a "person"). It READS the months it was asked for from
+`/api/finances/ledger` rather than reusing what's loaded, so the file doesn't
+depend on how far down the page you'd scrolled; the narrowing rules are
+`exportPeriods`/`selectLines` in `lib/ledgerView.ts`, which also holds the
+by-person grouping (`statementsFor`, `CLUB_ACCOUNT`) the page and the export
+share),
 `SquawkDraftModal`, `SignupCodesPanel` (org settings' two code lists, side by
 side because which list a code is on is the only thing about it that matters
 when you read it out), `PhotoUploader`, `Logo`, `GuidedTour` (first-run walkthrough
@@ -813,8 +862,11 @@ sits above the card the member came to walk; the solo-or-instructor banner is on
 it at every state, the minimums and the reasoning are behind the disclosure / `RulesModal` off the log's currency card /
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
-ConfirmModal DateTimeField Dropdown InfoTip Input Modal RichText Select
-Textarea Toggle LoadingDots LoadingScreen`. `ConfirmModal` is the one "are
+ConfirmModal DateTimeField Dropdown InfoTip Input Modal MoneyInput RichText
+Select Textarea Toggle LoadingDots LoadingScreen`. `MoneyInput` is a dollar
+box: a fixed "$", digits and one decimal point only, and the cents filled in
+on blur ("590" → "590.00") — its value is the box's string, parsed with
+`parseDollars`; use it for every amount rather than a `type="number"`. `ConfirmModal` is the one "are
 you sure" — a title, a body saying WHAT will happen to WHICH thing, and a
 confirm button whose `tone` (`success`/`danger`/`primary`/`secondary`) is the
 stakes; refusals show inside it. `Button` has a `success` (green) variant for
@@ -1425,7 +1477,17 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   an e2e test asserting on the statement is what caught it. `FlightForBilling`
   (the db half, two call sites) therefore REQUIRES the field, so the next
   omission is a compile error rather than a wrong statement.
+- **Double-tap zoom is off app-wide, pinch-zoom is not.** `:where(*) {
+  touch-action: manipulation }` in globals.css. On every element because the
+  property isn't inherited — the browser intersects it only up to the nearest
+  scroll container, so a rule on `html` never reached inside `.app-scroll`, a
+  modal body or an `overflow-x-auto` table. `:where` keeps it at zero
+  specificity so anything needing its own `touch-action` wins. Don't "finish
+  the job" with `maximum-scale=1` in the viewport: that kills pinch-zoom too,
+  and the e2e phone/tablet specs assert it isn't there.
 - **The knots on Tools › My plane are this app's arithmetic, not the manual's.**
+  (MPH is the big figure, knots the small line under it — `displaySpeed`
+  returns `{ primary: MPH, knots }`.)
   The 1958 book is MPH throughout; N8318B's ASI reads knots. Every speed is
   stored in the manual's MPH and converted, and the ROUNDING DIRECTION is a
   safety property — ceilings down, stalls and approach speeds up, ranges

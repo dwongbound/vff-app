@@ -447,12 +447,10 @@ export interface ApiLedgerPage {
   summary: {
     /** What each member still owes across every month (negative = owed to them). */
     members: { member: ApiUserSummary; outstandingCents: number }[];
-    /** The club's own lines (no member), outstanding across every month. */
-    clubOutstandingCents: number;
     /**
-     * Every PAID line in scope, netted, across every month — for the club
-     * scope, the club's worth: money members paid in and club income received,
-     * less credits paid back and club bills paid.
+     * The club's worth, across every month: member lines once PAID, plus every
+     * standing club line (no member) straight away — money members paid in
+     * and club money in, less credits paid back and club money out.
      */
     paidCents: number;
   } | null;

@@ -117,14 +117,15 @@ describe("every figure can be checked and understood", () => {
     expect(speeds.length).toBeGreaterThan(10);
     for (const figure of speeds) {
       const shown = displaySpeed(figure);
-      expect(shown.primary, `${figure.id} knots`).toMatch(/\d+.*kt$/);
-      expect(shown.manual, `${figure.id} mph`).toMatch(/\d+ MPH$/);
+      // MPH leads (the book's own figure); knots, the conversion, under it.
+      expect(shown.primary, `${figure.id} mph`).toMatch(/\d+ MPH$/);
+      expect(shown.knots, `${figure.id} knots`).toMatch(/\d+.*kt$/);
     }
   });
 
   it("leaves a non-speed figure with no MPH line to disagree with", () => {
     const rpm = figures.find((f) => f.id === "rpm-max")!;
-    expect(displaySpeed(rpm)).toEqual({ primary: "2700 RPM", manual: null });
+    expect(displaySpeed(rpm)).toEqual({ primary: "2700 RPM", knots: null });
   });
 
   it("keeps the speeds a pilot must not be missing", () => {

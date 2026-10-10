@@ -1,6 +1,6 @@
 // Every month's statement, newest first, a page at a time.
 //
-// GET /api/finances/ledger?[before=YYYY-MM][&months=N][&all=1]
+// GET /api/finances/ledger?[before=YYYY-MM][&months=N][&all=1][&member=<id>]
 //   • any member          — their own lines, and only their own.
 //   • finance:read-all    — every member's, when &all=1 is asked for.
 //
@@ -71,10 +71,21 @@ export async function GET(req: Request) {
   // capability gets your own lines back, not a 403 and not everyone's.
   const clubWide =
     url.searchParams.get("all") === "1" && can(user, "finance:read-all");
-  const scope = clubWide ? {} : { memberId: user.id };
+  // `deletedAt: null` on every query: a tombstoned derived line (see the
+  // Charge model) is gone to every reader, and must not count toward a sum.
+  const scope = { deletedAt: null, ...(clubWide ? {} : { memberId: user.id }) };
+  // A club-wide reader can narrow the MONTHS to one member (the summary's
+  // member chips). The summary itself stays club-wide — it's what the chips
+  // are drawn from, and what the officer is comparing that member against.
+  const memberParam = url.searchParams.get("member");
+  const listScope =
+    clubWide && memberParam ? { ...scope, memberId: memberParam } : scope;
   const current = currentPeriod();
 
-  if (!before) {
+  // Materialise only on the plain first read. A member-chip filter is a
+  // re-read of books this page has just materialised, and the work grows with
+  // every month since the first rule — no reason to repeat it per chip tap.
+  if (!before && !memberParam) {
     const firstRule = await prisma.recurringCharge.findFirst({
       orderBy: { startsOn: "asc" },
       select: { startsOn: true },
@@ -91,7 +102,7 @@ export async function GET(req: Request) {
   // books, so it can be later than this month) back to the oldest, and always
   // includes the current month — "nothing this month" is an answer.
   const bounds = await prisma.charge.aggregate({
-    where: scope,
+    where: listScope,
     _min: { period: true },
     _max: { period: true },
   });
@@ -105,7 +116,7 @@ export async function GET(req: Request) {
   if (start >= oldest) {
     const end = maxPeriod(oldest, shiftPeriod(start, -(months - 1)));
     const charges = await prisma.charge.findMany({
-      where: { ...scope, period: { gte: end, lte: start } },
+      where: { ...listScope, period: { gte: end, lte: start } },
       include: CHARGE_INCLUDE,
       orderBy: [{ incurredOn: "desc" }, { createdAt: "desc" }],
     });
@@ -120,34 +131,41 @@ export async function GET(req: Request) {
 
   let summary: ApiLedgerPage["summary"] = null;
   if (!before) {
-    // Outstanding = standing and unsettled — `outstandingContribution`'s rule,
-    // done by the database across every month at once.
+    // Outstanding = standing and unsettled — `owedContribution`'s rule, done
+    // by the database across every month at once. A line with no member is
+    // the club's own money and is never outstanding, so its group is dropped.
     const sums = await prisma.charge.groupBy({
       by: ["memberId"],
       where: { ...scope, voided: false, paidAt: null },
       _sum: { amountCents: true },
     });
     const memberIds = sums.flatMap((s) => (s.memberId ? [s.memberId] : []));
+    const memberSums = sums.filter((s) => s.memberId !== null);
     const people = await prisma.user.findMany({
       where: { id: { in: memberIds } },
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
     });
-    const byId = new Map(sums.map((s) => [s.memberId, s._sum.amountCents ?? 0]));
-    // The settled half: `paidContribution`'s rule, summed by the database.
+    const byId = new Map(memberSums.map((s) => [s.memberId, s._sum.amountCents ?? 0]));
+    // The club's worth — `balanceContribution`'s rule: member lines once
+    // they're PAID, plus every standing club line (no member) whatever its
+    // paid flag says, since there is nobody whose paying it would be.
     const paid = await prisma.charge.aggregate({
-      where: { ...scope, voided: false, paidAt: { not: null } },
+      where: { ...scope, voided: false, paidAt: { not: null }, memberId: { not: null } },
       _sum: { amountCents: true },
     });
+    const clubLines = clubWide
+      ? await prisma.charge.aggregate({
+          where: { deletedAt: null, voided: false, memberId: null },
+          _sum: { amountCents: true },
+        })
+      : null;
     summary = {
       members: people.map((p) => ({
         member: serializeUser(p),
         outstandingCents: byId.get(p.id) ?? 0,
       })),
-      // The null group: lines on the club's own books. Only ever non-zero for
-      // a club-wide read, since a member's scope names them.
-      clubOutstandingCents: sums.find((s) => s.memberId === null)?._sum.amountCents ?? 0,
-      paidCents: paid._sum.amountCents ?? 0,
+      paidCents: (paid._sum.amountCents ?? 0) + (clubLines?._sum.amountCents ?? 0),
     };
   }
 

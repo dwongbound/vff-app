@@ -67,19 +67,14 @@ export function formatPeriod(period: Period): string {
   });
 }
 
-/** The last n periods, newest first, for the month picker. */
-export function recentPeriods(count: number, now: Date = new Date()): Period[] {
-  const current = currentPeriod(now);
-  return Array.from({ length: count }, (_, i) => shiftPeriod(current, -i));
-}
-
 export type ChargeKind =
   | "DUES"
   | "FLIGHT"
   | "FUEL_CREDIT"
   | "ONE_OFF"
   | "LANDING_FEE"
-  | "PAYBACK";
+  | "PAYBACK"
+  | "REIMBURSEMENT";
 
 export const CHARGE_KIND_LABELS: Record<ChargeKind, string> = {
   DUES: "Dues",
@@ -88,7 +83,18 @@ export const CHARGE_KIND_LABELS: Record<ChargeKind, string> = {
   ONE_OFF: "Charge",
   LANDING_FEE: "Landing fee",
   PAYBACK: "Monthly payback",
+  REIMBURSEMENT: "Reimbursement",
 };
+
+/**
+ * Written by a person rather than derived from a source row — an officer's
+ * one-off, or a reimbursement. Deleting one REMOVES it; deleting anything else
+ * tombstones it, since its source would only write it back (see the Charge
+ * model's `deletedAt`).
+ */
+export function isHandEntered(kind: ChargeKind | string): boolean {
+  return kind === "ONE_OFF" || kind === "REIMBURSEMENT";
+}
 
 /** The shape the totals below need — a subset of a Charge row. */
 export interface ChargeLike {
@@ -485,26 +491,86 @@ export function paidContribution(charge: ChargeLike): number {
 }
 
 /**
- * The running balance down a statement read NEWEST FIRST.
- *
- * The page never holds the whole history — older months arrive as you scroll
- * — so the balance can't be built up from the first line ever written. It is
- * built DOWN from the one figure the server can give exactly, what is owed
- * right now, by taking each line back off as you pass it. The figure beside a
- * line is therefore "what was still owed once this line had been written",
- * and paid or voided lines leave it where it was, which is how a settled month
- * reads as flat.
+ * A line with NO member is the club's own money — a deposit, a grant, a bill
+ * it paid. It has nobody to chase, so it has no paid/unpaid state: it counts
+ * toward the club's balance the moment it exists (unless voided) and is never
+ * outstanding. Member lines keep the two halves above.
  */
-export function runningBalances(
-  newestFirst: ChargeLike[],
-  outstandingNowCents: number
+export function isClubLine(charge: { member?: unknown; memberId?: unknown }): boolean {
+  return "member" in charge ? charge.member == null : charge.memberId == null;
+}
+
+/** What a line adds to what's still OWED — never anything for a club line. */
+export function owedContribution(
+  charge: ChargeLike & { member?: unknown; memberId?: unknown }
+): number {
+  return isClubLine(charge) ? 0 : outstandingContribution(charge);
+}
+
+/**
+ * What a line adds to the CLUB BALANCE (its worth): a member line once it's
+ * paid; a club line straight away. Voided lines never count.
+ */
+export function balanceContribution(
+  charge: ChargeLike & { member?: unknown; memberId?: unknown }
+): number {
+  if (isClubLine(charge)) return charge.voided ? 0 : charge.amountCents;
+  return paidContribution(charge);
+}
+
+/**
+ * Tidy what's being typed into a money box: digits and ONE decimal point, at
+ * most two places after it. "$1,2a3.456" → "123.45". Keeps a trailing "." so
+ * "12." can still become "12.5" as it's typed.
+ */
+export function cleanMoneyInput(raw: string): string {
+  const digits = raw.replace(/[^0-9.]/g, "");
+  const dot = digits.indexOf(".");
+  if (dot < 0) return digits;
+  return digits.slice(0, dot + 1) + digits.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+}
+
+/**
+ * Finish a money box when it loses focus: "590" → "590.00", "12.5" → "12.50",
+ * "." → "". What's typed stays what's meant; only the cents are filled in.
+ */
+export function finishMoneyInput(value: string): string {
+  const cleaned = cleanMoneyInput(value);
+  if (!/\d/.test(cleaned)) return "";
+  return Number(cleaned).toFixed(2);
+}
+
+/**
+ * Share a total out among `count` people, to the cent, with nothing lost.
+ *
+ * $100 three ways is $33.34 + $33.33 + $33.33, not three lines of $33.33 that
+ * quietly bill the club a cent short. The odd cents go to the FIRST shares,
+ * so a caller that orders its people (by name, say) always puts them on the
+ * same people. Works the same for a negative total (a credit shared out).
+ */
+export function splitCents(totalCents: number, count: number): number[] {
+  if (!Number.isInteger(count) || count <= 0) return [];
+  const sign = totalCents < 0 ? -1 : 1;
+  const magnitude = Math.abs(totalCents);
+  const base = Math.floor(magnitude / count);
+  const remainder = magnitude - base * count;
+  return Array.from(
+    { length: count },
+    (_, i) => sign * (base + (i < remainder ? 1 : 0))
+  );
+}
+
+/**
+ * What each person is charged under "charge members": either a TOTAL shared
+ * out among them (`splitCents`), or the same amount EACH.
+ */
+export function chargeShares(
+  amountCents: number,
+  count: number,
+  mode: "split" | "each"
 ): number[] {
-  let running = outstandingNowCents;
-  return newestFirst.map((charge) => {
-    const after = running;
-    running -= outstandingContribution(charge);
-    return after;
-  });
+  if (mode === "each") return count > 0 ? Array(count).fill(amountCents) : [];
+  return splitCents(amountCents, count);
 }
 
 /**

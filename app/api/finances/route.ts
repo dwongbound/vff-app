@@ -49,7 +49,8 @@ export async function GET(req: Request) {
   await ensureRecurringCharges(period);
 
   const charges = await prisma.charge.findMany({
-    where: { period, ...(clubWide ? {} : { memberId: user.id }) },
+    // Tombstoned (deleted derived) lines are gone to every reader.
+    where: { period, deletedAt: null, ...(clubWide ? {} : { memberId: user.id }) },
     include: CHARGE_INCLUDE,
     orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }],
   });
