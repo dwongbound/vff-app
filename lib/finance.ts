@@ -67,19 +67,14 @@ export function formatPeriod(period: Period): string {
   });
 }
 
-/** The last n periods, newest first, for the month picker. */
-export function recentPeriods(count: number, now: Date = new Date()): Period[] {
-  const current = currentPeriod(now);
-  return Array.from({ length: count }, (_, i) => shiftPeriod(current, -i));
-}
-
 export type ChargeKind =
   | "DUES"
   | "FLIGHT"
   | "FUEL_CREDIT"
   | "ONE_OFF"
   | "LANDING_FEE"
-  | "PAYBACK";
+  | "PAYBACK"
+  | "REIMBURSEMENT";
 
 export const CHARGE_KIND_LABELS: Record<ChargeKind, string> = {
   DUES: "Dues",
@@ -88,7 +83,18 @@ export const CHARGE_KIND_LABELS: Record<ChargeKind, string> = {
   ONE_OFF: "Charge",
   LANDING_FEE: "Landing fee",
   PAYBACK: "Monthly payback",
+  REIMBURSEMENT: "Reimbursement",
 };
+
+/**
+ * Written by a person rather than derived from a source row — an officer's
+ * one-off, or a reimbursement. Deleting one REMOVES it; deleting anything else
+ * tombstones it, since its source would only write it back (see the Charge
+ * model's `deletedAt`).
+ */
+export function isHandEntered(kind: ChargeKind | string): boolean {
+  return kind === "ONE_OFF" || kind === "REIMBURSEMENT";
+}
 
 /** The shape the totals below need — a subset of a Charge row. */
 export interface ChargeLike {
@@ -445,4 +451,143 @@ export function isBillablePeriod(
   now: Date = new Date()
 ): boolean {
   return period <= currentPeriod(now);
+}
+
+// ── The ledger: every month at once ────────────────────────────────────────
+//
+// The Finances page used to be one month at a time, which meant the only way
+// to learn that March's dues were never paid was to go and open March. It is
+// now one long statement, newest first, loaded a few months at a time as you
+// scroll — so the helpers below are the arithmetic that stays true across a
+// list that is only ever PARTLY loaded.
+
+/** Every period from `newest` back to `oldest`, inclusive, newest first. */
+export function periodsBetween(newest: Period, oldest: Period): Period[] {
+  const out: Period[] = [];
+  for (let p = newest; p >= oldest; p = shiftPeriod(p, -1)) out.push(p);
+  return out;
+}
+
+/**
+ * What one line adds to what is still owed: its amount while it stands
+ * unsettled, nothing once it's paid or voided. The same rule `totals` applies
+ * to `outstandingCents`, stated for a single line so a change to one line can
+ * be applied to a total as a difference.
+ */
+export function outstandingContribution(charge: ChargeLike): number {
+  if (charge.voided || charge.paidAt) return 0;
+  return charge.amountCents;
+}
+
+/**
+ * What one line has actually MOVED, from the club's side: its amount once it's
+ * been paid, nothing while it's still owed (or voided). The other half of
+ * `outstandingContribution` — every standing line is in exactly one of the two
+ * — and the club's worth is the sum of this over every line it has.
+ */
+export function paidContribution(charge: ChargeLike): number {
+  if (charge.voided || !charge.paidAt) return 0;
+  return charge.amountCents;
+}
+
+/**
+ * A line with NO member is the club's own money — a deposit, a grant, a bill
+ * it paid. It has nobody to chase, so it has no paid/unpaid state: it counts
+ * toward the club's balance the moment it exists (unless voided) and is never
+ * outstanding. Member lines keep the two halves above.
+ */
+export function isClubLine(charge: { member?: unknown; memberId?: unknown }): boolean {
+  return "member" in charge ? charge.member == null : charge.memberId == null;
+}
+
+/** What a line adds to what's still OWED — never anything for a club line. */
+export function owedContribution(
+  charge: ChargeLike & { member?: unknown; memberId?: unknown }
+): number {
+  return isClubLine(charge) ? 0 : outstandingContribution(charge);
+}
+
+/**
+ * What a line adds to the CLUB BALANCE (its worth): a member line once it's
+ * paid; a club line straight away. Voided lines never count.
+ */
+export function balanceContribution(
+  charge: ChargeLike & { member?: unknown; memberId?: unknown }
+): number {
+  if (isClubLine(charge)) return charge.voided ? 0 : charge.amountCents;
+  return paidContribution(charge);
+}
+
+/**
+ * Tidy what's being typed into a money box: digits and ONE decimal point, at
+ * most two places after it. "$1,2a3.456" → "123.45". Keeps a trailing "." so
+ * "12." can still become "12.5" as it's typed.
+ */
+export function cleanMoneyInput(raw: string): string {
+  const digits = raw.replace(/[^0-9.]/g, "");
+  const dot = digits.indexOf(".");
+  if (dot < 0) return digits;
+  return digits.slice(0, dot + 1) + digits.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+}
+
+/**
+ * Finish a money box when it loses focus: "590" → "590.00", "12.5" → "12.50",
+ * "." → "". What's typed stays what's meant; only the cents are filled in.
+ */
+export function finishMoneyInput(value: string): string {
+  const cleaned = cleanMoneyInput(value);
+  if (!/\d/.test(cleaned)) return "";
+  return Number(cleaned).toFixed(2);
+}
+
+/**
+ * Share a total out among `count` people, to the cent, with nothing lost.
+ *
+ * $100 three ways is $33.34 + $33.33 + $33.33, not three lines of $33.33 that
+ * quietly bill the club a cent short. The odd cents go to the FIRST shares,
+ * so a caller that orders its people (by name, say) always puts them on the
+ * same people. Works the same for a negative total (a credit shared out).
+ */
+export function splitCents(totalCents: number, count: number): number[] {
+  if (!Number.isInteger(count) || count <= 0) return [];
+  const sign = totalCents < 0 ? -1 : 1;
+  const magnitude = Math.abs(totalCents);
+  const base = Math.floor(magnitude / count);
+  const remainder = magnitude - base * count;
+  return Array.from(
+    { length: count },
+    (_, i) => sign * (base + (i < remainder ? 1 : 0))
+  );
+}
+
+/**
+ * What each person is charged under "charge members": either a TOTAL shared
+ * out among them (`splitCents`), or the same amount EACH.
+ */
+export function chargeShares(
+  amountCents: number,
+  count: number,
+  mode: "split" | "each"
+): number[] {
+  if (mode === "each") return count > 0 ? Array(count).fill(amountCents) : [];
+  return splitCents(amountCents, count);
+}
+
+/**
+ * The club's position across its members: what members owe the club, and what
+ * the club owes members. Kept as TWO figures rather than netted, because a
+ * member owed $50 back doesn't cancel another member's unpaid $50 — both are
+ * money somebody has to go and settle.
+ */
+export function clubPosition(memberOutstandingCents: number[]): {
+  owedToClubCents: number;
+  owedByClubCents: number;
+} {
+  let owedToClubCents = 0;
+  let owedByClubCents = 0;
+  for (const cents of memberOutstandingCents) {
+    if (cents > 0) owedToClubCents += cents;
+    else owedByClubCents += -cents;
+  }
+  return { owedToClubCents, owedByClubCents };
 }

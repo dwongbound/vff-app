@@ -38,11 +38,62 @@ test("booking the airplane, then cancelling it", async ({ page }) => {
   // It shows up as "your next flight" or on the grid as a You chip.
   await expect(page.getByRole("button", { name: /You/ }).first()).toBeVisible();
 
-  // Reopen it and cancel — two taps, because it's destructive.
+  // Reopen it: the footer is Delete · Export .ics · Save — no Close (the ✕
+  // in the header closes it).
   await page.getByRole("button", { name: /You/ }).first().click();
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await page.getByRole("button", { name: "Confirm" }).click();
-  await expect(page.getByRole("dialog")).toBeHidden();
+  const dialog = page.getByRole("dialog");
+  // The ✕ is labelled "Close" for screen readers; it must be the only one.
+  await expect(dialog.getByRole("button", { name: "Close" })).toHaveCount(1);
+
+  // The .ics keeps the tail number in capitals.
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    dialog.getByRole("button", { name: "Export .ics" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(new RegExp(`^${TAIL_NUMBER}-\\d{4}-\\d{2}-\\d{2}\\.ics$`));
+  const fs = await import("node:fs/promises");
+  const ics = (await fs.readFile(await download.path())).toString("utf8");
+  expect(ics).toContain(`SUMMARY:${TAIL_NUMBER}`);
+
+  // Delete — two taps, because it's destructive.
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await dialog.getByRole("button", { name: "Confirm" }).click();
+  await expect(dialog).toBeHidden();
+});
+
+test("only the booking's owner (or an admin) can delete it, and delete really deletes", async ({
+  page,
+}) => {
+  const aircraft = await page.request.get("/api/aircraft").then((r) => r.json());
+  // Robin books a slot well clear of the seed's.
+  await signIn(page, "robin@vffclub.test");
+  const start = new Date();
+  start.setDate(start.getDate() + 5);
+  start.setHours(6, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(7);
+  const made = await page.request.post("/api/reservations", {
+    data: {
+      aircraftId: aircraft[0].id,
+      startsAt: start.toISOString(),
+      endsAt: end.toISOString(),
+      purpose: "LOCAL",
+    },
+  });
+  expect(made.status()).toBe(201);
+  const { id } = await made.json();
+
+  // Alex can't delete it — not through the API, whatever the UI shows.
+  await signIn(page, "alex@vffclub.test");
+  const refused = await page.request.delete(`/api/reservations/${id}`);
+  expect(refused.status()).toBe(403);
+
+  // The admin can, and the row is GONE — a second delete finds nothing.
+  await signIn(page);
+  const removed = await page.request.delete(`/api/reservations/${id}`);
+  expect(removed.ok()).toBe(true);
+  const again = await page.request.delete(`/api/reservations/${id}`);
+  expect(again.status()).toBe(404);
 });
 
 test("desktop gets the themed calendar popover, and picking a day fills the field", async ({

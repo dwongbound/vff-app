@@ -11,7 +11,7 @@
 # Build:  docker build --build-arg COMMIT_SHA=$(git rev-parse HEAD) -t vff-app .
 
 # ---- deps -------------------------------------------------------------------
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 
 # prisma/ and prisma.config.ts are copied alongside the manifests because
@@ -25,7 +25,7 @@ COPY prisma ./prisma
 RUN DATABASE_URL="postgresql://unused:unused@localhost:5432/unused" npm ci
 
 # ---- builder ----------------------------------------------------------------
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -47,7 +47,7 @@ RUN DATABASE_URL="postgresql://unused:unused@localhost:5432/unused" npm run buil
 # standalone bundle deliberately does not carry (prisma is a devDependency).
 # Installed on its own so it stays out of the app's node_modules, and pinned to
 # whatever package.json asks for so the two can't drift.
-FROM node:24-alpine AS prisma-cli
+FROM node:26-alpine AS prisma-cli
 WORKDIR /prisma-cli
 COPY package.json /tmp/app-package.json
 RUN PRISMA_VERSION="$(node -p "require('/tmp/app-package.json').devDependencies.prisma")" \
@@ -55,7 +55,7 @@ RUN PRISMA_VERSION="$(node -p "require('/tmp/app-package.json').devDependencies.
   && npm install --no-audit --no-fund "prisma@${PRISMA_VERSION}"
 
 # ---- runner -----------------------------------------------------------------
-FROM node:24-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

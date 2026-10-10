@@ -89,22 +89,22 @@ export default function MyPlanePage() {
         <>
           {/* The unit note is the first thing on the page and is not a
               footnote anywhere else. The manual is MPH; the instrument is
-              knots; both numbers are shown on every speed, and which is which
-              has to be unmissable. */}
+              knots; both numbers are shown on every speed, MPH first, and
+              which is which has to be unmissable. */}
           <Card className="border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20">
             <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-              Speeds are shown in knots — what {selected.tailNumber}&rsquo;s
-              airspeed indicator reads — with the manual&rsquo;s own MPH beside
-              each one.
+              Speeds are shown in MPH — the manual&rsquo;s own figures — with
+              knots, what {selected.tailNumber}&rsquo;s airspeed indicator
+              reads, under each one.
             </p>
             <p className="mt-0.5 text-sm text-amber-800 dark:text-amber-300">
               The 1958 manual is written in MPH throughout, so every knots
               figure here is a conversion this app did, not something out of the
               book. They round toward the safe side: a limit down, a stall or
-              approach speed up, a range inward. Check the MPH column against
-              the manual, and check both against the arcs actually painted on
-              the dial — if the instrument was changed, its markings are the
-              ones you fly.
+              approach speed up, a range inward. Check the MPH against the
+              manual, and check both against the arcs actually painted on the
+              dial — if the instrument was changed, its markings are the ones
+              you fly.
             </p>
           </Card>
 
@@ -275,9 +275,9 @@ const SEVERITY_VALUE_CLASSES: Record<string, string> = {
 };
 
 function FigureRow({ figure }: { figure: ReferenceFigure }) {
-  // Knots big, the manual's MPH small underneath. The MPH line is not
-  // decoration: it is what you check the book against, and it is the figure
-  // that is actually published — the knots above it is this app's arithmetic.
+  // The manual's MPH big, knots small underneath. MPH leads because it is the
+  // figure that is actually published — the one you check the book against;
+  // the knots line is this app's arithmetic, for reading off the instrument.
   const shown = displaySpeed(figure);
   return (
     <li className="flex items-baseline justify-between gap-3 py-2">
@@ -295,8 +295,8 @@ function FigureRow({ figure }: { figure: ReferenceFigure }) {
             <span className="block">{figure.why}</span>
             <span className="mt-2 block text-xs text-gray-400 dark:text-gray-500">
               {figure.source}
-              {shown.manual
-                ? ` · published as ${shown.manual}, converted to knots here`
+              {shown.knots
+                ? ` · ${shown.primary} as published; ${shown.knots} is this app's conversion`
                 : ""}
             </span>
           </InfoTip>
@@ -315,9 +315,9 @@ function FigureRow({ figure }: { figure: ReferenceFigure }) {
         >
           {shown.primary}
         </span>
-        {shown.manual ? (
+        {shown.knots ? (
           <span className="block font-mono text-[11px] text-gray-400 dark:text-gray-500">
-            {shown.manual}
+            {shown.knots}
           </span>
         ) : null}
       </span>
@@ -333,7 +333,7 @@ function FigureRow({ figure }: { figure: ReferenceFigure }) {
  * 60° turn, and a steep slow turn onto final is where that catches people — so
  * the bank angles are columns and the eye runs along them.
  *
- * Knots lead and the manual's MPH sits under each one in grey. Every knots
+ * The manual's MPH leads and knots sit under each one in grey. Every knots
  * figure here is rounded UP: a stall speed rounded down is the one conversion
  * error in this file that could hurt somebody.
  */
@@ -375,10 +375,10 @@ function StallCard() {
                   {kt.map((speed, i) => (
                     <td key={BANK_ANGLES[i]} className="py-1.5 text-right align-top">
                       <span className="block font-mono font-medium">
-                        {speed} {AIRSPEED_UNIT}
+                        {row.mph[i]} {MANUAL_AIRSPEED_UNIT}
                       </span>
                       <span className="block font-mono text-[11px] text-gray-400 dark:text-gray-500">
-                        {row.mph[i]} {MANUAL_AIRSPEED_UNIT}
+                        {speed} {AIRSPEED_UNIT}
                       </span>
                     </td>
                   ))}
@@ -437,10 +437,10 @@ function ClimbCard() {
                 </td>
                 <td className="py-1.5 text-right align-top">
                   <span className="block font-mono font-medium">
-                    {knots(row.bestRateMph, "target")} {AIRSPEED_UNIT}
+                    {formatMph(row.bestRateMph)}
                   </span>
                   <span className="block font-mono text-[11px] text-gray-400 dark:text-gray-500">
-                    {formatMph(row.bestRateMph)}
+                    {knots(row.bestRateMph, "target")} {AIRSPEED_UNIT}
                   </span>
                 </td>
                 <td className="py-1.5 text-right font-mono font-medium">

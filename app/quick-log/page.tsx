@@ -51,7 +51,11 @@ import InfoTip from "@/components/common/InfoTip";
 import Toggle from "@/components/common/Toggle";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
-import { fetchJsonArray, sendJson } from "@/lib/api";
+import { useMe } from "@/components/MeProvider";
+import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
+import { fetchJsonArray } from "@/lib/api";
+import { QUEUED_NOTICE } from "@/lib/offline";
+import { flightJob, hasPending } from "@/lib/outbox";
 import { clubDateKey, formatDay, toDateInputValue } from "@/lib/dates";
 import { landingAirportsError, parseLandingAirports } from "@/lib/landingAirports";
 import {
@@ -62,7 +66,7 @@ import {
   tachHours,
   validateMeters,
 } from "@/lib/hours";
-import type { ApiCheckout, ApiFlight, ApiFlightSummary } from "@/lib/types";
+import type { ApiCheckout, ApiFlightSummary } from "@/lib/types";
 
 export default function QuickLogPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -100,6 +104,10 @@ export default function QuickLogPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /** Filed into the outbox with no signal — see lib/offline. */
+  const [queued, setQueued] = useState(false);
+  const outbox = useOutbox();
+  const { me } = useMe();
 
   // ── Three reads, all fired in PARALLEL on mount ─────────────────────────
   //
@@ -154,6 +162,12 @@ export default function QuickLogPage() {
   useEffect(() => {
     loadLastFiled();
   }, [loadLastFiled]);
+  // A queued filing just reached the club: it's the last filed flight now,
+  // and the session it closed is closed.
+  useOutboxSent(() => {
+    void loadSession();
+    void loadLastFiled();
+  });
 
   // Today's preflight walk, for a start reading somebody has already taken off
   // the panel. Only TODAY's — last week's is a number about a different flight.
@@ -281,9 +295,10 @@ export default function QuickLogPage() {
   const airportsHint = airportsHintText();
 
   async function submit() {
-    if (!selected) return;
+    if (!selected || !me) return;
     setError(null);
     setSaved(null);
+    setQueued(false);
 
     // An empty tach end is no longer a refusal — see `acknowledgeIncomplete`
     // below. A real meter ERROR still is: "tach end below tach start" is a
@@ -299,7 +314,7 @@ export default function QuickLogPage() {
     }
 
     setBusy(true);
-    const result = await sendJson<ApiFlight>("/api/flights", "POST", {
+    const body = {
       aircraftId: selected.id,
       // The session this closes out, when there is one. The server looks for
       // it independently — this is the fast path, not the only one — and
@@ -333,11 +348,23 @@ export default function QuickLogPage() {
       // confirmed this at the airplane", and there is no way to answer them
       // from a form that never asked. The API's own fallback applies.
       notes: "Filed from Quick Log.",
-    });
+    };
 
-    if (!result.ok || !result.data) {
+    // Through the outbox, like the post-flight form: four numbers typed at the
+    // tail are four numbers worth keeping when there's no signal to send them
+    // over. See lib/outbox.ts.
+    const result = await outbox.submit(
+      flightJob({
+        owner: { userId: me.id, userName: me.name },
+        label: `Quick Log — ${selected.tailNumber}`,
+        aircraftId: selected.id,
+        body,
+      })
+    );
+
+    if (result.kind === "refused") {
       setBusy(false);
-      setError(result.error ?? "Could not file the flight.");
+      setError(result.error);
       return;
     }
 
@@ -347,11 +374,15 @@ export default function QuickLogPage() {
       tachStart === "" ? "start" : null,
       tachEnd === "" ? "end" : null,
     ].filter(Boolean);
-    setSaved(
-      filedHours != null
-        ? `Filed ${formatHours(filedHours)} hours on ${selected.tailNumber}.`
-        : `Filed on ${selected.tailNumber} with no tach ${gaps.join(" or ")} reading — it's in the log marked incomplete, and adding the number there bills the hours.`
-    );
+    if (result.kind === "queued") {
+      setQueued(true);
+    } else {
+      setSaved(
+        filedHours != null
+          ? `Filed ${formatHours(filedHours)} hours on ${selected.tailNumber}.`
+          : `Filed on ${selected.tailNumber} with no tach ${gaps.join(" or ")} reading — it's in the log marked incomplete, and adding the number there bills the hours.`
+      );
+    }
 
     // Ready for the next one, with the meters where the airplane now reads.
     // Carry the end forward as the next flight's start — but only when there
@@ -369,6 +400,11 @@ export default function QuickLogPage() {
     setPaidPersonally(true);
     setShowFuel(false);
 
+    // Queued means the club has nothing new yet, so there's nothing to re-ask —
+    // and with no signal the questions would only fail. The outbox fires
+    // `useOutboxSent` (above) when it lands, which refreshes then.
+    if (result.kind === "queued") return;
+
     // The filed flight moved the airplane's meters, so every view of it is
     // stale — one event, which the provider turns into one refetch.
     notifyAircraftChanged();
@@ -378,6 +414,14 @@ export default function QuickLogPage() {
     // an afternoon may already have walked the next card.
     await Promise.all([loadSession(), loadLastFiled()]);
   }
+
+  // This member's filing still in the outbox: the server has that session
+  // open, but it's the flight they've just filed — don't offer to close it
+  // out a second time.
+  const flightQueued = hasPending(outbox.jobs, me?.id ?? null, {
+    type: "flight",
+    aircraftId: aircraftId ?? undefined,
+  });
 
   if (!fleetLoading && !selected) {
     return (
@@ -402,7 +446,7 @@ export default function QuickLogPage() {
 
       {/* Having the airplane out changes what the button does, so it's said
           before the boxes rather than discovered after pressing it. */}
-      {session ? (
+      {session && !flightQueued ? (
         <Banner tone="indigo">
           <span className="font-medium">You have {selected?.tailNumber} out.</span>{" "}
           Filing here closes out the entry your{" "}
@@ -419,6 +463,11 @@ export default function QuickLogPage() {
       {saved ? (
         <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300">
           {saved}
+        </p>
+      ) : null}
+      {queued ? (
+        <p aria-live="polite" className="text-sm text-amber-700 dark:text-amber-300">
+          {QUEUED_NOTICE}
         </p>
       ) : null}
       {error ? <Banner tone="red">{error}</Banner> : null}
@@ -450,7 +499,16 @@ export default function QuickLogPage() {
             step="0.1"
             min="0"
             value={tachEnd}
-            onChange={(e) => setTachEnd(e.target.value)}
+            onChange={(e) => {
+              // Typing the END means the member has read the start against the
+              // panel and is working from it — so it stops following, exactly
+              // as if they'd typed it. Otherwise a reading arriving late (today's
+              // preflight, on a slow ramp connection) would swap the start under
+              // them and file a span they never saw. Accepting a prefilled
+              // start fires no change event on it, so this is the only signal.
+              setEdited((p) => ({ ...p, tachStart: true }));
+              setTachEnd(e.target.value);
+            }}
             hint="Off the panel at shutdown — the one reading this page needs"
           />
           <Input
@@ -471,7 +529,11 @@ export default function QuickLogPage() {
             step="0.1"
             min="0"
             value={hobbsEnd}
-            onChange={(e) => setHobbsEnd(e.target.value)}
+            onChange={(e) => {
+              // Same rule as the tach end, for the same reason.
+              setEdited((p) => ({ ...p, hobbsStart: true }));
+              setHobbsEnd(e.target.value);
+            }}
             hint="Optional — leave both Hobbs boxes empty if you don't use it"
           />
         </div>

@@ -49,11 +49,15 @@ export async function GET(req: Request) {
   await ensureRecurringCharges(period);
 
   const charges = await prisma.charge.findMany({
-    where: { period, ...(clubWide ? {} : { memberId: user.id }) },
+    // Tombstoned (deleted derived) lines are gone to every reader.
+    where: { period, deletedAt: null, ...(clubWide ? {} : { memberId: user.id }) },
     include: CHARGE_INCLUDE,
     orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }],
   });
 
+  // Club-level lines (no member) are on nobody's statement, so this per-member
+  // shape leaves them out; the all-months ledger is where they're read.
+  //
   // Everyone gets a statement, including members with no lines this month —
   // "you owe nothing" is an answer, and a missing row looks like a bug.
   const members = clubWide

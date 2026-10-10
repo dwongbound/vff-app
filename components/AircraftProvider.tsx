@@ -18,7 +18,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { fetchJsonArray } from "@/lib/api";
+import { fetchJsonList } from "@/lib/api";
 import type { ApiAircraft } from "@/lib/types";
 
 const STORAGE_KEY = "aircraftId";
@@ -59,7 +59,16 @@ export default function AircraftProvider({ children }: { children: ReactNode }) 
   const { status } = useSession();
 
   const refreshAircraft = useCallback(async () => {
-    const rows = await fetchJsonArray<ApiAircraft>("/api/aircraft");
+    const fetched = await fetchJsonList<ApiAircraft>("/api/aircraft");
+    // A failed refetch keeps the fleet we already have. Offline, "couldn't
+    // ask" is not "the club has no airplane", and treating it as one blanked
+    // every page the moment anything asked for a refresh. With nothing loaded
+    // yet there's nothing to keep, so it settles on empty and the splash ends.
+    if (fetched === null) {
+      setAircraft((current) => current ?? []);
+      return;
+    }
+    const rows = fetched;
     setAircraft(rows);
     // Settle the selection: the persisted airplane if it still exists,
     // otherwise the first active one.

@@ -25,6 +25,7 @@ import { fetchJsonArray, sendJson } from "@/lib/api";
 import { toDateInputValue } from "@/lib/dates";
 import { formatHours, tachHours, validateMeters } from "@/lib/hours";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
+import { newRequestId } from "@/lib/outbox";
 import type { ApiAircraft, ApiFlight, ApiMember } from "@/lib/types";
 
 export default function FlightEntryModal({
@@ -40,6 +41,11 @@ export default function FlightEntryModal({
   onSaved: (flight: ApiFlight) => void;
 }) {
   const [flownOn, setFlownOn] = useState(() => toDateInputValue(new Date()));
+  // One idempotency key per ENTRY, reused if Save is pressed again after a
+  // failure: a press whose reply was lost has already added the flight, and
+  // the retry must get that row back rather than add it twice. A fresh key
+  // after a success, for the next entry. See lib/idempotency.ts.
+  const [requestId, setRequestId] = useState(newRequestId);
   // Tach start opens at the airplane's last known reading — the common case is
   // catching up the most recent flight — but unlike the post-flight form it is
   // NOT re-synced as the airplane moves: you're transcribing a specific entry,
@@ -132,6 +138,7 @@ export default function FlightEntryModal({
       // and exactly wrong here: this is a flight from last month, and the
       // airplane the member has out right now is a different one.
       standalone: true,
+      requestId,
       aircraftId: aircraft.id,
       // Noon, not midnight: `flownOn` is a calendar day, and midnight local
       // read back in another zone slides the flight to the day before.
@@ -161,6 +168,7 @@ export default function FlightEntryModal({
       setError(result.error ?? "Could not add that flight.");
       return;
     }
+    setRequestId(newRequestId());
     onSaved(result.data);
   }
 

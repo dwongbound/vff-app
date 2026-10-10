@@ -83,12 +83,16 @@ export interface ServicingForBilling extends BillableServicing {
 export async function syncServicingCharges(servicing: ServicingForBilling) {
   const existing = await prisma.charge.findMany({
     where: { servicingId: servicing.id },
-    select: { kind: true, voided: true },
+    select: { kind: true, voided: true, deletedAt: true },
   });
-  const voidedKinds = new Set(existing.filter((c) => c.voided).map((c) => c.kind));
+  // Voided or DELETED by an officer: a decision about this line, which a later
+  // edit of the fill-up must not quietly reverse by writing it back.
+  const voidedKinds = new Set(
+    existing.filter((c) => c.voided || c.deletedAt).map((c) => c.kind)
+  );
 
   await prisma.charge.deleteMany({
-    where: { servicingId: servicing.id, voided: false },
+    where: { servicingId: servicing.id, voided: false, deletedAt: null },
   });
 
   const line = servicingCredit(servicing, servicing.aircraft.tailNumber);
@@ -110,14 +114,16 @@ export async function syncServicingCharges(servicing: ServicingForBilling) {
 export async function syncFlightCharges(flight: FlightForBilling) {
   const existing = await prisma.charge.findMany({
     where: { flightId: flight.id },
-    select: { id: true, kind: true, voided: true },
+    select: { id: true, kind: true, voided: true, deletedAt: true },
   });
+  // Voided or DELETED (tombstoned) by an officer — either way a decision a
+  // later correction to the flight must not quietly undo.
   const voidedKinds = new Set(
-    existing.filter((c) => c.voided).map((c) => c.kind)
+    existing.filter((c) => c.voided || c.deletedAt).map((c) => c.kind)
   );
 
   await prisma.charge.deleteMany({
-    where: { flightId: flight.id, voided: false },
+    where: { flightId: flight.id, voided: false, deletedAt: null },
   });
 
   const lines = chargesForFlight(
@@ -154,7 +160,20 @@ export async function syncFlightCharges(flight: FlightForBilling) {
  * ahead at next month, but nothing lands on the books until it's been reached.
  */
 export async function ensureRecurringCharges(period: Period) {
-  if (!isBillablePeriod(period)) return;
+  await ensureRecurringChargesFor([period]);
+}
+
+/**
+ * The same, for many months in one pass — what the all-months ledger needs.
+ *
+ * The rules and the roster are read ONCE and every line goes out in a single
+ * `createMany`, rather than two reads and a write per month: the ledger asks
+ * for every month since the club's first standing rule started, on every
+ * load, and that list only grows.
+ */
+export async function ensureRecurringChargesFor(periods: Period[]) {
+  const billable = periods.filter((p) => isBillablePeriod(p));
+  if (billable.length === 0) return;
 
   const rules = await prisma.recurringCharge.findMany({
     where: { active: true },
@@ -175,11 +194,6 @@ export async function ensureRecurringCharges(period: Period) {
   });
   const roster = members.map((m) => ({ id: m.id, joinedAt: m.createdAt }));
 
-  // The first of the month is when dues are incurred, regardless of when
-  // anyone happens to open the page.
-  const [year, month] = period.split("-").map(Number);
-  const incurredOn = new Date(year, month - 1, 1, 12, 0, 0, 0);
-
   const rows: {
     memberId: string;
     kind: "DUES" | "PAYBACK";
@@ -190,20 +204,27 @@ export async function ensureRecurringCharges(period: Period) {
     recurringChargeId: string;
   }[] = [];
 
-  for (const rule of rules as RecurringRule[]) {
-    // The sign of the rule picks the kind: a negative standing amount is the
-    // club paying a member monthly, not a negative due. See `recurringKind`.
-    const kind = recurringKind(rule);
-    for (const memberId of membersBilledBy(rule, period, roster)) {
-      rows.push({
-        memberId,
-        kind,
-        amountCents: rule.amountCents,
-        description: rule.label,
-        period,
-        incurredOn,
-        recurringChargeId: rule.id,
-      });
+  for (const period of billable) {
+    // The first of the month is when dues are incurred, regardless of when
+    // anyone happens to open the page.
+    const [year, month] = period.split("-").map(Number);
+    const incurredOn = new Date(year, month - 1, 1, 12, 0, 0, 0);
+
+    for (const rule of rules as RecurringRule[]) {
+      // The sign of the rule picks the kind: a negative standing amount is the
+      // club paying a member monthly, not a negative due. See `recurringKind`.
+      const kind = recurringKind(rule);
+      for (const memberId of membersBilledBy(rule, period, roster)) {
+        rows.push({
+          memberId,
+          kind,
+          amountCents: rule.amountCents,
+          description: rule.label,
+          period,
+          incurredOn,
+          recurringChargeId: rule.id,
+        });
+      }
     }
   }
 

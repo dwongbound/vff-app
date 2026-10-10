@@ -31,6 +31,8 @@ import {
   parseValues,
 } from "@/lib/checkouts";
 import { attachCheckoutToSession } from "@/lib/flightSessions";
+import { requestIdFrom } from "@/lib/idempotency";
+import { alreadySignedOff } from "@/lib/checkoutReplay";
 
 const INCLUDE = {
   aircraft: { select: { id: true, tailNumber: true } },
@@ -86,13 +88,24 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
+  const body = await req.json().catch(() => null);
+  if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+
+  // A sign-off retried after its reply was lost finds the run ALREADY signed
+  // off, and `openRunFor` would answer that with a 409 — telling the member
+  // the card they just filed was refused. Matching keys is how this tells
+  // "that was me, a moment ago" from "this was signed off on another device".
+  const complete = body.complete === true;
+  const requestId = complete ? requestIdFrom(body.requestId) : null;
+  if (requestId) {
+    const replay = await alreadySignedOff(requestId, user.id);
+    if (replay) return replay;
+  }
+
   const found = await openRunFor(id, user.id);
   if (found.error) return found.error;
   const { run } = found;
   const aircraftId = run.aircraftId;
-
-  const body = await req.json().catch(() => null);
-  if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
   // The row's own kind decides which card the answers are parsed against — the
   // client doesn't get to relabel a runway run as a preflight one halfway
@@ -104,7 +117,6 @@ export async function PATCH(
 
   const answers = parseAnswers(kind, body.answers);
   const values = parseValues(kind, body.values);
-  const complete = body.complete === true;
 
   // Same rule as POST: an incomplete card may be completed, but only when the
   // client says the member confirmed it. See the comment there.
@@ -135,6 +147,7 @@ export async function PATCH(
       oilQuarts,
       notes: body.notes ? String(body.notes).trim() : null,
       completedAt: complete ? new Date() : null,
+      clientRequestId: requestId,
     },
     include: INCLUDE,
   });

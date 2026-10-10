@@ -3,7 +3,7 @@
 // the "+" FAB is how you book. Runs on real device presets (see
 // playwright.config.ts projects) rather than a narrow desktop window.
 import { expect, test } from "@playwright/test";
-import { clearCheckoutDrafts, openPostflightSection, signIn } from "./helpers";
+import { clearCheckoutDrafts, clearOpenSessions, openPostflightSection, signIn } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -183,4 +183,112 @@ test("the fuel card toggle works with a finger", async ({ page }) => {
 
   await toggle.tap();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
+});
+
+// A vertical scroll that drifts sideways used to drag the whole page off to one
+// side. The content column can't scroll horizontally at all now; tab changes
+// are SwipePager's job, and it never moves the page (see lib/swipe.ts).
+test("the page can't be pushed sideways", async ({ page }) => {
+  await page.goto("/postflight");
+  // The shell renders once sign-in is confirmed, not with the first byte.
+  const column = page.locator("#app-scroll");
+  await expect(column).toBeVisible();
+  expect(await column.evaluate((el) => getComputedStyle(el).overflowX)).toBe("hidden");
+});
+
+// The offline strip has to stay out of the way on the screen it matters most
+// on: one line, whatever it's saying. See lib/offline.ts.
+test("a flight filed offline shows one short line, then sends itself", async ({
+  page,
+  context,
+}) => {
+  await clearOpenSessions(page);
+  await page.goto("/quick-log");
+  const main = page.getByRole("main");
+  const tachStart = main.getByLabel("Tach start", { exact: true });
+  await expect(tachStart).not.toHaveValue("");
+  const start = Number(await tachStart.inputValue());
+  await main.getByLabel("Tach end", { exact: true }).fill((start + 0.4).toFixed(1));
+  await main.getByLabel("Landed at", { exact: true }).fill("KTOA");
+
+  await context.setOffline(true);
+  try {
+    await main.getByRole("button", { name: /^File/ }).tap();
+    const strip = main.getByText("1 flight waiting for signal");
+    await expect(strip).toBeVisible();
+    // One line of text-xs plus its padding — a wrapped strip would be ~40px.
+    const box = await strip.boundingBox();
+    expect(box!.height).toBeLessThan(24);
+
+    const sent = page.waitForResponse(
+      (r) => r.url().endsWith("/api/flights") && r.request().method() === "POST" && r.status() < 300,
+      { timeout: 45_000 }
+    );
+    await context.setOffline(false);
+    await sent;
+    await expect(strip).toHaveCount(0);
+  } finally {
+    await context.setOffline(false);
+  }
+});
+
+test("Finances on a phone is a list, not a table, and nothing scrolls sideways", async ({
+  page,
+}) => {
+  await page.goto("/finances");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  // The five-column table only exists from `sm` up; a phone gets stacked lines.
+  await expect(main.getByRole("table")).toHaveCount(0);
+  const dues = main.getByRole("listitem").filter({ hasText: "Monthly membership" }).first();
+  await expect(dues).toBeVisible();
+  await expect(dues.getByText("$250.00")).toBeVisible();
+
+  // The three views fit across the width as equal segments.
+  for (const view of ["Me", "Club (by person)", "Club (by month)"]) {
+    await expect(main.getByRole("button", { name: view, exact: true })).toBeVisible();
+  }
+  await main.getByRole("button", { name: "Club (by person)", exact: true }).click();
+  await expect(main.getByRole("heading", { name: "Club balance" })).toBeVisible();
+
+  // Nothing on the page is wider than the phone — and if something is, name it.
+  const { overflow, culprits } = await page.evaluate(() => {
+    const scroller = document.getElementById("app-scroll")!;
+    const edge = scroller.getBoundingClientRect().right;
+    const culprits = [...scroller.querySelectorAll("*")]
+      .filter((el) => el.getBoundingClientRect().right > edge + 0.5)
+      // Innermost offenders only: a parent widened by its child adds nothing.
+      .filter((el, _, all) => !all.some((other) => other !== el && el.contains(other)))
+      .slice(0, 5)
+      .map((el) => `<${el.tagName.toLowerCase()} class="${el.className}">${(el.textContent ?? "").slice(0, 40)}`);
+    return { overflow: scroller.scrollWidth - scroller.clientWidth, culprits };
+  });
+  expect(overflow, culprits.join("\n")).toBeLessThanOrEqual(0);
+
+  // The dashed + panel opens the add-money sheet.
+  await main.getByRole("button", { name: "Add money", exact: true }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("group", { name: "What kind of money" })).toBeVisible();
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(sheet).toBeHidden();
+});
+
+test("double-tap zoom is off, but pinch-zoom is left alone", async ({ page }) => {
+  // `manipulation` = pan + pinch-zoom, no double-tap zoom, on every element
+  // (touch-action isn't inherited, so the root alone wouldn't reach inside
+  // the app's scroller).
+  for (const selector of ["html", "#app-scroll", "main button", "main"]) {
+    const value = await page
+      .locator(selector)
+      .first()
+      .evaluate((el) => getComputedStyle(el).touchAction);
+    expect(value, selector).toBe("manipulation");
+  }
+  // And it's done without locking the viewport's scale, which would also
+  // kill pinch-zoom for anyone who needs it to read the page.
+  const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
+  expect(viewport ?? "").not.toMatch(/maximum-scale|user-scalable\s*=\s*(no|0)/);
 });

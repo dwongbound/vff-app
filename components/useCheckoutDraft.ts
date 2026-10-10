@@ -35,6 +35,7 @@ import {
   type Resume,
 } from "@/lib/checkoutDraft";
 import type { ApiCheckout } from "@/lib/types";
+import { useOutbox } from "@/components/OutboxProvider";
 
 /**
  * How long the card has to be quiet before the server copy is brought up to
@@ -132,6 +133,18 @@ export function useCheckoutDraft({
   onSynced?: (checkoutId: string) => void | Promise<void>;
 }): CheckoutDraftState {
   const checkoutVersion = checkoutFor(kind).version;
+
+  // Draft rows whose sign-off is sitting in the outbox. The server still has
+  // them as OPEN — the sign-off hasn't reached it — so without this, coming
+  // back to the page with a sliver of signal would offer to resume a walk the
+  // member has already put their name to.
+  const { jobs } = useOutbox();
+  const signingOff = useRef<Set<string>>(new Set());
+  signingOff.current = new Set(
+    jobs
+      .filter((j) => j.state === "pending" && j.meta.type === "checkout" && j.meta.checkoutId)
+      .map((j) => j.meta.checkoutId as string)
+  );
 
   const [resume, setResume] = useState<Resume | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -271,7 +284,7 @@ export function useCheckoutDraft({
       `/api/checkouts?aircraftId=${aircraftId}&kind=${kind}&mine=1&open=1&limit=1`
     ).then((rows) => {
       if (cancelled) return;
-      const row = rows[0];
+      const row = rows[0] && !signingOff.current.has(rows[0].id) ? rows[0] : undefined;
       const picked = resolveResume(
         local,
         row

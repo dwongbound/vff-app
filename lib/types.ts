@@ -344,7 +344,11 @@ export interface ApiServicing {
 /** One line on a member's statement. Negative cents = a credit to them. */
 export interface ApiCharge {
   id: string;
-  member: ApiUserSummary;
+  /**
+   * Whose statement this line is on. NULL = the club's own line, on nobody's
+   * statement — only ever returned to a club-wide reader.
+   */
+  member: ApiUserSummary | null;
   kind: ChargeKind;
   amountCents: number;
   description: string;
@@ -419,4 +423,35 @@ export interface ApiFinances {
   /** True when these are all the club's statements rather than just yours. */
   clubWide: boolean;
   statements: ApiStatement[];
+}
+
+/** One month of the all-months ledger: its lines, newest first. */
+export interface ApiLedgerMonth {
+  period: string;
+  charges: ApiCharge[];
+}
+
+/**
+ * GET /api/finances/ledger — a page of months, newest first.
+ *
+ * `summary` rides on the FIRST page only (no `before`): it covers every month,
+ * loaded or not, which is what lets the page show a true running balance while
+ * holding only the months scrolled to so far.
+ */
+export interface ApiLedgerPage {
+  /** True when these are all the club's lines rather than just yours. */
+  clubWide: boolean;
+  months: ApiLedgerMonth[];
+  /** Pass back as `before` for the next (older) page; null = nothing older. */
+  nextBefore: string | null;
+  summary: {
+    /** What each member still owes across every month (negative = owed to them). */
+    members: { member: ApiUserSummary; outstandingCents: number }[];
+    /**
+     * The club's worth, across every month: member lines once PAID, plus every
+     * standing club line (no member) straight away — money members paid in
+     * and club money in, less credits paid back and club money out.
+     */
+    paidCents: number;
+  } | null;
 }

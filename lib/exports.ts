@@ -364,7 +364,11 @@ const MEMBER_HEADERS = [
 ];
 
 export interface FinancesExport {
-  period: Period;
+  /**
+   * One month, or the run of months on screen — the Finances page now scrolls
+   * back through every month, and exports what it has loaded.
+   */
+  period: Period | { from: Period; to: Period };
   statements: ApiStatement[];
   /** True when these are the whole club's statements rather than one member's. */
   clubWide: boolean;
@@ -387,6 +391,14 @@ export function financesWorkbook({
   clubWide,
   now = new Date(),
 }: FinancesExport): Sheet[] {
+  const range = typeof period === "string" ? { from: period, to: period } : period;
+  const single = range.from === range.to;
+  const periodLabel = single
+    ? formatPeriod(range.from)
+    : `${formatPeriod(range.from)} – ${formatPeriod(range.to)}`;
+  // Sheet names cap at 31 characters, so a range is written as its two keys.
+  const periodKey = single ? range.from : `${range.from} to ${range.to}`;
+
   const totals = statements.reduce(
     (acc, s) => ({
       chargedCents: acc.chargedCents + s.chargedCents,
@@ -407,7 +419,7 @@ export function financesWorkbook({
   const rows: (string | number | null)[][] = [
     CHARGE_HEADERS,
     [
-      formatPeriod(period),
+      periodLabel,
       clubWide ? "<- Club, all members" : "<- Your statement",
       "CHARGED",
       dollars(totals.chargedCents),
@@ -463,7 +475,7 @@ export function financesWorkbook({
     ]);
   }
 
-  const sheets: Sheet[] = [{ name: `Charges ${period}`, rows }];
+  const sheets: Sheet[] = [{ name: `Charges ${periodKey}`, rows }];
 
   if (clubWide) {
     const memberRows: (string | number | null)[][] = [MEMBER_HEADERS];
@@ -488,7 +500,7 @@ export function financesWorkbook({
       dollars(totals.paidCents),
       dollars(totals.outstandingCents),
     ]);
-    sheets.push({ name: `Members ${period}`, rows: memberRows });
+    sheets.push({ name: `Members ${periodKey}`, rows: memberRows });
   }
 
   return sheets;

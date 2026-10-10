@@ -61,6 +61,27 @@
     overflow-x: clip;
   }
 
+  /* No double-tap-to-zoom on phones and tablets.
+     ────────────────────────────────────────────────────────────────────────
+     A checkout is a column of tick boxes tapped in quick succession, often
+     with a glove on, and two taps landing close together zoomed the page in
+     instead of ticking two items. `manipulation` allows panning and PINCH-zoom
+     but not double-tap zoom — pinch stays, deliberately: it's how a member
+     with poor eyesight reads the small print, and a `maximum-scale=1` viewport
+     would take that away to fix a problem it isn't the cause of. (It also
+     drops the old ~300 ms tap delay on browsers that still wait to see
+     whether a tap is the first of two.)
+
+     On EVERY element rather than on `html`, because the property isn't
+     inherited: the browser intersects it from the touched element up to the
+     nearest scroll container, so a rule on the root never reached inside
+     `.app-scroll`, a modal's body or a table's `overflow-x-auto` box.
+     `:where()` gives it zero specificity, so anything that ever needs its own
+     `touch-action` (a drawing surface, a slider) wins without a fight. */
+  :where(*) {
+    touch-action: manipulation;
+  }
+
   /* The one scroller. `overscroll-behavior: contain` keeps the bounce INSIDE
      this box: you get the rubber band, but it can't chain out to the document
      and take the chrome with it. Height comes from the flex column rather than
@@ -81,6 +102,13 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    /* Never sideways. Left unset, `overflow-y: auto` drags the x axis to
+       `auto` with it, so any page a pixel too wide could be panned left/right
+       by a vertical scroll that drifted — and then had to be pushed back into
+       view. Tab changes by swipe are SwipePager's job, and it never moves the
+       page; content that is meant to scroll sideways (wide tables) does so in
+       its own `overflow-x-auto` box. */
+    overflow-x: hidden;
     overscroll-behavior: contain;
   }
 

@@ -41,7 +41,10 @@ import type { ApiMember, ApiReservation } from "@/lib/types";
  * Built and downloaded client-side — the reservation is already loaded, so a
  * round trip to the server would only re-serialise what we're holding.
  */
-function downloadIcs(reservation: ApiReservation, tailNumber: string) {
+function downloadIcs(reservation: ApiReservation, tailNumberAsGiven: string) {
+  // Tail numbers are written in capitals everywhere a pilot reads them —
+  // the event title, the calendar's name and the file.
+  const tailNumber = tailNumberAsGiven.toUpperCase();
   const start = new Date(reservation.startsAt);
   const ics = buildIcs(
     [
@@ -58,7 +61,7 @@ function downloadIcs(reservation: ApiReservation, tailNumber: string) {
         ]
           .filter(Boolean)
           .join("\n"),
-        location: reservation.aircraft.tailNumber,
+        location: reservation.aircraft.tailNumber.toUpperCase(),
       },
     ],
     { calendarName: `${CLUB_NAME} — ${tailNumber}` }
@@ -111,7 +114,9 @@ export default function ReservationModal({
   const [instructorId, setInstructorId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Two-step cancel: the destructive action shouldn't be one stray tap.
+  // Two-step delete: the destructive action shouldn't be one stray tap. (It's
+  // labelled Delete — what it does from the member's side — though the row is
+  // kept as CANCELED; see the reservations route.)
   const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   // The club's CFIs, for the picker. Fetched once the modal is first opened
@@ -237,19 +242,13 @@ export default function ReservationModal({
         onClose={onClose}
         title={reservation.user.name}
         subtitle={`${tailNumber} · ${formatFullDate(reservation.startsAt)}`}
+        // No Close button: the header's ✕ (and Escape, and the backdrop)
+        // already close it, and a footer of two grey buttons made Export
+        // look like the dismissive one.
         footer={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => downloadIcs(reservation, tailNumber)}
-              className="mr-auto"
-            >
-              Export
-            </Button>
-            <Button variant="secondary" onClick={onClose}>
-              Close
-            </Button>
-          </>
+          <Button variant="secondary" onClick={() => downloadIcs(reservation, tailNumber)}>
+            Export .ics
+          </Button>
         }
       >
         <dl className="space-y-3 text-sm">
@@ -315,7 +314,7 @@ export default function ReservationModal({
               disabled={busy}
               className="mr-auto"
             >
-              {confirmingCancel ? "Confirm" : "Cancel"}
+              {confirmingCancel ? "Confirm" : "Delete"}
             </Button>
           )}
           {reservation && (
@@ -324,12 +323,9 @@ export default function ReservationModal({
               onClick={() => downloadIcs(reservation, tailNumber)}
               disabled={busy}
             >
-              Export
+              Export .ics
             </Button>
           )}
-          <Button variant="secondary" onClick={onClose} disabled={busy}>
-            Close
-          </Button>
           <Button onClick={save} disabled={busy}>
             {busy ? <LoadingDots size="sm" /> : reservation ? "Save" : "Book"}
           </Button>

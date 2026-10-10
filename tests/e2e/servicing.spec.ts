@@ -59,6 +59,9 @@ test("a fill-up is not a flight", async ({ page }) => {
   // The tach the airplane is at before anything is recorded.
   await gotoTab(page, "/log", "Flight log");
   const tachBefore = await page.getByText(/tach \d/).innerText();
+  // `count()` is one-shot, so wait for the list to have rendered first — a
+  // count taken before it has reads 0 and the comparison below can't pass.
+  await expect(page.getByRole("listitem").filter({ hasText: /tach/ }).first()).toBeVisible();
   const flightsBefore = await page
     .getByRole("listitem")
     .filter({ hasText: /tach/ })

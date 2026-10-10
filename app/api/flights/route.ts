@@ -4,7 +4,10 @@
 //      `open=1` narrows to sessions still in progress (see below); with
 //      `mine=1` that's "have I got the airplane out right now", which is what
 //      the post-flight form asks as it loads.
-// POST /api/flights  — the post-flight form's submit. It FILES a session:
+// POST /api/flights  — the post-flight form's submit. Accepts a `requestId`
+//      (lib/idempotency.ts): a retry carrying one that already filed gets that
+//      flight back with a 200 rather than filing it twice.
+//      Otherwise it FILES a session:
 //      normally the one the member's preflight walk opened, which the route
 //      finds for itself, and otherwise a fresh row for a flight nobody walked
 //      a card for. Besides writing the log line it advances the aircraft's
@@ -45,7 +48,31 @@ import {
   type OpenSession,
 } from "@/lib/flightSessions";
 import { normalizeLogEntry } from "@/lib/markdown";
+import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
 
+
+/**
+ * The flight this request already filed, if it's a retry of one — or the
+ * refusal to send instead. See lib/idempotency.ts.
+ *
+ * Someone else's key is a 409 rather than their row: keys are random, so a
+ * collision is a client bug, and answering it with another member's flight
+ * would be a leak.
+ */
+async function alreadyFiled(requestId: string, userId: string) {
+  const row = await prisma.flight.findUnique({
+    where: { clientRequestId: requestId },
+    include: FLIGHT_DETAIL_INCLUDE,
+  });
+  if (!row) return null;
+  if (row.userId !== userId) {
+    return NextResponse.json(
+      { error: "That request id belongs to another flight." },
+      { status: 409 }
+    );
+  }
+  return NextResponse.json(serializeFlight(row, userId), { status: 200 });
+}
 
 /** Number, or null for "" / null / undefined / unparseable. */
 function num(v: unknown): number | null {
@@ -161,6 +188,16 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+
+  // A retry of a filing that already landed gets that flight back, before
+  // anything else is looked at. It has to be first: the original closed out
+  // the open session, so letting a retry reach `resolveSession` would find
+  // nothing open and insert a duplicate — the exact bug the key exists for.
+  const requestId = requestIdFrom(body.requestId);
+  if (requestId) {
+    const replay = await alreadyFiled(requestId, user.id);
+    if (replay) return replay;
+  }
 
   const aircraftId = String(body.aircraftId ?? "");
   const aircraft = await prisma.aircraft.findUnique({
@@ -341,6 +378,7 @@ export async function POST(req: Request) {
     turnoffCheckoutVersion: answeredTurnoff ? TURNOFF_CHECKOUT.version : null,
     notes: body.notes ? String(body.notes).trim() : null,
     logEntry: normalizeLogEntry(body.logEntry),
+    clientRequestId: requestId,
   };
 
   // One write either way: fill in the session this flight has been living in
@@ -348,16 +386,28 @@ export async function POST(req: Request) {
   // flight nobody walked a card for. A booking is only attached when one was
   // named — an open session may already carry one, and overwriting it with null
   // would quietly un-close-out the reservation.
-  const created = open
-    ? await prisma.flight.update({
-        where: { id: open.id },
-        data: reservationId ? { ...data, reservationId } : data,
-        include: FLIGHT_DETAIL_INCLUDE,
-      })
-    : await prisma.flight.create({
-        data: { ...data, aircraftId, userId: user.id, reservationId },
-        include: FLIGHT_DETAIL_INCLUDE,
-      });
+  let created;
+  try {
+    created = open
+      ? await prisma.flight.update({
+          where: { id: open.id },
+          data: reservationId ? { ...data, reservationId } : data,
+          include: FLIGHT_DETAIL_INCLUDE,
+        })
+      : await prisma.flight.create({
+          data: { ...data, aircraftId, userId: user.id, reservationId },
+          include: FLIGHT_DETAIL_INCLUDE,
+        });
+  } catch (error) {
+    // Two copies of the same request racing each other: both missed the
+    // lookup above, and this one lost the insert. The winner's row is the
+    // answer to both.
+    if (requestId && isUniqueViolation(error)) {
+      const replay = await alreadyFiled(requestId, user.id);
+      if (replay) return replay;
+    }
+    throw error;
+  }
 
   // Advance the airplane's meters, never backwards — see `advanceMeters`. This
   // used to be written out here; it moved to lib/ when the preflight card

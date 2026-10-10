@@ -151,17 +151,23 @@ export interface ReferenceSection {
   figures: ReferenceFigure[];
 }
 
-/** The knots figure and the manual's MPH, for anything that renders a speed. */
+/**
+ * The manual's MPH and the knots conversion, for anything that renders a
+ * speed. MPH LEADS: it is the figure the book actually publishes, so it's the
+ * one a member checks against the page number in the (i). Knots sit under it,
+ * because that is what N8318B's instrument reads — and they are this app's
+ * arithmetic, rounded toward the safe side (see `knots`).
+ */
 export function displaySpeed(figure: ReferenceFigure): {
   primary: string;
-  manual: string | null;
+  knots: string | null;
 } {
   if (figure.mph == null) {
-    return { primary: figure.value ?? "", manual: null };
+    return { primary: figure.value ?? "", knots: null };
   }
   return {
-    primary: formatKnots(figure.mph, figure.kind ?? "target"),
-    manual: formatMph(figure.mph),
+    primary: formatMph(figure.mph),
+    knots: formatKnots(figure.mph, figure.kind ?? "target"),
   };
 }
 
@@ -177,7 +183,7 @@ const AIRSPEEDS: ReferenceSection = {
   id: "airspeeds",
   title: "Airspeed limits & arcs",
   blurb:
-    "The four numbers that define the dial. Knots to match the instrument; the manual's own MPH beside each one.",
+    "The four numbers that define the dial. The manual's own MPH, with knots — what the instrument reads — under each one.",
   figures: [
     {
       id: "vne",

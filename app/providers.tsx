@@ -11,6 +11,7 @@ import AuthGate from "@/components/AuthGate";
 import GuidedTour from "@/components/GuidedTour";
 import LoadingProvider from "@/components/LoadingProvider";
 import MeProvider from "@/components/MeProvider";
+import OutboxProvider from "@/components/OutboxProvider";
 import {
   PhotoSupportProvider,
   type PhotoSupport,
@@ -33,12 +34,16 @@ export default function Providers({
               shared profile, so the profile page reads it instead of
               refetching. */}
           <MeProvider>
-            <AuthGate>
-              {children}
-              {/* Inside AuthGate so it can't appear over the login page or
-                  before we know who the member is. */}
-              <GuidedTour />
-            </AuthGate>
+            {/* Inside MeProvider because a queued submission is only ever sent
+                as the member who made it — see OutboxProvider. */}
+            <OutboxProvider>
+              <AuthGate>
+                {children}
+                {/* Inside AuthGate so it can't appear over the login page or
+                    before we know who the member is. */}
+                <GuidedTour />
+              </AuthGate>
+            </OutboxProvider>
           </MeProvider>
         </AircraftProvider>
       </LoadingProvider>

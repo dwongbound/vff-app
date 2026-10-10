@@ -56,7 +56,9 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   signed W&B revision — which changes with every radio swap, so it's columns.
   Either half missing ⇒ the tool declines rather than assuming an airplane.
 - **Reservation** — `startsAt`/`endsAt`, `purpose`, `status`. Overlap enforced
-  in the API via `lib/reservations.ts`; cancel = `CANCELED`, never deleted.
+  in the API via `lib/reservations.ts`; DELETE removes the row (owner or admin; the UI calls it Delete). The
+  `CANCELED` status is legacy — older databases may still hold such rows, and
+  GET filters them out.
   `instructorId` is the CFI a lesson is booked with — only ever set when
   `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
   rather than leaving a stale name on a booking that changed.
@@ -136,6 +138,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   retired by clearing `active`, and DELETE is refused once it has let anyone in
   so the record of how they joined survives.
 - **Photo** — storage `key` + metadata; `flightId` / `squawkId` / `preflightId`.
+- `clientRequestId` (unique, nullable) on **Flight**, **Checkout** (sign-offs
+  only), **Squawk** and **Photo** — the outbox's idempotency key, so a
+  submission retried after its reply was lost returns the row it already wrote
+  instead of a duplicate. See `lib/idempotency.ts`.
 - **Position** (enum on `User.positions`) — club offices. Powers live in
   `lib/positions.ts`, never inline in a route. `INSTRUCTOR` (CFI) is in here
   too: not an elected office, but handed out by an admin from the same roster
@@ -150,9 +156,24 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   rather than a signed number, because a minus sign in a money box is the sort
   of thing that gets lost, and losing it bills somebody instead of paying them;
   a club-wide payback is refused outright.
-- **Charge** — one statement line, positive = owed, negative = credit. Kinds:
-  `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE | PAYBACK` (the last two
-  appended, the safe kind of enum change). PAYBACK is deliberately not negative
+- **Charge** — one statement line, positive = owed, negative = credit.
+  `memberId` is NULLABLE: a line with no member is the CLUB's own money (a
+  deposit, a grant, an insurance bill it paid) — positive = money in,
+  negative = money out. With nobody to chase it has NO paid/unpaid state: it
+  counts toward the club balance the moment it exists, unless voided, and is
+  never outstanding (`isClubLine` / `balanceContribution` / `owedContribution`
+  in lib/finance.ts; the UI shows it no Paid button). Only ever ONE_OFF, only
+  ever filed with an explicit `club: true` (a missing memberId is still "pick
+  a member"), and only visible in the club-wide views.
+  `deletedAt`/`deletedById` TOMBSTONE a deleted DERIVED line (dues, flight,
+  fuel credit, landing fee, payback): its source would only write it back, so
+  the row stays — holding its place in the unique indexes — and every read
+  skips it. Hand-entered lines (`isHandEntered`) are removed outright. Kinds:
+  `DUES | FLIGHT | FUEL_CREDIT | ONE_OFF | LANDING_FEE | PAYBACK |
+  REIMBURSEMENT` (the last three appended, the safe kind of enum change).
+  REIMBURSEMENT is money owed to a member for something they bought for the
+  club, often filed by the member themselves — its own kind so an officer can
+  tell a self-filed claim from a line they wrote. PAYBACK is deliberately not negative
   DUES: a statement showing the club paying somebody $50 under "Dues" would be
   wrong on the line a member reads AND in the dues half of every total that
   groups by kind.
@@ -168,10 +189,23 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 ## Pages (`app/*/page.tsx`)
 
 `login` · `quick-log` · `status` (+ `status/squawks`) · `preflight` · `runway` ·
-`postflight` · `servicing` (Checkouts › Add Fuel) · `tools/weight-balance` ·
-`tools/my-plane` ·
+`postflight` · `servicing` (Checkouts › Add Fuel) · `tools/my-plane` ·
+`tools/weight-balance` (that order in the nav — My plane first) ·
 `log` · `reservations` · `members` ·
-`finances` · `profile` ·
+`finances` (every month in one scroll, sticky month headers carrying "Mark
+all paid" for officers, older months lazy-loaded off an IntersectionObserver
+on `#app-scroll`; views Mine / Club (by person) — with a "+" on each month's
+header / Club (by month); an Everything/Outstanding switch beside the view
+switch filters all three (Everything by default); the club summary's member
+chips narrow the club views to one member, server-side, with a loader while
+it lands. Paid turns a row green and Void strikes it through, both on the
+spot; only Delete confirms. Lines are a TABLE from `sm` up and a
+stacked LIST below it — one or the other via `useIsWide`, never both in the
+DOM. Money is added through ONE dashed "+" panel →
+`components/finances/AddMoneyModal.tsx`: a member gets only "Claim a
+reimbursement"; an officer gets Reimburse / Charge members / Club funds /
+Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
+`profile` ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
 then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
@@ -197,9 +231,10 @@ leaf to a group later moves a link people have learned. `tools/my-plane` is the
 airplane's own manual as data: V-speeds, arcs, stall matrix, climb rates,
 runway distances, engine limits, every figure with an (i) and a page number.
 STATIC FACTS ONLY — no tach, no Hobbs, nothing that moves with the flying, because a spec sheet with one
-stale number on it is a page you can't trust at a glance. Speeds are shown in
-KNOTS (what N8318B's instrument reads) with the manual's own MPH beside each
-one; see `lib/pohReference.ts` for why the conversion rounds the way it does.
+stale number on it is a page you can't trust at a glance. Speeds LEAD with the
+manual's own MPH (the published figure, checkable against the page number),
+with KNOTS — what N8318B's instrument reads — under each one; see
+`lib/pohReference.ts` for why the conversion rounds the way it does.
 Weight & Balance stores nothing: a W&B is true of one load on one day, so the
 page is pure calculator over the aircraft's stored basis.
 Plane Status › Overview also carries the MAINTENANCE sheet (`MaintenancePanel`),
@@ -305,9 +340,41 @@ owns the only splash in the app.
   403 rather than an empty month. GET one month's statements — your own, or
   everyone's with `&all=1` and `finance:read-all`. Reading a month is what materialises its
   dues, idempotently, which is why the club needs no cron).
-- `finances/charges` (POST one-off, `finance:manage`) · `finances/charges/[id]`
+- `finances/ledger` (same auth and privacy rule as `finances`) — what the
+  page actually reads: every month NEWEST FIRST, `months` at a time (default
+  3), `?before=YYYY-MM` for the next older page, `nextBefore: null` when the
+  books start. The FIRST page (no `before`) also materialises every standing
+  rule's months since the earliest rule started (`ensureRecurringChargesFor`,
+  one createMany) — a running balance over months nobody opened would
+  otherwise be missing their dues — and returns the `summary`: each member's
+  outstanding across ALL months (member lines only) and `paidCents`, the
+  club's WORTH: paid member lines plus every standing club line
+  (`balanceContribution`). There is NO running balance column — the headline
+  is the balance. "Club balance" is `paidCents`, with what members still owe
+  or are owed bracketed beside it ("missing $X" / "owes $X"); an unpaid member
+  line changes the bracket, never the balance. `&member=<id>` (club-wide
+  readers) narrows the MONTHS to one member — the summary's chips — while the
+  summary itself stays club-wide. The page folds a line's Paid/Void/Delete
+  (and a month's Mark all paid) into that summary as a DIFFERENCE
+  (`owedContribution` / `balanceContribution`) rather than refetching.
+- `finances/charges` (POST). Three shapes: `reimbursement: true` (positive
+  dollars, stored negative as kind REIMBURSEMENT — a member may file one for
+  THEMSELVES with `finance:claim-own`, anyone else's needs `finance:manage`);
+  `club: true` (the "Club funds" form — the club's own money, officer only,
+  which changes the club's balance on the spot); or `memberId` (the
+  officer's signed one-off). Sending a member and `club` together is a 400.
+  `finances/charges/split` (POST, `finance:manage`) — one amount over many
+  members, `mode: "split"` (a TOTAL, shared to the cent by `splitCents`, odd
+  cents to the first BY NAME, each line saying "share of $X") or `"each"`;
+  no `memberIds` = every `clubMember`. One transaction.
+  `finances/charges/paid` (POST `{ ids }`, `finance:manage`) — the month
+  header's "Mark all paid"; skips voided and already-paid lines and returns
+  every named line as it now stands. · `finances/charges/[id]`
   (PATCH to void/restore/amend, or `{ paid }` to tick a line off as settled;
-  DELETE only for hand-entered lines, and the UI confirms it in a dialog).
+  DELETE on ANY line — hand-entered ones removed, derived ones tombstoned.
+  On the page, Paid/Unpay/Void/Restore and a month's Mark all paid happen ON
+  THE SPOT, drawn first and put back if the server refuses; Delete is the only
+  action behind a `ConfirmModal`).
 - `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
   refuses once it has billed anyone; deactivate instead). Both take a POSITIVE
   `amountDollars` plus a `payback` boolean and combine them server-side; PATCH
@@ -534,7 +601,8 @@ owns the only splash in the app.
   `squawk:manage`; MAINTENANCE_OFFICER holds `maintenance:manage` (the write
   side of the due list — reading it is open to every member, because "the annual
   is out next week" is not privileged); INSTRUCTOR holds `flight:sign`. MEMBERSHIP (rather than any
-  office) carries `reservation:book` + `finance:read-own`, which is what an
+  office) carries `reservation:book` + `finance:read-own` +
+  `finance:claim-own` (file a reimbursement for yourself), which is what an
   instructor-only account lacks — `Principal.clubMember` is optional and absent
   means TRUE, so every caller predating instructor accounts still behaves.
   `isInstructor()` is the one place a position is tested DIRECTLY, and the
@@ -560,14 +628,48 @@ owns the only splash in the app.
   from `recurringKind`, i.e. from the sign of the rule.
 - `aircraft.ts` — `normalizeTailNumber` (upper-case, space-free),
   `tailNumberError`, `modelError`. ✅tested
-- `offline.ts` — the difference between a card the club REFUSED and one that
-  never reached it. `completionOutcome` sorts a `sendJson` result into
-  `filed | unsent | refused`, keying on `status === null` (the fetch threw, so
-  the server can hold no opinion) rather than on the prose of an error message;
-  `unsentNotice` is the copy for the `unsent` case, in two versions because the
-  useful sentence changes the moment signal returns and the member is not
-  looking at the screen when it does. Neither version says "error": the walk is
-  whole and on the device, and the only missing ingredient is signal. ✅tested
+- `outbox.ts` — submissions kept on the device until the club has them. A JOB
+  is one press of Complete/File, FROZEN at that moment (photos included), and
+  is an ordered list of STEPS — the flight, then its photos, then each squawk
+  and its photos — where a later step's body can name an earlier one's result
+  (`OutboxRef`, resolved just before sending, never sent unresolved). Results
+  are recorded per step, so an interrupted job resumes mid-way; every step has
+  its OWN idempotency key, which covers the lost-reply case recording can't.
+  `classifyResponse` → `ok | retry | signedOut | refused` (a 2xx that isn't
+  JSON is a RETRY — a captive portal's login page). A refused PRIMARY step
+  (`PRIMARY_STEP`) refuses the job; a refused secondary one is skipped with its
+  dependents and the job lands `partial` (`settle`), kept so the member can read
+  why. Jobs carry `userId` and `sendableJobs` only ever sends the signed-in
+  member's own, oldest first. Builders: `checkoutSignOffJob` (PATCH the draft,
+  `onNotFound` → fresh POST), `flightJob`, `attachmentsJob`, `squawkJob`.
+  ✅tested
+- `outboxStore.ts` — IndexedDB (Blobs as Blobs; localStorage's 5 MB of strings
+  can't hold three photos), hand-written, with a MEMORY fallback where IDB isn't
+  usable (`durable: false`, which the details modal admits to).
+- `idempotency.ts` — `requestIdFrom` (strict: it lands in a unique index) and
+  `isUniqueViolation`. The routes' half: `POST /api/flights`, `POST` +
+  `PATCH /api/checkouts[/id]` (sign-offs only), `POST /api/squawks` and
+  `POST /api/photos` look the key up FIRST and return the row already written
+  (200), store it in `clientRequestId` (unique, nullable) on create, and catch
+  the P2002 of two copies racing. Another member's key is a 409, never their
+  row. `checkoutReplay.ts` is the checkout lookup, in lib/ because two routes
+  share it. ✅tested
+- `serviceWorker.ts` — registers `public/sw.js?v=<commit>` (PRODUCTION ONLY;
+  `next dev` unregisters any worker, which keeps e2e away from it) and empties
+  the API cache on sign-out and whenever the signed-in member changes
+  (`forgetOfflineDataIfUserChanged`) — cached reads are one member's flights and
+  statement.
+- `offline.ts` — every word the app says about being offline: `QUEUED_NOTICE`
+  (the line under a page's button after `submit` came back `queued`) and
+  `stripMessage` (the outbox strip's one line, red ▸ amber ▸ grey). ONE SHORT
+  LINE each, and a test holds them to it — a banner that takes a third of a
+  phone to say "nothing is wrong" teaches members to read past banners,
+  including the grounded one. Detail lives behind the strip's Details button.
+  Never "error", never "press it again". ✅tested
+- `swipe.ts` — the tab-swipe gesture's rules: `touchIntent` (a touch is a
+  SWIPE only if sideways beats vertical by `H_BIAS`, and once a scroll always a
+  scroll), `commitDistance`, `pullProgress` (the arrow's opacity). Only a full
+  pull, released, changes tab; no flick shortcut. ✅tested
 - `xlsx.ts` — rows → a real `.xlsx`, by hand and with no dependency, for the
   same reason `ics.ts` is hand-written. An xlsx is a ZIP of a few XML parts;
   this is those parts plus a STORE-only ZIP writer (`crc32` included, because
@@ -577,6 +679,9 @@ owns the only splash in the app.
   synchronous one in the browser, and the export has to build on the device).
   `buildXlsx` returns `Uint8Array<ArrayBuffer>` — the buffer parameter is
   spelled out because a bare `Uint8Array` isn't a `BlobPart`. ✅tested
+- `ledgerView.ts` — the Finances page's grouping and narrowing of WIRE lines
+  (ApiCharge): `statementsFor` (club lines first, then by name),
+  `exportPeriods`/`monthsSpanned`/`selectLines` for the export window. ✅tested
 - `exports.ts` — the club's own spreadsheets, rebuilt from what the app knows:
   `flightLogSheet`, `maintenanceSheet`, `financesWorkbook`. The COLUMN ORDER IS
   THE CLUB'S, off the Google Sheet these replace, which is why the flight log
@@ -602,7 +707,10 @@ owns the only splash in the app.
   `STORAGE_DRIVER=none` switches it off. `getStorage()` is built on it, which
   is what stops the UI's "(no image support)" and the upload route's refusal
   from ever disagreeing. ✅tested
-- `api.ts` — `fetchJson`/`fetchJsonArray`/`sendJson` client helpers.
+- `api.ts` — `fetchJson`/`fetchJsonArray`/`sendJson` client helpers. The two
+  readers also note the worker's `x-vff-cached-at` header (`staleDataSince` /
+  `onStaleDataChange`), which is how the outbox strip knows to say "showing
+  what this device last saw".
 - `theme.ts` (light/dark/system) · `navDirection.ts` (swipe slide direction).
 
 ## Components
@@ -644,7 +752,12 @@ floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
 rather than centred on the pill — a menu is the answer to the thing you just
 touched, and on a five-tab bar "centred" is a different tab entirely),
 `SwipePager`/`SwipeProvider`
-(phone tab swipe), `LoadingProvider` (one shared splash), `AuthGate`,
+(touch tab swipe, phone AND tablet — the page never moves sideways; a clearly
+horizontal pull fades in an edge arrow and only a FULL pull, released, changes
+tab, so a vertical scroll that drifts laterally does nothing — rules in
+`lib/swipe.ts`. `touchcancel` never commits. `.app-scroll` is
+`overflow-x: hidden` for the same reason, and touches starting in an
+`overflow-x-auto` box are left to it), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
 sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
 (phone), `ReservationModal`, `FlightDetailModal`, `FlightEntryModal` (add a flight to
@@ -674,10 +787,12 @@ the clubhouse wifi is still in reach — preflight fetches `/runway` and
 `/postflight`, runway fetches `/postflight`. What it buys is that the
 client-side navigation at the end of a card needs no network; what it can't buy
 is a hard reload, which still fetches the document — see the offline gotcha),
-`useOnline` (`navigator.onLine` plus its two events, and it is only ever allowed
-to EXPLAIN a failure that already happened, never to stop a request being tried:
-it reports a network interface, not reachability, so a captive-portal wifi reads
-as online),
+`OutboxProvider` + `OutboxStrip` (the runner and the one-line strip at the top
+of the content column — wording in `stripMessage`; nothing in the ordinary
+case, and nothing for a job still on its FIRST attempt, or every online squawk
+would flash it. `aria-live`, not `role="status"`: the draft bar owns that role
+inside `<main>`, and `waitForCheckoutSaved` asks for it by role. Details opens
+a modal with Try sending now and a two-press Discard),
 `CheckoutList` (the collapsible
 section renderer shared by the preflight and runway pages — one section open at
 a time, sticky progress bar showing WHICH STEP you're on and your place in that
@@ -720,13 +835,21 @@ envelope as inline SVG — plotted against CG in INCHES rather than the POH's
 moment axis so the limits can be checked against the printed numbers by eye,
 with takeoff and landing both marked and the axes stretching to contain a load
 that falls outside), `SquawkPanel`,
-`ExportButton` (the "Export" button on the flight log, Finances and the
-maintenance panel: builds the workbook LAZILY in the click handler — sheets as
-a prop would rebuild every row on every render of a page whose export nobody
-pressed — and downloads it client-side, exactly as `ReservationModal` does its
-.ics. Each caller exports WHAT IS ON SCREEN: the log follows the Club/Mine
-switch, and Finances keys on `data.clubWide` rather than the toggle, so the
-file can only hold what the API actually returned),
+`ExportButton` (the "Export" button on the flight log and the maintenance
+panel: builds the workbook LAZILY in the click handler — sheets as a prop
+would rebuild every row on every render of a page whose export nobody
+pressed — and downloads it client-side via `downloadWorkbook`, exactly as
+`ReservationModal` does its .ics. Each caller exports WHAT IS ON SCREEN: the
+log follows the Club/Mine switch),
+`finances/ExportFinancesModal` (Finances' Export is a WINDOW instead: months —
+all time by default, this month, last 3/12, or a range — kinds of line (all
+by default) and, for a club-wide reader, people (everyone by default, the
+club's own money as a "person"). It READS the months it was asked for from
+`/api/finances/ledger` rather than reusing what's loaded, so the file doesn't
+depend on how far down the page you'd scrolled; the narrowing rules are
+`exportPeriods`/`selectLines` in `lib/ledgerView.ts`, which also holds the
+by-person grouping (`statementsFor`, `CLUB_ACCOUNT`) the page and the export
+share),
 `SquawkDraftModal`, `SignupCodesPanel` (org settings' two code lists, side by
 side because which list a code is on is the only thing about it that matters
 when you read it out), `PhotoUploader`, `Logo`, `GuidedTour` (first-run walkthrough
@@ -739,8 +862,15 @@ sits above the card the member came to walk; the solo-or-instructor banner is on
 it at every state, the minimums and the reasoning are behind the disclosure / `RulesModal` off the log's currency card /
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
-DateTimeField Dropdown InfoTip Input Modal RichText Select Textarea Toggle
-LoadingDots LoadingScreen`. `Toggle` is a switch with a label on EACH side
+ConfirmModal DateTimeField Dropdown InfoTip Input Modal MoneyInput RichText
+Select Textarea Toggle LoadingDots LoadingScreen`. `MoneyInput` is a dollar
+box: a fixed "$", digits and one decimal point only, and the cents filled in
+on blur ("590" → "590.00") — its value is the box's string, parsed with
+`parseDollars`; use it for every amount rather than a `type="number"`. `ConfirmModal` is the one "are
+you sure" — a title, a body saying WHAT will happen to WHICH thing, and a
+confirm button whose `tone` (`success`/`danger`/`primary`/`secondary`) is the
+stakes; refusals show inside it. `Button` has a `success` (green) variant for
+"settled/confirmed" actions. `Toggle` is a switch with a label on EACH side
 ("My card ( o) Club card") — for a binary choice where both sides deserve a
 name, which a checkbox can't do (it has a label and an unlabelled opposite) and
 a radio pair needs four lines and a legend for. The post-flight page keeps its
@@ -865,7 +995,7 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   recognise. The mark now lives in THREE files (favicon,
   `components/Logo.tsx`, square) — change one, change all three.
 - **There is a `public/` now, and Next's standalone output does not trace it.**
-  It holds the manifest's icons and nothing else so far. The Dockerfile needs
+  It holds the manifest's icons and the service worker (`sw.js`). The Dockerfile needs
   its own `COPY /app/public ./public` beside the `.next/static` one for exactly
   the same reason; miss it and the app boots fine while "Add to Home Screen"
   404s on its icon.
@@ -1042,29 +1172,44 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   then `getByRole("option", …)`), never `selectOption`. Its accessible name is
   "Status" followed by the current value, which is why specs match on the
   prefix.
-- **The app degrades offline; it is NOT an offline app, and the line between
-  those runs through the service worker it doesn't have.** What works with no
-  signal: every tick (localStorage, synchronously), and a client-side
-  navigation to a card that was prefetched while there still was signal
-  (`usePrefetchRoutes`). What does not: a HARD RELOAD, because the document
-  itself still comes off the network and there is nowhere else for it to come
-  from — so an airplane out of range is one pull-to-refresh away from a blank
-  page, with the drafts intact underneath it. The pages' own API reads fail too,
-  but degrade quietly: `fetchJsonArray` returns `[]`, so the card renders
-  without being able to say what the last recorded oil was. Adding a service
-  worker is what would move this line; until then don't describe the checkouts
-  as working offline without saying which half.
-- **A failed Complete is two different things and the pages must not merge
-  them.** `completionOutcome` (lib/offline.ts) splits them: a REFUSAL is the
-  server's own message and belongs in the red error slot, while UNSENT — the
-  fetch never got a reply — is not an error at all and gets an amber notice
-  saying the walk is safe on the device and to press Complete again. Both paths
-  call `draft.thaw()`, which is what makes the retry work: autosave comes back
-  on, the card on screen is untouched, and Complete is still the button. The
-  taxi & runway card is the one where UNSENT is the ORDINARY case — it ends at
-  the hold-short line, well past the clubhouse wifi. Deliberately no auto-retry
-  on the `online` event: a member who kept ticking after the failed press would
-  have a half-edited card filed out from under them.
+- **Offline has three layers now, and each one has a job the others can't do.**
+  (1) Drafts — every tick in localStorage, synchronously (`checkoutDraft.ts`,
+  `postflightDraft.ts`). (2) The OUTBOX — every Complete/File/squawk goes
+  through `useOutbox().submit(job)` (components/OutboxProvider.tsx), which
+  freezes it into IndexedDB and sends it; with signal the page hears `filed` in
+  the same breath as before, without it `queued`, and it goes by itself on load,
+  `online`, foregrounding and a 20 s tick while visible. (3) The SERVICE WORKER
+  (`public/sw.js`) — the pages, their hashed chunks and the last answer to each
+  API GET, so a hard reload in a hangar opens the app instead of a blank page.
+  What still does NOT work: anything in the BACKGROUND on iOS (no Background
+  Sync — the queue only moves while the app is open, and the strip says so), a
+  page never visited or warmed (the worker serves a small "not saved yet"
+  page), and booking/editing (only the submit paths above are queued).
+- **The outbox replaced "press Complete again", and the reasoning is worth
+  keeping.** The old rule was no auto-retry on `online`, because a member who
+  kept ticking after a failed press would have a half-edited card filed out from
+  under them. A FROZEN job answers that: what goes out is exactly what was
+  pressed, and the page clears the card (`draft.finish()`) on `queued` just as
+  on `filed`. A refusal is still the server's message in the red slot, with
+  `draft.thaw()` and the card left on screen; `submit` removes a job refused on
+  the spot, so the outbox only ever holds refusals the member wasn't there for.
+  Two pages read the outbox back: the runway card counts a QUEUED preflight as
+  done (`hasPending`), and `useCheckoutDraft` won't resume a draft row whose
+  sign-off is queued. Pages call `useOutboxSent(refresh)`, because a job landing
+  later changes what they show.
+- **A queued job is only ever sent as the member who made it.** On the clubhouse
+  iPad, member A's unsent flight must not go up under member B's session — the
+  server would file it as B's. `sendableJobs` filters on `userId`; another
+  member's jobs show in the strip as held for them.
+- **The service worker never handles a write, and never Next's RSC requests.**
+  POSTs are the outbox's (it can key, freeze and report them; a worker silently
+  replaying them can do none of that). RSC payloads depend on router-state
+  headers, so they pass through; when one fails offline Next falls back to a
+  full navigation, which the worker answers from the page cache. A page is only
+  cached when it is a real 200 HTML response and NOT a redirect — caching the
+  /login redirect under /preflight would show the login screen offline.
+  `sw.js` is excluded from proxy.ts's matcher (a redirected worker script
+  silently fails to update) and served `no-cache` from next.config.js.
 - `quick-log.spec.ts` sorts between `preflight` and `runway`, which is safe on
   both sides: it never signs off a card, so the runway spec's "the airplane has
   NOT been walked today" assertion is untouched. It reads the flight it just
@@ -1292,6 +1437,14 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   with "Another next dev server is already running". Clean up with
   `docker ps -aq --filter name=vff-app-vff-app-test | xargs -r docker rm -f`
   then `docker volume rm vff-app_test-next`.
+- **Typing an END reading pins the START box beside it** (Quick Log and the
+  post-flight form). A start box follows the best reading the page knows of
+  until the member edits it — but accepting a prefilled start fires no change
+  event, so a reading arriving late (today's preflight, on a slow ramp
+  connection) used to swap it AFTER the member had typed the end, and the form
+  filed a span nobody saw. The end box's `onChange` now marks its start as
+  edited too. Found by the iPhone Quick Log spec, which filed 5.3 hours for a
+  0.8-hour flight.
 - **Quick Log files a real flight.** The row it writes is the same `Flight` the
   post-flight form writes, bills the same way, advances the meters the same way
   and is corrected from the same modal. What it does NOT write is a checkout —
@@ -1324,7 +1477,17 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   an e2e test asserting on the statement is what caught it. `FlightForBilling`
   (the db half, two call sites) therefore REQUIRES the field, so the next
   omission is a compile error rather than a wrong statement.
+- **Double-tap zoom is off app-wide, pinch-zoom is not.** `:where(*) {
+  touch-action: manipulation }` in globals.css. On every element because the
+  property isn't inherited — the browser intersects it only up to the nearest
+  scroll container, so a rule on `html` never reached inside `.app-scroll`, a
+  modal body or an `overflow-x-auto` table. `:where` keeps it at zero
+  specificity so anything needing its own `touch-action` wins. Don't "finish
+  the job" with `maximum-scale=1` in the viewport: that kills pinch-zoom too,
+  and the e2e phone/tablet specs assert it isn't there.
 - **The knots on Tools › My plane are this app's arithmetic, not the manual's.**
+  (MPH is the big figure, knots the small line under it — `displaySpeed`
+  returns `{ primary: MPH, knots }`.)
   The 1958 book is MPH throughout; N8318B's ASI reads knots. Every speed is
   stored in the manual's MPH and converted, and the ROUNDING DIRECTION is a
   safety property — ceilings down, stalls and approach speeds up, ranges
