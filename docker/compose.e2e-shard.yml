@@ -1,0 +1,11 @@
+# Layered over docker-compose.yml by scripts/e2e-parallel.sh, once per shard.
+#
+# Each shard is its own compose PROJECT (vff-e2e-1, vff-e2e-2, …), so it gets
+# its own Postgres, its own node_modules and .next volumes and its own network
+# — nothing is shared but the source tree. The one thing that WOULD collide is
+# the test database's host port (5433, published so a developer can poke at
+# it): two shards can't both bind it, and no shard needs it, since the app and
+# the tests reach Postgres over the shard's own network.
+services:
+  db-test:
+    ports: !reset []

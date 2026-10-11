@@ -19,7 +19,6 @@
 // progress bar, and finishing a section offers the next one.
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import Card from "@/components/common/Card";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import InfoTip from "@/components/common/InfoTip";
 import CheckoutFields from "@/components/CheckoutFields";
@@ -619,6 +618,7 @@ export default function CheckoutList({
                               <CheckoutFields
                                 fields={item.fields}
                                 values={values}
+                                hints={hints}
                                 onChange={(fieldId, value) =>
                                   setValue(item.id, fieldId, value)
                                 }

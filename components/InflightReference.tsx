@@ -14,7 +14,7 @@ export default function InflightReference() {
   const [open, setOpen] = useState(false);
 
   return (
-    <Card className="p-0">
+    <Card padded={false}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

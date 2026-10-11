@@ -274,44 +274,56 @@ const SEVERITY_VALUE_CLASSES: Record<string, string> = {
   caution: "text-amber-600 dark:text-amber-400",
 };
 
+/**
+ * Values longer than this are SENTENCES ("30–45 psi green · 5 psi min · 50 psi
+ * max", "Minimum flap for the runway length"), not figures. Beside a label on
+ * a phone they crushed it to one word per line and then ran over it, so they
+ * get their own line under the label there — and a wrapping column of their
+ * own from `sm` up. Short figures ("64 MPH", "Prohibited") stay at the right.
+ */
+const LONG_VALUE_CHARS = 14;
+
 function FigureRow({ figure }: { figure: ReferenceFigure }) {
   // The manual's MPH big, knots small underneath. MPH leads because it is the
   // figure that is actually published — the one you check the book against;
   // the knots line is this app's arithmetic, for reading off the instrument.
   const shown = displaySpeed(figure);
+  const long = shown.primary.length > LONG_VALUE_CHARS;
+  const tone = figure.severity ? SEVERITY_VALUE_CLASSES[figure.severity] : "";
+
   return (
-    <li className="flex items-baseline justify-between gap-3 py-2">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-baseline gap-x-1.5">
-          {figure.code ? (
-            <span className="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-400">
-              {figure.code}
-            </span>
-          ) : null}
-          <span className="text-sm">{figure.label}</span>
-          {/* The (i) sits OUTSIDE any interactive element — an <a> or a button
-              inside another is the invalid nesting CheckoutList documents. */}
-          <InfoTip label={`Why: ${figure.label}`}>
-            <span className="block">{figure.why}</span>
-            <span className="mt-2 block text-xs text-gray-400 dark:text-gray-500">
-              {figure.source}
-              {shown.knots
-                ? ` · ${shown.primary} as published; ${shown.knots} is this app's conversion`
-                : ""}
-            </span>
-          </InfoTip>
-        </div>
+    <li
+      className={`py-2 ${
+        long
+          ? "sm:flex sm:items-baseline sm:justify-between sm:gap-4"
+          : "flex items-baseline justify-between gap-3"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <FigureLabel
+          code={figure.code}
+          label={figure.label}
+          info={
+            <>
+              <span className="block">{figure.why}</span>
+              <span className="mt-2 block text-xs text-gray-400 dark:text-gray-500">
+                {figure.source}
+                {shown.knots
+                  ? ` · ${shown.primary} as published; ${shown.knots} is this app's conversion`
+                  : ""}
+              </span>
+            </>
+          }
+        />
         {figure.condition ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {figure.condition}
-          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{figure.condition}</p>
         ) : null}
       </div>
-      <span className="shrink-0 text-right">
+
+      <div className={long ? "mt-1 sm:mt-0 sm:max-w-[50%] sm:text-right" : "shrink-0 text-right"}>
+        {/* A number reads best in mono; a sentence doesn't. */}
         <span
-          className={`block font-mono text-sm font-semibold ${
-            figure.severity ? SEVERITY_VALUE_CLASSES[figure.severity] : ""
-          }`}
+          className={`block text-sm font-semibold ${long ? "" : "font-mono"} ${tone}`}
         >
           {shown.primary}
         </span>
@@ -320,8 +332,44 @@ function FigureRow({ figure }: { figure: ReferenceFigure }) {
             {shown.knots}
           </span>
         ) : null}
-      </span>
+      </div>
     </li>
+  );
+}
+
+/**
+ * A figure's name, with its (i) right after the LAST WORD. As a flex row the
+ * marker was its own item, so whenever the name wrapped the (i) dropped onto a
+ * line of its own; inline, it wraps with the text like a footnote mark.
+ * (The (i) sits outside any interactive element — an <a> or a button inside
+ * another is the invalid nesting CheckoutList documents.)
+ */
+function FigureLabel({
+  code,
+  label,
+  info,
+  codeTone = "text-indigo-600 dark:text-indigo-400",
+  badge,
+}: {
+  code?: string | null;
+  label: string;
+  info?: React.ReactNode;
+  codeTone?: string;
+  badge?: React.ReactNode;
+}) {
+  return (
+    <p className="text-sm">
+      {code ? (
+        <span className={`mr-1.5 font-mono font-semibold ${codeTone}`}>{code}</span>
+      ) : null}
+      {label}
+      {info ? (
+        <span className="ml-1 inline-flex align-[-0.3em]">
+          <InfoTip label={`Why: ${label}`}>{info}</InfoTip>
+        </span>
+      ) : null}
+      {badge ? <span className="ml-1.5 inline-flex align-[-0.15em]">{badge}</span> : null}
+    </p>
   );
 }
 
@@ -347,14 +395,18 @@ function StallCard() {
         </p>
       </div>
 
+      {/* Sized to fit a phone without scrolling: the bank angles are the
+          column heads ("Bank 0°" says what the columns are once), and each
+          configuration's (i) sits under its name rather than beside it. The
+          overflow box stays as a safety net, not as the layout. */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[22rem] text-sm">
+        <table className="w-full text-xs sm:text-sm">
           <thead>
             <tr className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
-              <th className="pb-1 text-left font-semibold">Configuration</th>
-              {BANK_ANGLES.map((bank) => (
+              <th className="pb-1 text-left font-semibold">Flaps</th>
+              {BANK_ANGLES.map((bank, i) => (
                 <th key={bank} className="pb-1 text-right font-semibold">
-                  {bank}° bank
+                  {i === 0 ? `Bank ${bank}°` : `${bank}°`}
                 </th>
               ))}
             </tr>
@@ -364,11 +416,11 @@ function StallCard() {
               const kt = stallKnots(row);
               return (
                 <tr key={row.flaps}>
-                  <td className="py-1.5 align-top">
-                    <span className="flex items-center gap-1">
-                      <span className="text-gray-600 dark:text-gray-300">
-                        {row.flaps}
-                      </span>
+                  <td className="py-1.5 pr-2 align-top">
+                    <span className="text-gray-600 dark:text-gray-300">
+                      {row.flaps.replace(/^Flaps /, "")}
+                    </span>
+                    <span className="ml-1 inline-flex align-[-0.3em]">
                       <InfoTip label={`Why: ${row.flaps}`}>{row.why}</InfoTip>
                     </span>
                   </td>
@@ -417,36 +469,35 @@ function ClimbCard() {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[22rem] text-sm">
+        <table className="w-full text-xs sm:text-sm">
           <thead>
             <tr className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
               <th className="pb-1 text-left font-semibold">Altitude</th>
-              <th className="pb-1 text-right font-semibold">Best rate speed</th>
-              <th className="pb-1 text-right font-semibold">Rate of climb</th>
-              <th className="pb-1 text-right font-semibold">Fuel from S.L.</th>
+              <th className="pb-1 text-right font-semibold">Vy</th>
+              <th className="pb-1 text-right font-semibold">Climb</th>
+              <th className="pb-1 text-right font-semibold">Fuel used</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {CLIMB_RATES.map((row) => (
               <tr key={row.altitude}>
-                <td className="py-1.5 text-gray-600 dark:text-gray-300">
-                  {row.altitude}
-                  <span className="ml-1 text-xs text-gray-400">
-                    {row.temperature}
-                  </span>
+                <td className="py-1.5 pr-2 align-top text-gray-600 dark:text-gray-300">
+                  <span className="block whitespace-nowrap">{row.altitude}</span>
+                  <span className="block text-[11px] text-gray-400">{row.temperature}</span>
                 </td>
                 <td className="py-1.5 text-right align-top">
-                  <span className="block font-mono font-medium">
+                  <span className="block whitespace-nowrap font-mono font-medium">
                     {formatMph(row.bestRateMph)}
                   </span>
                   <span className="block font-mono text-[11px] text-gray-400 dark:text-gray-500">
                     {knots(row.bestRateMph, "target")} {AIRSPEED_UNIT}
                   </span>
                 </td>
-                <td className="py-1.5 text-right font-mono font-medium">
-                  {row.feetPerMinute.toLocaleString("en-US")} ft/min
+                <td className="py-1.5 text-right align-top font-mono font-medium">
+                  <span className="block">{row.feetPerMinute.toLocaleString("en-US")}</span>
+                  <span className="block text-[11px] font-normal text-gray-400">ft/min</span>
                 </td>
-                <td className="py-1.5 text-right font-mono text-gray-500 dark:text-gray-400">
+                <td className="py-1.5 text-right align-top font-mono text-gray-500 dark:text-gray-400">
                   {row.fuelUsedGal != null ? `${row.fuelUsedGal} gal` : "—"}
                 </td>
               </tr>
@@ -476,24 +527,34 @@ function DistanceCard() {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[26rem] text-sm">
+        <table className="w-full text-xs sm:text-sm">
           <thead>
+            {/* Two header rows: what (takeoff / landing), then which distance.
+                One row of "T/O over 50 ft" headings was wider than a phone. */}
             <tr className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
-              <th className="pb-1 text-left font-semibold">Altitude</th>
-              <th className="pb-1 text-right font-semibold">T/O roll</th>
-              <th className="pb-1 text-right font-semibold">T/O over 50 ft</th>
-              <th className="pb-1 text-right font-semibold">Ldg roll</th>
-              <th className="pb-1 text-right font-semibold">Ldg over 50 ft</th>
+              <th className="pb-0.5 text-left font-semibold" rowSpan={2}>
+                Altitude
+              </th>
+              <th className="pb-0.5 text-right font-semibold" colSpan={2}>
+                Takeoff
+              </th>
+              <th className="pb-0.5 text-right font-semibold" colSpan={2}>
+                Landing
+              </th>
+            </tr>
+            <tr className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              <th className="pb-1 text-right font-medium">Roll</th>
+              <th className="pb-1 text-right font-medium">50 ft</th>
+              <th className="pb-1 text-right font-medium">Roll</th>
+              <th className="pb-1 text-right font-medium">50 ft</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {DISTANCES.map((row) => (
               <tr key={row.altitude}>
-                <td className="py-1.5 text-gray-600 dark:text-gray-300">
-                  {row.altitude}
-                  <span className="ml-1 text-xs text-gray-400">
-                    {row.temperature}
-                  </span>
+                <td className="py-1.5 pr-2 align-top text-gray-600 dark:text-gray-300">
+                  <span className="block whitespace-nowrap">{row.altitude}</span>
+                  <span className="block text-[11px] text-gray-400">{row.temperature}</span>
                 </td>
                 <td className="py-1.5 text-right font-mono">
                   {row.takeoffGroundRun.toLocaleString("en-US")}
@@ -564,18 +625,32 @@ function ElsewhereCard() {
             key={gap.id}
             className="space-y-1 border-t border-gray-100 pt-3 first:border-0 first:pt-0 dark:border-gray-700"
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-              <span className="flex flex-wrap items-baseline gap-x-1.5">
-                {gap.code ? (
-                  <span className="font-mono text-sm font-semibold text-gray-400 dark:text-gray-500">
-                    {gap.code}
-                  </span>
-                ) : null}
-                <span className="text-sm font-medium">{gap.label}</span>
-                <Badge tone="amber">Found online</Badge>
-              </span>
-              <span className="text-right">
-                <span className="block font-mono text-sm font-semibold text-amber-700 dark:text-amber-300">
+            {/* Same shape as a figure row: the name (with its chip) on the
+                left, the value on the right — or on its own line when it's
+                a sentence rather than a figure, so neither crushes the other. */}
+            <div
+              className={
+                gap.value.length > LONG_VALUE_CHARS
+                  ? "sm:flex sm:items-baseline sm:justify-between sm:gap-4"
+                  : "flex items-baseline justify-between gap-3"
+              }
+            >
+              <div className="min-w-0 flex-1 font-medium">
+                <FigureLabel
+                  code={gap.code}
+                  codeTone="text-gray-400 dark:text-gray-500"
+                  label={gap.label}
+                  badge={<Badge tone="amber">Found online</Badge>}
+                />
+              </div>
+              <div
+                className={
+                  gap.value.length > LONG_VALUE_CHARS
+                    ? "mt-1 sm:mt-0 sm:max-w-[50%] sm:text-right"
+                    : "shrink-0 text-right"
+                }
+              >
+                <span className="block text-sm font-semibold text-amber-700 dark:text-amber-300">
                   {gap.value}
                 </span>
                 {gap.manualUnits ? (
@@ -583,7 +658,7 @@ function ElsewhereCard() {
                     {gap.manualUnits}
                   </span>
                 ) : null}
-              </span>
+              </div>
             </div>
 
             <Sourced label="This manual says">{gap.instead}</Sourced>

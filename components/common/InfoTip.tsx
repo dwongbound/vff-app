@@ -30,6 +30,9 @@ export default function InfoTip({
   // and read as "close" — which is also exactly what a touch tap looks like.
   const [pinned, setPinned] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  // The bubble itself, so a click INSIDE it (a link, a button, selecting its
+  // text) isn't mistaken for a click elsewhere that should close it.
+  const bubbleRef = useRef<HTMLDivElement>(null);
   // Where the marker sat when the bubble was positioned, so a scroll can be
   // told apart from scroll events that are merely still draining — see the
   // scroll handler below.
@@ -71,7 +74,10 @@ export default function InfoTip({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && hide();
     const onOutside = (e: MouseEvent) => {
-      if (!buttonRef.current?.contains(e.target as Node)) hide();
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (bubbleRef.current?.contains(target)) return;
+      hide();
     };
     // Close on scroll only once the marker has ACTUALLY moved.
     //
@@ -157,6 +163,7 @@ export default function InfoTip({
       {open &&
         createPortal(
           <div
+            ref={bubbleRef}
             id={bubbleId}
             role="tooltip"
             style={{ left: position.left, top: position.top, bottom: position.bottom }}

@@ -1,7 +1,7 @@
 // Shared e2e helpers. Playwright loads env/test.env (see playwright.config.ts
 // and the test:e2e script), so these read the same seed credentials the app
 // server was started with.
-import { Page, expect } from "@playwright/test";
+import { Locator, Page, expect } from "@playwright/test";
 
 export const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? "admin@vffclub.test";
 export const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "flyvff123";
@@ -209,3 +209,53 @@ export async function openPostflightSection(page: Page, title: RegExp) {
 export async function openMeters(page: Page) {
   await openPostflightSection(page, /Meter readings/);
 }
+
+/**
+ * A real one-finger pull from right to left across the page, as TouchEvents —
+ * what SwipePager listens for. `distance` is how far the finger travels; a
+ * full pull on a phone is well past `commitDistance` (40% of the width).
+ */
+export async function swipeLeft(page: Page, distance = 260): Promise<void> {
+  await page.evaluate(async (travel) => {
+    const startX = Math.min(window.innerWidth - 20, 40 + travel);
+    const y = Math.round(window.innerHeight / 2);
+    const target = document.elementFromPoint(startX, y) ?? document.body;
+    // Plain events carrying a `touches` list rather than real TouchEvents:
+    // WebKit (the iPad and iPhone projects) refuses `new Touch(...)` from
+    // script. SwipePager only reads `touches[i].clientX/Y`, so this drives
+    // its real listeners the same way a finger does.
+    const fire = (type: string, x: number) => {
+      const touch = { identifier: 1, target, clientX: x, clientY: y };
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", {
+        value: type === "touchend" ? [] : [touch],
+      });
+      Object.defineProperty(event, "changedTouches", { value: [touch] });
+      target.dispatchEvent(event);
+    };
+    fire("touchstart", startX);
+    for (let step = 1; step <= 10; step++) {
+      fire("touchmove", startX - (travel * step) / 10);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    fire("touchend", startX - travel);
+  }, distance);
+}
+
+/**
+ * Read a form's "Tach start" box once it has SETTLED.
+ *
+ * The start box follows the best reading the app knows — your open flight,
+ * then today's preflight walk, then the last filed flight — until it's typed
+ * in, and those answers arrive at different moments. Read too early and the
+ * box changes under the test afterwards, so the flight files a different span
+ * than the test typed ("Filed 1.3 hours" for a 1.2 it meant). Waiting for the
+ * page to stop asking is what makes the value final.
+ */
+export async function settledTachStart(page: Page, scope: Page | Locator = page): Promise<string> {
+  const box = scope.getByLabel("Tach start", { exact: true });
+  await expect(box).not.toHaveValue("");
+  await page.waitForLoadState("networkidle");
+  return box.inputValue();
+}
+

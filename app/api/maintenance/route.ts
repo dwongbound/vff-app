@@ -7,7 +7,7 @@
 // rows would be a second answer to "is anything overdue" — one of which would
 // be stale on any screen that hadn't refetched it.
 //
-// Writes need `maintenance:manage` — the Maintenance Officer, or an admin.
+// Writes need `maintenance:manage` — the Safety Officer, or an admin.
 // Reading is open to every member on purpose: "the annual runs out next week"
 // is the first thing anyone walking out to the airplane should know.
 import { NextResponse } from "next/server";
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   if (!can(user, "maintenance:manage")) {
     return NextResponse.json(
-      { error: "Only the Maintenance Officer (or an admin) keeps this list." },
+      { error: "Only the Safety Officer (or an admin) keeps this list." },
       { status: 403 }
     );
   }

@@ -46,6 +46,7 @@ import MoneyInput from "@/components/common/MoneyInput";
 import LoadingDots from "@/components/common/LoadingDots";
 import Modal from "@/components/common/Modal";
 import Select from "@/components/common/Select";
+import SpreadsheetIcon from "@/components/common/SpreadsheetIcon";
 import Toggle from "@/components/common/Toggle";
 import AddMoneyModal from "@/components/finances/AddMoneyModal";
 import ExportFinancesModal from "@/components/finances/ExportFinancesModal";
@@ -67,7 +68,6 @@ import {
   isPayback,
   balanceContribution,
   owedContribution,
-  totals,
   type ChargeKind,
   type Period,
 } from "@/lib/finance";
@@ -78,7 +78,6 @@ import type {
   ApiLedgerPage,
   ApiMember,
   ApiRecurringCharge,
-  ApiStatement,
   ApiUserSummary,
 } from "@/lib/types";
 
@@ -158,6 +157,7 @@ export default function FinancesPage() {
 
   const [view, setView] = useState<View>("mine");
   const club = view !== "mine" && canReadAll;
+  const wide = useIsWide();
   // One member's lines only — picked from the club summary's chips. Club
   // views only; the server does the narrowing, so every month shown (and
   // every month lazily loaded after it) is that member's.
@@ -173,7 +173,7 @@ export default function FinancesPage() {
   const generation = useRef(0);
   const loadingMoreRef = useRef(false);
 
-  // Every view opens on EVERYTHING; "Outstanding" narrows any of them to the
+  // Every view opens on ALL; "Unpaid" narrows any of them to the
   // lines still to settle (and drops months with none).
   const [showSettled, setShowSettled] = useState(true);
 
@@ -449,26 +449,29 @@ export default function FinancesPage() {
   const months = current?.months ?? [];
   const reloadLoaded = () => reload(Math.max(PAGE_MONTHS, months.length));
 
+  // Export opens a window that asks for the months, line items and (officer)
+  // people — and reads them itself, so the file doesn't depend on how far down
+  // the page you'd scrolled. Its scope is the one the API actually returned
+  // (`current.club`, not the switch): the privacy rule is the server's. ONE
+  // button, placed by width (beside the title on a phone, with the controls
+  // from `sm` up) rather than two copies with one hidden.
+  const exportButton = current ? (
+    <Button size="sm" variant="secondary" onClick={() => setExportOpen(true)}>
+      <SpreadsheetIcon />
+      Export
+    </Button>
+  ) : null;
+
   return (
     <div className="space-y-4">
-      <header className="space-y-3 sm:flex sm:flex-wrap sm:items-end sm:justify-between sm:gap-3 sm:space-y-0">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold">Finances</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {club ? "The club's books, every month" : "Your statement, every month"}
-            </p>
-          </div>
-          {/* Opens the export window, which asks for the months, kinds and
-              (officer) people — and reads them itself, so the file doesn't
-              depend on how far down the page you'd scrolled. The scope is the
-              one the API actually returned (`current.club`, not the switch):
-              the privacy rule is the server's. */}
-          {current && (
-            <Button size="sm" variant="secondary" onClick={() => setExportOpen(true)}>
-              Export
-            </Button>
-          )}
+      {/* Phone: the title shares its row with Export; the view switch (an
+          officer's) and the Everything/Outstanding switch each get a full row
+          below — three controls squeezed onto one line was what crammed it.
+          From `sm` up: title left, every control in one row on the right. */}
+      <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-bold">Finances</h1>
+          {!wide && exportButton}
         </div>
 
         {/* Whose books, and how much of them: the view switch and the
@@ -503,13 +506,14 @@ export default function FinancesPage() {
               ))}
             </div>
           )}
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {wide && exportButton}
             <Toggle
               label="Show settled lines"
               checked={showSettled}
               onChange={setShowSettled}
-              offLabel="Outstanding"
-              onLabel="Everything"
+              offLabel="Unpaid"
+              onLabel="All"
             />
           </div>
         </div>
@@ -538,7 +542,7 @@ export default function FinancesPage() {
 
           {filter && (
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-gray-500 dark:text-gray-400">Showing only</span>
+              <span className="text-gray-500 dark:text-gray-400">Only</span>
               <button
                 type="button"
                 onClick={() => setMemberFilter(null)}
@@ -578,13 +582,13 @@ export default function FinancesPage() {
                   <LoadingDots size="sm" />
                 ) : (
                   <Button variant="ghost" size="sm" onClick={loadMore}>
-                    Load older months
+                    Load more
                   </Button>
                 )}
               </div>
             ) : (
               <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">
-                That&apos;s everything — the books start here.
+                No earlier months.
               </p>
             )}
             </>
@@ -674,7 +678,7 @@ function AddPanel({ officer, onOpen }: { officer: boolean; onOpen: () => void })
     <button
       type="button"
       onClick={onOpen}
-      aria-label={officer ? "Add money" : "Claim a reimbursement"}
+      aria-label={officer ? "Add money" : "Claim reimbursement"}
       className="group flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 px-4 py-2 text-gray-500 transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 hover:text-indigo-700 focus-visible:border-indigo-500 focus-visible:outline-none dark:border-gray-600 dark:text-gray-400 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/10 dark:hover:text-indigo-300"
     >
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 transition-colors group-hover:bg-indigo-100 dark:bg-gray-700/60 dark:group-hover:bg-indigo-900/40">
@@ -683,7 +687,7 @@ function AddPanel({ officer, onOpen }: { officer: boolean; onOpen: () => void })
         </svg>
       </span>
       <span className="text-sm font-medium">
-        {officer ? "Reimburse, charge members or add club funds" : "Claim a reimbursement"}
+        {officer ? "Add money" : "Claim reimbursement"}
       </span>
     </button>
   );
@@ -728,32 +732,35 @@ function BalanceSummary({
       owe: {
         card: "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30",
         amount: "text-red-600 dark:text-red-400",
-        verdict: "You owe the club",
+        verdict: "You owe",
       },
       owed: {
         card: "border-green-200 bg-green-50 dark:border-green-900/60 dark:bg-green-950/30",
         amount: "text-green-600 dark:text-green-400",
-        verdict: "The club owes you",
+        verdict: "Owed to you",
       },
       settled: {
         card: "",
         amount: "text-gray-900 dark:text-gray-100",
-        verdict: "You're all settled",
+        verdict: "Settled",
       },
     }[tone];
+    // The verdict and the amount share ONE line, the note runs full width
+    // beneath: as two columns, a phone squeezed the note into a narrow strip
+    // that wrapped to three lines beside a huge figure.
     return (
-      <Card className={`flex items-center justify-between gap-3 ${styles.card}`}>
-        <div className="min-w-0" data-tone={tone}>
-          <h2 className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            Your balance
-          </h2>
+      <Card className={`space-y-1 ${styles.card}`}>
+        <h2 className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Your balance
+        </h2>
+        <div className="flex items-baseline justify-between gap-3" data-tone={tone}>
           <p className={`text-base font-semibold ${styles.amount}`}>{styles.verdict}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Across every month, unpaid lines only
+          <p className={`tabular shrink-0 text-2xl font-bold sm:text-3xl ${styles.amount}`}>
+            {formatMoney(Math.abs(outstandingCents))}
           </p>
         </div>
-        <p className={`tabular shrink-0 text-3xl font-bold ${styles.amount}`}>
-          {formatMoney(Math.abs(outstandingCents))}
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          All months, unpaid only
         </p>
       </Card>
     );
@@ -775,9 +782,9 @@ function BalanceSummary({
   return (
     <Card className="space-y-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Figure label="Members owe the club" cents={owedToClubCents} />
+        <Figure label="Members owe" cents={owedToClubCents} />
         <Figure
-          label="The club owes members"
+          label="Club owes"
           cents={owedByClubCents}
           green={owedByClubCents > 0}
         />
@@ -785,7 +792,7 @@ function BalanceSummary({
           label="Club balance"
           cents={paidCents}
           aside={unsettledNote(unsettled)}
-          hint="money that has moved"
+          hint="paid only"
           strong
         />
       </div>
@@ -934,9 +941,9 @@ function MonthList({
 
   const lineProps = { canManage, inFlight, onAction };
 
-  // What each month shows under the filter. "Outstanding" drops settled lines
+  // What each month shows under the filter. "Unpaid" drops settled lines
   // AND the months left with none — a run of "nothing outstanding" headers is
-  // noise. "Everything" keeps every month in Me and by person (an empty month
+  // noise. "All" keeps every month in Me and by person (an empty month
   // is an answer: nothing was billed), while by month — the cross-member list
   // — still skips months with no lines at all.
   const shown = months
@@ -952,7 +959,7 @@ function MonthList({
     return (
       <Card>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {showSettled ? "No charges yet." : "Nothing outstanding — every line is settled."}
+          {showSettled ? "No charges yet." : "Nothing unpaid."}
         </p>
       </Card>
     );
@@ -985,7 +992,7 @@ function MonthList({
           {header(m)}
           {m.lines.length === 0 ? (
             <p className="px-1 text-sm text-gray-500 dark:text-gray-400">
-              Nothing on the books this month.
+              No charges.
             </p>
           ) : view === "person" ? (
             statementsFor(m.lines, m.period).map((statement) => (
@@ -993,7 +1000,7 @@ function MonthList({
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="text-sm font-semibold">
                     {statement.member === CLUB_ACCOUNT
-                      ? "Club (no member)"
+                      ? "Club"
                       : statement.member.name}
                   </h3>
                   {/* The month's total for this person, in the card's own
@@ -1049,7 +1056,7 @@ function MonthHeader({
           <span className={`tabular font-semibold ${figureTone(figure)}`}>
             {formatMoney(figure)}
           </span>{" "}
-          outstanding
+          unpaid
         </p>
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}

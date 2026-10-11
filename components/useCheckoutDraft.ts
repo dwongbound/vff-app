@@ -19,6 +19,7 @@
 //
 // The device is therefore allowed to be AHEAD of the server, and `resolveResume`
 // (lib/checkoutDraft.ts) is the rule for reconciling them on the next load.
+import { deviceStore } from "./deviceStore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { checkoutFor, type Answers, type Values } from "@/lib/checkouts";
@@ -31,7 +32,6 @@ import {
   writeDraft,
   type CheckoutDraft,
   type DraftKind,
-  type DraftStore,
   type Resume,
 } from "@/lib/checkoutDraft";
 import type { ApiCheckout } from "@/lib/types";
@@ -49,17 +49,6 @@ import { useOutbox } from "@/components/OutboxProvider";
  */
 const SYNC_DELAY_MS = 2_500;
 
-/** localStorage, or null wherever it isn't usable (SSR, private mode, kiosk). */
-function deviceStore(): DraftStore | null {
-  if (typeof window === "undefined") return null;
-  try {
-    // The property ACCESS itself throws when storage is blocked by policy, so
-    // this is inside the try rather than beside it.
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 export interface CheckoutDraftState {
   /** What was picked up on load, if anything — drives the resume message. */

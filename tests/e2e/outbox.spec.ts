@@ -29,12 +29,16 @@ test("a flight filed with no signal waits on the device, then sends itself", asy
   const main = page.getByRole("main");
   const tachStart = main.getByLabel("Tach start", { exact: true });
   await expect(tachStart).not.toHaveValue("");
+  // Wait for the page to stop asking: the start box follows the best reading
+  // the app knows, and a late answer (today's preflight walk) can change it
+  // after it's been read. See the same note in mobile.spec.ts.
+  await page.waitForLoadState("networkidle");
   const start = Number(await tachStart.inputValue());
   await main.getByLabel("Tach end", { exact: true }).fill((start + 0.7).toFixed(1));
   await main.getByLabel("Landed at", { exact: true }).fill("KTOA");
 
   await context.setOffline(true);
-  await main.getByRole("button", { name: "File flight" }).click();
+  await main.getByRole("button", { name: "File", exact: true }).click();
 
   // Not an error: the page says it's kept, and the strip says it's waiting.
   await expect(main.getByText(/^Saved offline/)).toBeVisible();

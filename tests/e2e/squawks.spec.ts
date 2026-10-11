@@ -120,6 +120,17 @@ test("a member files a squawk as New and cannot triage it", async ({ page }) => 
   await expect(row.getByText("New")).toBeVisible();
   await expect(page.getByText(/Read-only/)).toBeVisible();
   await expect(statusPicker(row)).toHaveCount(0);
+
+  // The status sits on the RIGHT of the card, where an officer's picker is —
+  // its right edge in line with the card's content edge, past the title.
+  const status = row.getByTestId("squawk-status");
+  const card = await row.boundingBox();
+  const box = await status.boundingBox();
+  const title = await row.getByText("E2E left tyre wearing unevenly").boundingBox();
+  expect(card && box && title).toBeTruthy();
+  const cardRight = card!.x + card!.width;
+  expect(cardRight - (box!.x + box!.width)).toBeLessThan(24); // the card's padding
+  expect(box!.x).toBeGreaterThan(title!.x + title!.width);
 });
 
 test("the member's squawk form has no severity picker", async ({ page }) => {

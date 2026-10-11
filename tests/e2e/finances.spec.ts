@@ -199,13 +199,13 @@ test("the headline is red when you owe the club and green when it owes you", asy
   const tone = owed > 0 ? "owe" : owed < 0 ? "owed" : "settled";
   await expect(verdict).toHaveAttribute("data-tone", tone);
   await expect(verdict).toContainText(
-    { owe: "You owe the club", owed: "The club owes you", settled: "You're all settled" }[tone]
+    { owe: "You owe", owed: "Owed to you", settled: "Settled" }[tone]
   );
 
   // The colour, not just the words: red for owing, green for being owed.
   // (Checked on the class — Tailwind 4's palette is oklch, which doesn't
   // compare as RGB.)
-  const words = verdict.getByText(/You owe the club|The club owes you|all settled/);
+  const words = verdict.getByText(/^(You owe|Owed to you|Settled)$/);
   const expected = { owe: /text-red-/, owed: /text-green-/, settled: /text-gray-/ }[tone];
   await expect(words).toHaveClass(expected);
   await expect(main.getByText(/^\$[\d,]+\.\d\d$/).first()).toHaveClass(expected);
@@ -226,8 +226,8 @@ test("a member can only claim a reimbursement for themselves", async ({ page }) 
   const before = (await page.request.get("/api/finances/ledger").then((r) => r.json()))
     .summary.members[0]?.outstandingCents ?? 0;
 
-  const modal = await openAdd(page, "Claim a reimbursement");
-  await expect(modal.getByRole("heading", { name: "Claim a reimbursement" })).toBeVisible();
+  const modal = await openAdd(page, "Claim reimbursement");
+  await expect(modal.getByRole("heading", { name: "Claim reimbursement" })).toBeVisible();
   // One form only: no member picker, no other modes.
   await expect(modal.getByLabel("Member")).toHaveCount(0);
   await expect(modal.getByRole("group", { name: "What kind of money" })).toHaveCount(0);
@@ -525,7 +525,7 @@ test("marking a line paid takes it off the outstanding list, and can be undone",
   const row = main.getByRole("row").filter({ hasText: label });
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect(row.getByRole("cell", { name: "Alex Rivera" })).toBeVisible();
-  const owedBefore = await figure(page, "Members owe the club");
+  const owedBefore = await figure(page, "Members owe");
   const worthBefore = await figure(page, "Club balance");
   const missingBefore = await unsettled(page);
 
@@ -540,11 +540,11 @@ test("marking a line paid takes it off the outstanding list, and can be undone",
   // The club's figures move by exactly the line, with no reload. The club's
   // worth is money that has MOVED: paying adds the line to the balance and
   // takes it out of the "missing" bracket beside it.
-  await expect.poll(() => figure(page, "Members owe the club")).toBe(owedBefore - 3300);
+  await expect.poll(() => figure(page, "Members owe")).toBe(owedBefore - 3300);
   await expect.poll(() => figure(page, "Club balance")).toBe(worthBefore + 3300);
   await expect.poll(() => unsettled(page)).toBe(missingBefore - 3300);
 
-  // The header filter opens on Everything; Outstanding hides what's settled…
+  // The header filter opens on All; Unpaid hides what's settled…
   const filter = main.getByRole("switch", { name: "Show settled lines" });
   await expect(filter).toHaveAttribute("aria-checked", "true");
   await filter.click();
@@ -560,7 +560,7 @@ test("marking a line paid takes it off the outstanding list, and can be undone",
   await row.getByRole("button", { name: "Unpay" }).click();
   await expect(row).toHaveAttribute("data-state", "open");
   await expect(row.getByText(/✓ paid/)).toBeHidden();
-  await expect.poll(() => figure(page, "Members owe the club")).toBe(owedBefore);
+  await expect.poll(() => figure(page, "Members owe")).toBe(owedBefore);
   await expect.poll(() => figure(page, "Club balance")).toBe(worthBefore);
   await expect.poll(() => unsettled(page)).toBe(missingBefore);
 });
@@ -592,7 +592,7 @@ test("Mark all paid settles a whole month in one tap", async ({ page }) => {
   }
   // Nothing left open in that month, so the button goes.
   await expect(section.getByRole("button", { name: "Mark all paid" })).toHaveCount(0);
-  await expect(section.getByText("$0.00 outstanding")).toBeVisible();
+  await expect(section.getByText("$0.00 unpaid")).toBeVisible();
   // And the club's worth went up by at least the two lines we know about.
   expect(await figure(page, "Club balance")).toBeGreaterThanOrEqual(worthBefore + 4000);
 
@@ -644,7 +644,7 @@ test("the trash can deletes a hand-entered line after confirming", async ({ page
     timeout: 60_000,
   });
   await openView(page, "Club (by person)");
-  await expect(main.getByRole("heading", { name: "Members owe the club" })).toBeVisible();
+  await expect(main.getByRole("heading", { name: "Members owe" })).toBeVisible();
   await expect(main.getByRole("row").filter({ hasText: label })).toHaveCount(0);
 });
 
@@ -671,7 +671,7 @@ test("deleting a DERIVED line sticks — the month's next read doesn't rebuild i
     .filter({ hasText: victim })
     .filter({ hasText: "Monthly membership" });
   await expect(row).toHaveCount(1, { timeout: 30_000 });
-  const owedBefore = await figure(page, "Members owe the club");
+  const owedBefore = await figure(page, "Members owe");
   const wasOpen = (await row.getAttribute("data-state")) === "open";
 
   await row.getByRole("button", { name: "Delete" }).click();
@@ -682,7 +682,7 @@ test("deleting a DERIVED line sticks — the month's next read doesn't rebuild i
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect(row).toHaveCount(0);
   if (wasOpen) {
-    await expect.poll(() => figure(page, "Members owe the club")).toBe(owedBefore - 25_000);
+    await expect.poll(() => figure(page, "Members owe")).toBe(owedBefore - 25_000);
   }
 
   // Reading the books is what materialises dues — and it must NOT write this
@@ -723,7 +723,7 @@ test("club funds move the club's balance on the spot, and touch no member", asyn
   await expect(main.getByRole("heading", { name: "Club-level lines" })).toHaveCount(0);
   const balanceBefore = await figure(page, "Club balance");
   const missingBefore = await unsettled(page);
-  const owedBefore = await figure(page, "Members owe the club");
+  const owedBefore = await figure(page, "Members owe");
 
   const modal = await openAdd(page);
   await mode(modal, "Club funds");
@@ -738,7 +738,7 @@ test("club funds move the club's balance on the spot, and touch no member", asyn
   const card = main
     .getByRole("region", { name: monthName(0) })
     .locator("div")
-    .filter({ has: page.getByRole("heading", { name: "Club (no member)" }) })
+    .filter({ has: page.getByRole("heading", { name: "Club", exact: true }) })
     .filter({ has: page.getByRole("table") })
     .last();
   const row = card.getByRole("row").filter({ hasText: label });
@@ -752,7 +752,7 @@ test("club funds move the club's balance on the spot, and touch no member", asyn
   // member's figure moves.
   await expect.poll(() => figure(page, "Club balance")).toBe(balanceBefore - 120_000);
   expect(await unsettled(page)).toBe(missingBefore);
-  expect(await figure(page, "Members owe the club")).toBe(owedBefore);
+  expect(await figure(page, "Members owe")).toBe(owedBefore);
 
   // Voiding takes it back out of the balance; restoring puts it back.
   await row.getByRole("button", { name: "Void" }).click();
@@ -764,7 +764,7 @@ test("club funds move the club's balance on the spot, and touch no member", asyn
   await openView(page, "Club (by month)");
   const monthRow = main.getByRole("row").filter({ hasText: label });
   await expect(monthRow.getByRole("cell", { name: "Club", exact: true })).toBeVisible();
-  // It isn't OUTSTANDING (nobody owes it), so the Outstanding filter hides it.
+  // It isn't owed (nobody owes it), so the Unpaid filter hides it.
   const filter = main.getByRole("switch", { name: "Show settled lines" });
   await filter.click();
   await expect(monthRow).toHaveCount(0);
@@ -1058,7 +1058,7 @@ test("the Finance Officer's export narrows to chosen people and kinds", async ({
   await main.getByRole("button", { name: "Export", exact: true }).click();
   await modal.getByRole("button", { name: "Clear all" }).click();
   await modal.getByRole("button", { name: "Download .xlsx" }).click();
-  await expect(modal.getByText("Pick at least one kind of line.")).toBeVisible();
+  await expect(modal.getByText("Pick at least one line item.")).toBeVisible();
   await modal.getByRole("button", { name: "Cancel" }).click();
 });
 

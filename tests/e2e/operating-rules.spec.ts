@@ -6,6 +6,7 @@ import {
   gotoTab,
   openMeters,
   openPostflightSection,
+  settledTachStart,
   signIn,
 } from "./helpers";
 
@@ -51,7 +52,7 @@ test("three landings today clears the member for solo", async ({ page }) => {
   // satisfies both the 30- and 90-day windows whatever else is in the log.
   await gotoTab(page, "/postflight", "Post-flight");
   await openMeters(page);
-  const tachStart = await page.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page);
   await page.getByLabel("Tach end").fill((Number(tachStart) + 0.9).toFixed(1));
   await openPostflightSection(page, /The flight/);
   await page.getByLabel("Landings", { exact: true }).fill("3");
@@ -71,11 +72,16 @@ test("the flight log states the same verdict next to the counts", async ({ page 
   // Currency is a "Mine" question — the club view is about the airplane.
   await page.getByRole("button", { name: "Mine", exact: true }).click();
 
-  await expect(page.getByText("Your landing currency")).toBeVisible();
-  await expect(page.getByText(/Day: \d+\/3 landings/)).toBeVisible();
-  await expect(page.getByText(/Night: \d+\/3 full-stop/)).toBeVisible();
+  // The card itself is one line: the verdict.
+  await expect(page.getByRole("heading", { name: "Landing currency" })).toBeVisible();
+  await expect(page.getByText(/^(Current|Not current)$/)).toBeVisible();
+  // The counts and what they mean are behind its (i).
+  await page.getByRole("button", { name: "Why: Landing currency" }).click();
+  const bubble = page.getByRole("tooltip");
+  await expect(bubble.getByText(/Day: \d+\/3 landings/)).toBeVisible();
+  await expect(bubble.getByText(/Night: \d+\/3 full-stop/)).toBeVisible();
   await expect(
-    page.getByText(
+    bubble.getByText(
       /(You're current to fly solo or as PIC by day\.|Not current for solo by day)/
     )
   ).toBeVisible();
@@ -108,20 +114,23 @@ test("the flight log keeps the rules behind the currency card, on Mine", async (
 
   // The log OPENS on Mine — your own flying, the same way Finances opens on
   // your own statement — so the currency card is already there.
-  await expect(page.getByText("Your landing currency")).toBeVisible();
+  const currency = page.getByRole("heading", { name: "Landing currency" });
+  await expect(currency).toBeVisible();
 
   // The club view is about the airplane: no personal currency, and no way in
   // to the rules from here.
   await page.getByRole("button", { name: "Club", exact: true }).click();
-  await expect(page.getByText("Your landing currency")).toBeHidden();
-  await expect(page.getByRole("button", { name: "Operating rules" })).toBeHidden();
+  await expect(currency).toBeHidden();
+  await expect(page.getByRole("button", { name: "Why: Landing currency" })).toBeHidden();
 
   await page.getByRole("button", { name: "Mine", exact: true }).click();
-  await expect(page.getByText("Your landing currency")).toBeVisible();
+  await expect(currency).toBeVisible();
 
-  // The table itself is a popover, opened from inside that card.
+  // The table itself is a popover, opened from inside the card's (i) — a
+  // button IN the bubble, which has to survive the click that presses it.
   await expect(page.getByText("Maximum offshore distance")).toBeHidden();
-  await page.getByRole("button", { name: "Operating rules" }).click();
+  await page.getByRole("button", { name: "Why: Landing currency" }).click();
+  await page.getByRole("tooltip").getByRole("button", { name: "Operating rules" }).click();
   await expect(page.getByText("Maximum offshore distance").first()).toBeVisible();
   await expect(page.getByText(/10 sm \(unless on a flight plan/).first()).toBeVisible();
 });

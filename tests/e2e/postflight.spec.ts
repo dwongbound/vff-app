@@ -14,6 +14,7 @@ import {
   gotoTab,
   openMeters,
   openPostflightSection,
+  settledTachStart,
   signIn,
 } from "./helpers";
 
@@ -41,7 +42,7 @@ test("the entry survives leaving the page and coming back", async ({ page }) => 
   // The form's groups are collapsible sections in the same accordion as the
   // turn-off card now, so each has to be opened before its fields exist.
   await openMeters(page);
-  const tachStart = await page.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page);
   const end = (Number(tachStart) + 1.3).toFixed(1);
   await page.getByLabel("Tach end").fill(end);
   await openPostflightSection(page, /The flight/);
@@ -106,7 +107,7 @@ test("the meter card fills itself from the turn-off checkout", async ({ page }) 
   // the real job: you write the reading on the shutdown item at the airplane,
   // and find it already in the meter box when you get to it.
   await openMeters(page);
-  const tachStart = await page.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page);
   const tach = (Number(tachStart) + 2.1).toFixed(1);
 
   // Type into the CHECKOUT's boxes, not the meter card's. By FIELD ID rather

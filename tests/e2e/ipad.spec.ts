@@ -7,7 +7,7 @@
 // page is likeliest to overflow or collide with the rail. Desktop Chrome at
 // 1280 would never catch it.
 import { expect, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { signIn, swipeLeft } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -57,7 +57,7 @@ test("the rail expands only the group you're in", async ({ page }) => {
 
   // Now that Preflight IS the page, its group stays open on its own and the
   // other group stays shut.
-  await expect(page.getByRole("link", { name: "Taxi & Runway" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Startup & Runup" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Squawks" })).toBeHidden();
 });
 
@@ -98,4 +98,38 @@ test("Finances keeps its table on a tablet, with the + panel above it", async ({
     return scroller.scrollWidth - scroller.clientWidth;
   });
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("a sideways pull does NOT change tab on a tablet", async ({ page }) => {
+  // Tab swipe is a phone gesture; a tablet has the rail to tap. The same pull
+  // changes tab on a phone (mobile.spec.ts), so this isn't passing because the
+  // simulated swipe did nothing.
+  await expect(page.getByRole("main")).toBeVisible();
+  const before = new URL(page.url()).pathname;
+  await swipeLeft(page, 400);
+  // Give a committed swipe every chance to navigate before checking it didn't.
+  await page.waitForTimeout(2000);
+  expect(new URL(page.url()).pathname).toBe(before);
+});
+
+/** The content column's left and right edges (main, inside its padding). */
+async function contentEdges(page: import("@playwright/test").Page) {
+  return page.getByRole("main").evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const css = getComputedStyle(el);
+    return {
+      left: box.left + parseFloat(css.paddingLeft),
+      right: box.right - parseFloat(css.paddingRight),
+    };
+  });
+}
+
+test("Quick Log's File button runs the full width on a tablet too", async ({ page }) => {
+  await page.goto("/quick-log");
+  const file = page.getByRole("main").getByRole("button", { name: "File", exact: true });
+  await expect(file).toBeVisible({ timeout: 60_000 });
+  const edges = await contentEdges(page);
+  const box = (await file.boundingBox())!;
+  expect(Math.abs(box.x - edges.left)).toBeLessThan(2);
+  expect(Math.abs(box.x + box.width - edges.right)).toBeLessThan(2);
 });
