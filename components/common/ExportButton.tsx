@@ -11,6 +11,7 @@
 // rebuild every row on every render of a page whose export nobody pressed.
 import { useState } from "react";
 import Button from "@/components/common/Button";
+import SpreadsheetIcon from "@/components/common/SpreadsheetIcon";
 import { XLSX_MIME, buildXlsx, type Sheet } from "@/lib/xlsx";
 
 export default function ExportButton({
@@ -50,6 +51,7 @@ export default function ExportButton({
         <span className="text-xs text-red-600 dark:text-red-400">{error}</span>
       )}
       <Button size="sm" variant="secondary" onClick={download} disabled={disabled}>
+        <SpreadsheetIcon />
         {label}
       </Button>
     </div>

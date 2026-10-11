@@ -281,15 +281,22 @@ function SquawkRow({
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <Badge tone={SQUAWK_STATUS_TONES[squawk.status]}>
-                {SQUAWK_STATUS_SHORT[squawk.status]}
-              </Badge>
-              <InfoTip label={SQUAWK_STATUS_LABELS[squawk.status]}>
-                {SQUAWK_STATUS_HINTS[squawk.status]}
-              </InfoTip>
-            </div>
-            <p className="mt-1 font-medium">{squawk.title}</p>
+            {/* The officer's card keeps a short badge here AND the picker on
+                the right (the badge is what they scan down the list). A
+                member's card has no picker, so its status takes the picker's
+                place on the right instead — one status per card, in the same
+                spot for everyone. */}
+            {canManage && (
+              <div className="mb-1 flex items-center gap-2">
+                <Badge tone={SQUAWK_STATUS_TONES[squawk.status]}>
+                  {SQUAWK_STATUS_SHORT[squawk.status]}
+                </Badge>
+                <InfoTip label={SQUAWK_STATUS_LABELS[squawk.status]}>
+                  {SQUAWK_STATUS_HINTS[squawk.status]}
+                </InfoTip>
+              </div>
+            )}
+            <p className="font-medium">{squawk.title}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Noted {formatDay(new Date(squawk.createdAt))} by{" "}
               {squawk.reportedBy.name}
@@ -322,7 +329,17 @@ function SquawkRow({
                 hint: SQUAWK_STATUS_HINTS[status],
               }))}
             />
-          ) : null}
+          ) : (
+            // Read-only: the status where the picker would be, in full.
+            <div className="flex shrink-0 items-center gap-1.5" data-testid="squawk-status">
+              <Badge tone={SQUAWK_STATUS_TONES[squawk.status]}>
+                {SQUAWK_STATUS_LABELS[squawk.status]}
+              </Badge>
+              <InfoTip label={SQUAWK_STATUS_LABELS[squawk.status]}>
+                {SQUAWK_STATUS_HINTS[squawk.status]}
+              </InfoTip>
+            </div>
+          )}
         </div>
 
         {squawk.description && (

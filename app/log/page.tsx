@@ -20,6 +20,7 @@ import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import ExportButton from "@/components/common/ExportButton";
+import InfoTip from "@/components/common/InfoTip";
 import FlightDetailModal from "@/components/FlightDetailModal";
 import FlightEntryModal from "@/components/FlightEntryModal";
 import { RulesModal } from "@/components/OperatingRules";
@@ -213,7 +214,10 @@ function FlightLog() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      {/* Title, then one row of controls with "+ Add flight" pushed to its far
+          right — the page's one action, in the primary colour, where the thumb
+          ends up. From `sm` up the controls sit to the right of the title. */}
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-xl font-bold">Flight log</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -222,7 +226,22 @@ function FlightLog() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Exports what the switch above is showing — the club's log, or
+          <div className="flex rounded-lg border border-gray-300 p-0.5 dark:border-gray-600">
+            {(["all", "mine"] as Filter[]).map((value) => (
+              <button
+                key={value}
+                onClick={() => setFilter(value)}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  filter === value
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+              >
+                {switchLabel(value, asInstructor)}
+              </button>
+            ))}
+          </div>
+          {/* Exports what the switch beside it is showing — the club's log, or
               yours. The two are different documents (see the Club/Mine note at
               the top of this file), and an export that ignored the switch would
               hand a member the wrong one of them. */}
@@ -242,45 +261,35 @@ function FlightLog() {
               }),
             ]}
           />
-          <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
-            Add flight
-          </Button>
-          <div className="flex rounded-lg border border-gray-300 p-0.5 dark:border-gray-600">
-          {(["all", "mine"] as Filter[]).map((value) => (
-            <button
-              key={value}
-              onClick={() => setFilter(value)}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                filter === value
-                  ? "bg-indigo-600 text-white"
-                  : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-              }`}
-            >
-              {value === "all" ? "Club" : asInstructor ? "Teaching" : "Mine"}
-            </button>
-          ))}
+          <div className="ml-auto">
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <span aria-hidden>+</span>
+              Add flight
+            </Button>
           </div>
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {/* Three across at every width. Labels are short enough for a phone's
+          third of the screen; whose numbers they are is the switch above. */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {filter === "all" ? (
           <>
             <Stat label="Hours this month" value={formatHours(stats.monthHours)} />
-            <Stat label="Club flights" value={String(stats.flights)} />
-            <Stat label="Club landings" value={String(stats.landings)} />
+            <Stat label="Flights" value={String(stats.flights)} />
+            <Stat label="Landings" value={String(stats.landings)} />
           </>
         ) : asInstructor ? (
           <>
-            <Stat label="Hours taught this year" value={formatHours(stats.yearHours)} />
+            <Stat label="Hours taught" value={formatHours(stats.yearHours)} />
             <Stat label="Lessons" value={String(stats.flights)} />
-            <Stat label="Awaiting your signature" value={String(awaiting.length)} />
+            <Stat label="To sign" value={String(awaiting.length)} />
           </>
         ) : (
           <>
-            <Stat label="Your hours this year" value={formatHours(stats.yearHours)} />
-            <Stat label="Your flights" value={String(stats.flights)} />
-            <Stat label="Your landings" value={String(stats.landings)} />
+            <Stat label="Hours this year" value={formatHours(stats.yearHours)} />
+            <Stat label="Flights" value={String(stats.flights)} />
+            <Stat label="Landings" value={String(stats.landings)} />
           </>
         )}
       </div>
@@ -291,37 +300,38 @@ function FlightLog() {
           hours flown in another club's airplane are invisible here, and the
           pilot is still PIC of that decision. */}
       {filter === "mine" && !asInstructor && (
-        <Card className="space-y-2">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <h2 className="text-sm font-semibold">
-              Your landing currency
-              <span className="ml-2 font-normal text-gray-500 dark:text-gray-400">
-                last {currency.windowDays} days, from this club&rsquo;s log
+        // One line: the verdict. Everything behind it — the window, the
+        // counts, what it means, the caveat about other airplanes and the way
+        // in to the operating rules — lives in the (i), for whoever asks.
+        <Card className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-sm font-semibold">Landing currency</h2>
+            <InfoTip label="Landing currency">
+              <span className="block">
+                Last {currency.windowDays} days, from this club&rsquo;s log.
               </span>
-            </h2>
-            {/* The rules live behind this rather than on the page: you go
-                looking for them when the verdict above prompts the question. */}
-            <button
-              onClick={() => setRulesOpen(true)}
-              className="shrink-0 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-            >
-              Operating rules
-            </button>
+              <span className="mt-1 block font-medium">
+                Day: {currency.dayLandings}/{REQUIRED_LANDINGS} landings · Night:{" "}
+                {currency.nightLandings}/{REQUIRED_LANDINGS} full-stop
+              </span>
+              <span className="mt-1 block">
+                {currency.daySolo
+                  ? "You're current to fly solo or as PIC by day."
+                  : "Not current for solo by day — fly with an approved instructor until you are."}{" "}
+                Flights in other airplanes don&rsquo;t appear here.
+              </span>
+              <button
+                type="button"
+                onClick={() => setRulesOpen(true)}
+                className="mt-2 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Operating rules
+              </button>
+            </InfoTip>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge tone={currency.daySolo ? "green" : "amber"}>
-              Day: {currency.dayLandings}/{REQUIRED_LANDINGS} landings
-            </Badge>
-            <Badge tone={currency.nightSolo ? "green" : "gray"}>
-              Night: {currency.nightLandings}/{REQUIRED_LANDINGS} full-stop
-            </Badge>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {currency.daySolo
-              ? "You're current to fly solo or as PIC by day."
-              : "Not current for solo by day — fly with an approved instructor until you are."}{" "}
-            Flights in other airplanes don&rsquo;t appear here.
-          </p>
+          <Badge tone={currency.daySolo ? "green" : "amber"}>
+            {currency.daySolo ? "Current" : "Not current"}
+          </Badge>
         </Card>
       )}
 
@@ -545,11 +555,26 @@ function FlightLog() {
   );
 }
 
+/** One figure in the row of three: a short label, a big number. */
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="p-3">
-      <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
-      <div className="text-xl font-bold tabular">{value}</div>
+    <Card padded={false} className="p-2.5 sm:p-3">
+      <div className="text-[11px] leading-tight text-gray-500 dark:text-gray-400 sm:text-xs">
+        {label}
+      </div>
+      <div className="text-lg font-bold tabular sm:text-xl">{value}</div>
     </Card>
   );
 }
+
+/**
+ * The switch's two halves. The second is "Teaching" for an instructor-only
+ * account — they have no flying of their own here, so "Mine" would be empty —
+ * and "Mine" for everyone else.
+ */
+function switchLabel(value: Filter, asInstructor: boolean): string {
+  if (value === "all") return "Club";
+  if (asInstructor) return "Teaching";
+  return "Mine";
+}
+

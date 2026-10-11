@@ -118,7 +118,7 @@ test.describe("sign-up codes", () => {
   }) => {
     // Case and spacing don't matter — the code gets read down a phone.
     expect(
-      await signUp(page, { code: " vff-cfi ", email: freshEmail("cfi") })
+      await signUp(page, { code: ` ${CFI_CODE.toLowerCase()} `, email: freshEmail("cfi") })
     ).toBeNull();
 
     await expect(
@@ -251,7 +251,7 @@ test.describe("signing a flight-log entry", () => {
     ).toBeVisible({ timeout: 60_000 });
     // Their own flying isn't the subject here, so the landing-currency card —
     // a pilot's question — is not on this tab.
-    await expect(page.getByText("Your landing currency")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Landing currency" })).toHaveCount(0);
   });
 
   test("only the named instructor may sign, and the date is recorded", async ({

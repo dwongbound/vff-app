@@ -102,16 +102,6 @@ export default function SettingsPage() {
   );
 }
 
-/** Dollars ⇄ cents, so admins type "165" rather than "16500". */
-function centsToDollars(cents: number | null): string {
-  return cents == null ? "" : String(cents / 100);
-}
-function dollarsToCents(dollars: string): number | null {
-  if (dollars.trim() === "") return null;
-  const n = Number(dollars);
-  return Number.isFinite(n) ? Math.round(n * 100) : null;
-}
-
 /** One airplane, editable in place. */
 function AircraftCard({ aircraft }: { aircraft: ApiAircraft }) {
   const [tailNumber, setTailNumber] = useState(aircraft.tailNumber);

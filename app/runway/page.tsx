@@ -1,5 +1,5 @@
 "use client";
-// Taxi & Runway checkout — the front of N8318B's in-cockpit card.
+// Startup & Runup checkout — the front of N8318B's in-cockpit card.
 //
 // Passengers, before starting, the cold-start pre-lube, starting, the runup and
 // pre-takeoff, bracketed at the end by the club's 5 Ps. It begins where the
@@ -253,7 +253,7 @@ export default function RunwayPage() {
     const result = await outbox.submit(
       checkoutSignOffJob({
         owner: { userId: me.id, userName: me.name },
-        label: `Taxi & Runway — ${selected.tailNumber}`,
+        label: `Startup & Runup — ${selected.tailNumber}`,
         kind: "RUNWAY",
         aircraftId: selected.id,
         serverId: draft.serverId,
@@ -283,7 +283,7 @@ export default function RunwayPage() {
     // Either way the club can now see the airplane is out. See
     // lib/flightSession.ts.
     if (result.kind === "queued") setQueued(true);
-    else setSaved("Taxi & Runway checkout completed. Clear prop — have a good flight.");
+    else setSaved("Startup & Runup checkout completed. Clear prop — have a good flight.");
 
     setAnswers(preflightDone ? { "start.preflight": true } : {});
     setValues(initialValues("RUNWAY"));
@@ -355,7 +355,7 @@ export default function RunwayPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Taxi &amp; Runway</h1>
+        <h1 className="text-xl font-bold">Startup &amp; Runup</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {selected.tailNumber} · {selected.model}
           {lastRun && (

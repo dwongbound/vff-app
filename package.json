@@ -21,6 +21,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:e2e": "dotenv -e env/test.env -- playwright test",
+    "test:e2e:parallel": "scripts/e2e-parallel.sh",
     "e2e:server": "E2E=1 dotenv -e env/test.env -- next dev -p 3100"
   },
   "overrides": {

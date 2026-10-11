@@ -17,6 +17,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import Badge, { type BadgeTone } from "./Badge";
 import InfoTip from "./InfoTip";
+import { useKeepInViewport } from "../useKeepInViewport";
 
 export interface ChipOption<T extends string> {
   value: T;
@@ -49,6 +50,9 @@ export default function ChipSelect<T extends string>({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // The listbox hangs from the button's right edge and grows leftward to fit
+  // its longest option; on a narrow screen that can run off the left side.
+  const listRef = useKeepInViewport<HTMLUListElement>(open);
   const ref = useRef<HTMLDivElement>(null);
   const labelId = useId();
   const valueId = useId();
@@ -124,6 +128,7 @@ export default function ChipSelect<T extends string>({
 
       {open && (
         <ul
+          ref={listRef}
           role="listbox"
           aria-labelledby={labelId}
           className="absolute right-0 z-40 mt-1 w-full min-w-max overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800"

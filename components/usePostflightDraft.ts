@@ -10,8 +10,9 @@
 // restoring a draft doesn't immediately write it back, a `frozen` flag so the
 // submit isn't racing a save, and a `dirty` rule that refuses to save a form
 // nobody has actually filled in.
+import { deviceStore } from "./deviceStore";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { pruneDrafts, type DraftStore } from "@/lib/checkoutDraft";
+import { pruneDrafts } from "@/lib/checkoutDraft";
 import { checkoutFor } from "@/lib/checkouts";
 import {
   clearPostflightDraft,
@@ -22,15 +23,6 @@ import {
   type PostflightForm,
 } from "@/lib/postflightDraft";
 
-/** localStorage, or null wherever it isn't usable — see useCheckoutDraft. */
-function deviceStore(): DraftStore | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 export interface PostflightDraftState {
   /** What was picked up on load, if anything — drives the restore message. */

@@ -13,6 +13,7 @@
 // value format is exactly what the native input emits ("YYYY-MM-DD", or
 // "YYYY-MM-DDTHH:mm" in datetime mode).
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useKeepInViewport } from "../useKeepInViewport";
 import {
   formatClock,
   fromDateInputValue,
@@ -71,6 +72,9 @@ export default function DateTimeField({
   // measured the pointer.
   const [customPicker, setCustomPicker] = useState(false);
   const [open, setOpen] = useState(false);
+  // Aligned to the field's right edge; a narrow field near the left of the
+  // window would otherwise push the calendar off it. (Up/down is `dropUp`.)
+  const popoverRef = useKeepInViewport<HTMLDivElement>(open);
   const [dropUp, setDropUp] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -218,6 +222,7 @@ export default function DateTimeField({
 
         {open && customPicker && (
           <div
+            ref={popoverRef}
             role="dialog"
             aria-label={`${label} calendar picker`}
             className={`absolute right-0 z-40 flex gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-700 dark:bg-gray-800 ${

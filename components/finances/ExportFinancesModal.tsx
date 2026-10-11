@@ -5,7 +5,7 @@
 // file depend on how far down the page you happened to be. Now it asks:
 //
 //   When    all time (the default), this month, the last 3 or 12, or a range
-//   What    which kinds of line — dues, flight time, credits… (all, by default)
+//   What    which line items — dues, flight time, credits… (all, by default)
 //   Who     the Finance Officer's club export only: everyone (the default),
 //           or a few people, the club's own money among them
 //
@@ -120,7 +120,7 @@ export default function ExportFinancesModal({
   async function exportFile() {
     setError(null);
     if (kinds.size === 0) {
-      setError("Pick at least one kind of line.");
+      setError("Pick at least one line item.");
       return;
     }
     if (club && !everyone && people.size === 0) {
@@ -141,7 +141,7 @@ export default function ExportFinancesModal({
       club && !everyone ? people : null
     );
     if (lines.length === 0) {
-      setError("Nothing matches — widen the range or the kinds of line.");
+      setError("Nothing matches — widen the months or the line items.");
       return;
     }
 
@@ -170,7 +170,7 @@ export default function ExportFinancesModal({
       open
       onClose={onClose}
       title="Export"
-      subtitle={club ? "The club's books, as a spreadsheet" : "Your statement, as a spreadsheet"}
+      subtitle={club ? "Club books" : "Your statement"}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>
@@ -205,7 +205,7 @@ export default function ExportFinancesModal({
 
         <fieldset className="space-y-2">
           <div className="flex items-center justify-between">
-            <legend className="text-sm font-medium">Kinds of line</legend>
+            <legend className="text-sm font-medium">Line items:</legend>
             <button
               type="button"
               className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"

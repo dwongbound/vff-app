@@ -69,7 +69,12 @@ export default function UtilisationChart({ months }: { months: MonthlyHours[] })
 
                 {/* Hover layer: an HTML chart is interactive by default, and a
                     column too short to label still has to be readable. */}
-                <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white shadow-lg group-hover:block dark:bg-gray-700">
+                <div
+                  className={`pointer-events-none absolute bottom-full z-10 mb-1 hidden whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white shadow-lg group-hover:block dark:bg-gray-700 ${tooltipAnchor(
+                    i,
+                    months.length
+                  )}`}
+                >
                   {m.label} · {formatHours(m.hours)}
                 </div>
 
@@ -99,4 +104,17 @@ export default function UtilisationChart({ months }: { months: MonthlyHours[] })
       </table>
     </figure>
   );
+}
+
+/**
+ * Where a column's hover label hangs. Centred over its column, except at the
+ * two ends of the chart: centred over the first or last column of a phone-wide
+ * chart, the label runs off the screen, so those open INWARD from their outer
+ * edge instead. (Pure CSS — the label only exists on hover, so there is
+ * nothing to measure the way useKeepInViewport does.)
+ */
+function tooltipAnchor(index: number, count: number): string {
+  if (index < 2) return "left-0";
+  if (index >= count - 2) return "right-0";
+  return "left-1/2 -translate-x-1/2";
 }

@@ -51,6 +51,10 @@ export const DRAFT_KEY_PREFIX = `vff:checkout-draft:v${DRAFT_FORMAT}`;
 export const POSTFLIGHT_DRAFT_FORMAT = 1;
 export const POSTFLIGHT_DRAFT_KEY_PREFIX = `vff:postflight-draft:v${POSTFLIGHT_DRAFT_FORMAT}`;
 
+/** Quick Log's draft key (see lib/quickLogDraft.ts) — here for the same sweep. */
+export const QUICKLOG_DRAFT_FORMAT = 1;
+export const QUICKLOG_DRAFT_KEY_PREFIX = `vff:quicklog-draft:v${QUICKLOG_DRAFT_FORMAT}`;
+
 /**
  * Every key family this app stores drafts under: the root it has always used,
  * and the prefix the CURRENT format writes. Anything under a root but not under
@@ -60,6 +64,7 @@ export const POSTFLIGHT_DRAFT_KEY_PREFIX = `vff:postflight-draft:v${POSTFLIGHT_D
 const DRAFT_FAMILIES = [
   { root: "vff:checkout-draft:", current: `${DRAFT_KEY_PREFIX}:` },
   { root: "vff:postflight-draft:", current: `${POSTFLIGHT_DRAFT_KEY_PREFIX}:` },
+  { root: "vff:quicklog-draft:", current: `${QUICKLOG_DRAFT_KEY_PREFIX}:` },
 ] as const;
 
 /**

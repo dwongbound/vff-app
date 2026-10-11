@@ -24,7 +24,7 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   if (!can(user, "maintenance:manage")) {
     return NextResponse.json(
-      { error: "Only the Maintenance Officer (or an admin) keeps this list." },
+      { error: "Only the Safety Officer (or an admin) keeps this list." },
       { status: 403 }
     );
   }
@@ -72,7 +72,7 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   if (!can(user, "maintenance:manage")) {
     return NextResponse.json(
-      { error: "Only the Maintenance Officer (or an admin) keeps this list." },
+      { error: "Only the Safety Officer (or an admin) keeps this list." },
       { status: 403 }
     );
   }

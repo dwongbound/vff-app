@@ -61,7 +61,6 @@ type Position =
   | "SECRETARY"
   | "FINANCE_OFFICER"
   | "SAFETY_OFFICER"
-  | "MAINTENANCE_OFFICER"
   | "INSTRUCTOR";
 
 // The demo roster — INVENTED PEOPLE, and deliberately so.
@@ -152,7 +151,9 @@ const MEMBERS: {
     name: "Morgan Ellis",
     email: "morgan@vffclub.test",
     phone: "(206) 555-0164",
-    positions: ["MAINTENANCE_OFFICER", "VICE_PRESIDENT"],
+    // A second Safety Officer — what the old Maintenance Officer became when
+    // the two offices were folded into one (the migration does the same).
+    positions: ["SAFETY_OFFICER", "VICE_PRESIDENT"],
     certificate: "Private Pilot ASEL",
     totalTimeHours: 184,
   },

@@ -27,6 +27,10 @@ test("files a flight from four numbers, and counts the airports as landings", as
   // by NAME — an anonymous number is one you can't decide whether to trust.
   const tachStart = main.getByLabel("Tach start", { exact: true });
   await expect(tachStart).not.toHaveValue("");
+  // Wait for the page to stop asking: the start box follows the best reading
+  // the app knows, and a late answer (today's preflight walk) can change it
+  // after it's been read. See the same note in mobile.spec.ts.
+  await page.waitForLoadState("networkidle");
   const start = Number(await tachStart.inputValue());
 
   await main.getByLabel("Tach end", { exact: true }).fill(String(start + 1.2));
@@ -43,7 +47,7 @@ test("files a flight from four numbers, and counts the airports as landings", as
     page.waitForResponse(
       (r) => r.url().endsWith("/api/flights") && r.request().method() === "POST"
     ),
-    main.getByRole("button", { name: "File flight" }).click(),
+    main.getByRole("button", { name: "File", exact: true }).click(),
   ]);
   await expect(main.getByText(/Filed 1\.2 hours/)).toBeVisible();
 
@@ -69,16 +73,27 @@ test("files an incomplete entry with no tach end, and the log flags it", async (
 }) => {
   const main = page.getByRole("main");
 
-  // The button is never disabled by a missing reading — it changes what it
-  // says instead, which is the same bargain the checkout pages' Complete
-  // button strikes over a half-ticked card.
+  // The button is never disabled by a missing reading, and it always says
+  // "File" — the missing reading is explained in a confirmation instead, the
+  // same bargain the checkout pages' Complete button strikes.
   // Same wait: the incomplete case still needs the START prefill to have
   // landed, or the entry files with both meters missing and the badge below
   // reads "Needs tach start & tach end".
   await expect(main.getByLabel("Tach start", { exact: true })).not.toHaveValue("");
-  const file = main.getByRole("button", { name: "File incomplete" });
+  const file = main.getByRole("button", { name: "File", exact: true });
   await expect(file).toBeEnabled();
   await main.getByLabel("Landed at", { exact: true }).fill("KTOA");
+
+  // It asks first, and says what the gap means and how to close it.
+  await file.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("File without a tach end?")).toBeVisible();
+  await expect(dialog.getByText(/Needs tach end/)).toBeVisible();
+  await expect(dialog.getByText(/open the entry in the Flight log/)).toBeVisible();
+  // "Keep editing" changes nothing.
+  await dialog.getByRole("button", { name: "Keep editing" }).click();
+  await expect(dialog).toBeHidden();
+  await file.click();
 
   // Read the id off the POST rather than off "the newest flight": several
   // specs file on the same day against one database, and `?limit=1` hands
@@ -88,7 +103,7 @@ test("files an incomplete entry with no tach end, and the log flags it", async (
     page.waitForResponse(
       (r) => r.url().endsWith("/api/flights") && r.request().method() === "POST"
     ),
-    file.click(),
+    dialog.getByRole("button", { name: "File anyway" }).click(),
   ]);
   const flight = (await posted.json()) as {
     id: string;
@@ -122,6 +137,10 @@ test("still refuses a tach end below the start", async ({ page }) => {
   // no error appears. The failure looks like the validation is broken.
   const tachStart = main.getByLabel("Tach start", { exact: true });
   await expect(tachStart).not.toHaveValue("");
+  // Wait for the page to stop asking: the start box follows the best reading
+  // the app knows, and a late answer (today's preflight walk) can change it
+  // after it's been read. See the same note in mobile.spec.ts.
+  await page.waitForLoadState("networkidle");
   const start = Number(await tachStart.inputValue());
   await main.getByLabel("Tach end", { exact: true }).fill(String(start - 5));
 
@@ -151,11 +170,14 @@ test("the card toggle is visible up front and decides the reimbursement", async 
   await expect(toggle).toHaveAttribute("aria-checked", "true");
 
   await expect(main.getByLabel("Tach start", { exact: true })).not.toHaveValue("");
+  // No tach end is typed here, so File asks first — this test is about the
+  // card toggle, so it answers "File anyway".
+  await main.getByRole("button", { name: "File", exact: true }).click();
   const [posted] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().endsWith("/api/flights") && r.request().method() === "POST"
     ),
-    main.getByRole("button", { name: /^File/ }).click(),
+    page.getByRole("dialog").getByRole("button", { name: "File anyway" }).click(),
   ]);
   const flight = (await posted.json()) as {
     fuelCostCents: number | null;
@@ -173,4 +195,84 @@ test("the card toggle is visible up front and decides the reimbursement", async 
     .flatMap((st) => st.charges)
     .filter((c) => c.kind === "FUEL_CREDIT" && c.amountCents === -12_000);
   expect(credits).toHaveLength(0);
+});
+
+// Typed at the tail, it's the form a member walks away from mid-way — to check
+// the log, to answer a message. What they typed must still be there.
+test("what's typed is kept on the device across tabs, until it's filed or discarded", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const tachStart = main.getByLabel("Tach start", { exact: true });
+  await expect(tachStart).not.toHaveValue("");
+  const end = (Number(await tachStart.inputValue()) + 0.6).toFixed(1);
+  await main.getByLabel("Tach end", { exact: true }).fill(end);
+  await main.getByLabel("Landed at", { exact: true }).fill("KTOA, KSMO");
+  await expect(main.getByText(/Saved on this device/)).toBeVisible();
+
+  // Off to another tab and back: still there.
+  await page.goto("/log");
+  await expect(page.getByRole("main").getByRole("heading", { name: "Flight log" })).toBeVisible();
+  await page.goto("/quick-log");
+  await expect(main.getByLabel("Tach end", { exact: true })).toHaveValue(end, {
+    timeout: 30_000,
+  });
+  await expect(main.getByLabel("Landed at", { exact: true })).toHaveValue("KTOA, KSMO");
+
+  // A full reload too.
+  await page.reload();
+  await expect(main.getByLabel("Tach end", { exact: true })).toHaveValue(end, {
+    timeout: 30_000,
+  });
+
+  // Discard empties what the member typed, and the draft with it.
+  await main.getByRole("button", { name: "Discard" }).click();
+  await expect(main.getByLabel("Tach end", { exact: true })).toHaveValue("");
+  await expect(main.getByText(/Saved on this device/)).toHaveCount(0);
+  await page.reload();
+  await expect(main.getByLabel("Landed at", { exact: true })).toHaveValue("", {
+    timeout: 30_000,
+  });
+
+  // And filing clears it: type again, file, come back to an empty form.
+  await main.getByLabel("Tach end", { exact: true }).fill(end);
+  await main.getByLabel("Landed at", { exact: true }).fill("KTOA");
+  const [posted] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().endsWith("/api/flights") && r.request().method() === "POST"
+    ),
+    main.getByRole("button", { name: "File", exact: true }).click(),
+  ]);
+  const { id } = (await posted.json()) as { id: string };
+  await expect(main.getByText(/^Filed /)).toBeVisible({ timeout: 30_000 });
+  await page.reload();
+  await expect(main.getByLabel("Landed at", { exact: true })).toHaveValue("", {
+    timeout: 30_000,
+  });
+  await expect(main.getByText(/Saved on this device/)).toHaveCount(0);
+
+  // Tidy up: a stray flight moves the airplane's tach for every later spec.
+  await page.request.delete(`/api/flights/${id}`);
+});
+
+/** The content column's left and right edges (main, inside its padding). */
+async function contentEdges(page: import("@playwright/test").Page) {
+  return page.getByRole("main").evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const css = getComputedStyle(el);
+    return {
+      left: box.left + parseFloat(css.paddingLeft),
+      right: box.right - parseFloat(css.paddingRight),
+    };
+  });
+}
+
+test("on a computer, File sits at the right of the form", async ({ page }) => {
+  const file = page.getByRole("main").getByRole("button", { name: "File", exact: true });
+  await expect(file).toBeVisible({ timeout: 60_000 });
+  const edges = await contentEdges(page);
+  const box = (await file.boundingBox())!;
+  // Flush right, and a button's width rather than the column's.
+  expect(Math.abs(box.x + box.width - edges.right)).toBeLessThan(2);
+  expect(box.width).toBeLessThan((edges.right - edges.left) / 3);
 });

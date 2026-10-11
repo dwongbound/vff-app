@@ -742,7 +742,7 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
   },
 ];
 
-// ── Taxi & Runway checkout ─────────────────────────────────────────────────
+// ── Startup & Runup checkout ───────────────────────────────────────────────
 // The front of the in-cockpit card, from the cabin door to the hold-short line.
 // The walkaround is behind you by this point: everything below happens sitting
 // in the airplane.
@@ -1283,7 +1283,7 @@ export const PREFLIGHT_CHECKOUT: Checkout = {
 
 export const RUNWAY_CHECKOUT: Checkout = {
   kind: "RUNWAY",
-  title: "Taxi & Runway checkout",
+  title: "Startup & Runup checkout",
   tagline: "Sitting down to holding short: passengers, start, runup, pre-takeoff.",
   // v2 is the club reading the card against how it actually flies N8318B.
   //

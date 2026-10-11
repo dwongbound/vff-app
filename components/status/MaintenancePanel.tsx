@@ -13,7 +13,7 @@
 // you know it's 19.3 of 50. Status colour never travels alone — every toned row
 // prints its state in words as well (see components/status/Meter.tsx).
 //
-// Editing is gated on `maintenance:manage` (the Maintenance Officer, or an
+// Editing is gated on `maintenance:manage` (the Safety Officer, or an
 // admin). The API re-checks it on every write; hiding the buttons is a
 // courtesy, not the control.
 import { useState } from "react";
@@ -136,7 +136,7 @@ export default function MaintenancePanel({
           Nothing tracked yet.{" "}
           {canManage
             ? "Add the annual, the oil change and the equipment checks and the countdowns look after themselves."
-            : "The Maintenance Officer keeps this list."}
+            : "The Safety Officer keeps this list."}
         </p>
       ) : (
         <>

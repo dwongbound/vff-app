@@ -4,6 +4,7 @@ import {
   gotoTab,
   openMeters,
   openPostflightSection,
+  settledTachStart,
   signIn,
   waitForCheckoutSaved,
 } from "./helpers";
@@ -124,7 +125,7 @@ test("filing a flight adds it to the log and advances the tach", async ({ page }
   // arithmetic rather than the app's.
   // The form's groups collapse now — one accordion across the whole page.
   await openMeters(page);
-  const tachStart = await page.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page);
   const end = (Number(tachStart) + 1.5).toFixed(2);
   await page.getByLabel("Tach end").fill(end);
   await openPostflightSection(page, /The flight/);
@@ -141,7 +142,10 @@ test("filing a flight adds it to the log and advances the tach", async ({ page }
   // The night landing lands in the currency card, not just the log line — and
   // currency is a "Mine" question, so it lives on that half of the switch.
   await page.getByRole("button", { name: "Mine", exact: true }).click();
-  await expect(page.getByText(/Night: [1-9]\d*\/3 full-stop/)).toBeVisible();
+  await page.getByRole("button", { name: "Why: Landing currency" }).click();
+  await expect(
+    page.getByRole("tooltip").getByText(/Night: [1-9]\d*\/3 full-stop/)
+  ).toBeVisible();
 });
 
 test("an impossible meter reading is caught before it can be filed", async ({
@@ -149,7 +153,7 @@ test("an impossible meter reading is caught before it can be filed", async ({
 }) => {
   await gotoTab(page, "/postflight", "Post-flight");
   await openMeters(page);
-  const tachStart = await page.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page);
   await page.getByLabel("Tach end").fill((Number(tachStart) - 5).toFixed(1));
 
   await expect(page.getByText(/lower than tach start/)).toBeVisible();
@@ -341,7 +345,7 @@ test("a flight can be added to the log by hand", async ({ page }) => {
   await expect(modal.getByText(/for a flight that was never filed/)).toBeVisible();
 
   // Tach start prefills from the airplane, so only the end reading is needed.
-  const tachStart = await modal.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page, modal);
   expect(tachStart).not.toBe("");
   await modal.getByLabel("Tach end").fill((Number(tachStart) + 2.3).toFixed(1));
   await modal.getByLabel("Landings", { exact: true }).fill("4");
@@ -372,9 +376,22 @@ test("a backwards tach reading is refused in the add-flight modal", async ({
   await page.getByRole("button", { name: "Add flight" }).first().click();
 
   const modal = page.getByRole("dialog");
-  const tachStart = await modal.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page, modal);
   await modal.getByLabel("Tach end").fill((Number(tachStart) - 3).toFixed(1));
 
   await expect(modal.getByText(/lower than tach start/)).toBeVisible();
   await expect(modal.getByRole("button", { name: "Add to log" })).toBeDisabled();
 });
+
+test("the oil box says what the dipstick read last time", async ({ page }) => {
+  // A HINT under the box, never a prefill: the number typed has to be one
+  // somebody read off the stick today. (It was computed and passed for months
+  // without ever reaching the screen — CheckoutList dropped the prop.)
+  await gotoTab(page, "/preflight", "Preflight");
+  await page.getByRole("button", { name: /Consumables.*\d+\/\d+$/ }).click();
+  await expect(
+    page.getByRole("main").getByText(/^Last recorded [\d.]+ qts on .+ by .+$/)
+  ).toBeVisible();
+  await expect(page.getByRole("main").getByRole("spinbutton", { name: /^Oil/ })).toHaveValue("");
+});
+

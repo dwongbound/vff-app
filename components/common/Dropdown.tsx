@@ -28,6 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useKeepInViewport } from "../useKeepInViewport";
 
 interface DropdownProps {
   trigger: ReactNode | ((open: boolean) => ReactNode);
@@ -74,6 +75,8 @@ export default function Dropdown({
   const [open, setOpen] = useState(false);
   // Stays true through the fade-out so the menu can animate away.
   const [rendered, setRendered] = useState(false);
+  // A menu aligned to a trigger near the window's edge must not run off it.
+  const panelRef = useKeepInViewport<HTMLDivElement>(rendered);
   // Clicked open: hovering out no longer closes it.
   const [latched, setLatched] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -169,6 +172,7 @@ export default function Dropdown({
       {rendered && (
         // The padding here is the hover bridge — see the note at the top.
         <div
+          ref={panelRef}
           className={`absolute z-40 ${wrapperClassName} ${
             align === "right" ? "right-0" : "left-0"
           } ${open ? "" : "pointer-events-none"}`}

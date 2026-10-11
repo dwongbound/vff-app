@@ -105,8 +105,7 @@ enum Position {
   VICE_PRESIDENT
   SECRETARY
   FINANCE_OFFICER // keeps the books: dues, charges, the hourly rate
-  SAFETY_OFFICER
-  MAINTENANCE_OFFICER
+  SAFETY_OFFICER // triages squawks AND keeps the maintenance sheet
   INSTRUCTOR // CFI: signs training flights, bookable as the instructor
 }
 

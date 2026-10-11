@@ -36,16 +36,22 @@
 //     its start, a twelve-hour flight, half a Hobbs pair.
 //   • It prices the flight live, off the same `flightCostCents` the log uses.
 //
-// Deliberately NO autosave here, unlike the checkouts and the post-flight form.
-// Those are filled in over a walk you can be interrupted in the middle of; this
-// is four boxes and a button, and a draft store for it would be more state to
-// reconcile than the form it protects.
+// It AUTOSAVES, on the device (lib/quickLogDraft.ts): typed at the tail, it is
+// exactly the form a member leaves mid-way — to check the log for the last
+// tach, to answer a message — and coming back to empty boxes was the bug. The
+// draft is per member and per airplane, and goes the moment the flight is
+// filed (or the member presses Discard).
+//
+// The button always says "File". A missing tach reading doesn't stop it — an
+// honest gap beats no record — but it ASKS first, in a dialog that says what
+// the gap means and how to close it, rather than renaming the button.
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Banner from "@/components/common/Banner";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import ConfirmModal from "@/components/common/ConfirmModal";
 import Input from "@/components/common/Input";
 import InfoTip from "@/components/common/InfoTip";
 import Toggle from "@/components/common/Toggle";
@@ -53,6 +59,15 @@ import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvide
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
+import { deviceStore } from "@/components/deviceStore";
+import { pruneDrafts } from "@/lib/checkoutDraft";
+import {
+  clearQuickLogDraft,
+  quickLogHasProgress,
+  readQuickLogDraft,
+  writeQuickLogDraft,
+  type QuickLogForm,
+} from "@/lib/quickLogDraft";
 import { fetchJsonArray } from "@/lib/api";
 import { QUEUED_NOTICE } from "@/lib/offline";
 import { flightJob, hasPending } from "@/lib/outbox";
@@ -108,6 +123,8 @@ export default function QuickLogPage() {
   const [queued, setQueued] = useState(false);
   const outbox = useOutbox();
   const { me } = useMe();
+  // A missing tach reading asks before it files — see the note at the top.
+  const [confirmingGap, setConfirmingGap] = useState(false);
 
   // ── Three reads, all fired in PARALLEL on mount ─────────────────────────
   //
@@ -196,6 +213,103 @@ export default function QuickLogPage() {
   // on the post-flight form for the bug that causes ("1506.1" arriving one
   // keystroke at a time and the box keeping only the "1").
   const [edited, setEdited] = useState({ tachStart: false, hobbsStart: false });
+
+  // ── The device draft ────────────────────────────────────────────────────
+  //
+  // `restoredFor` is the member+airplane whose draft the form currently holds.
+  // Until it matches, nothing is SAVED — otherwise the empty first render
+  // would overwrite a draft before it had been read back.
+  const draftOwner = me && aircraftId ? `${me.id}:${aircraftId}` : null;
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+
+  /** Empty every box the MEMBER fills; the start boxes go back to the prefill. */
+  function resetTyped() {
+    setFlownOn(toDateInputValue(new Date()));
+    setTachEnd("");
+    setHobbsEnd("");
+    setAirports("");
+    setFuelAdded("");
+    setFuelCost("");
+    setOilAdded("");
+    setPaidPersonally(true);
+    setShowFuel(false);
+    setEdited({ tachStart: false, hobbsStart: false });
+  }
+
+  // Read the draft back when the page opens — and again if the member switches
+  // airplane, which must never carry one airplane's numbers into another's.
+  useEffect(() => {
+    if (!me || !aircraftId || restoredFor === draftOwner) return;
+    pruneDrafts(deviceStore());
+    const draft = readQuickLogDraft(deviceStore(), { memberId: me.id, aircraftId });
+    if (draft) {
+      setFlownOn(draft.flownOn);
+      setTachStart(draft.tachStart);
+      setTachEnd(draft.tachEnd);
+      setHobbsStart(draft.hobbsStart);
+      setHobbsEnd(draft.hobbsEnd);
+      setAirports(draft.airports);
+      setFuelAdded(draft.fuelAdded);
+      setFuelCost(draft.fuelCost);
+      setOilAdded(draft.oilAdded);
+      setPaidPersonally(draft.paidPersonally);
+      setEdited(draft.edited);
+      setShowFuel(Boolean(draft.fuelAdded || draft.fuelCost || draft.oilAdded));
+      setDraftSavedAt(draft.savedAt);
+    } else if (restoredFor !== null) {
+      // Switched airplane, and this one has no draft: start clean.
+      resetTyped();
+      setDraftSavedAt(null);
+    }
+    setRestoredFor(draftOwner);
+  }, [me, aircraftId, draftOwner, restoredFor]);
+
+  // Save on every change — synchronously, like the other drafts, so closing
+  // the tab a second after typing loses nothing. A form with nothing the
+  // member brought (see `quickLogHasProgress`) isn't a draft: it's cleared.
+  useEffect(() => {
+    if (!me || !aircraftId || restoredFor !== draftOwner) return;
+    const who = { memberId: me.id, aircraftId };
+    const form: QuickLogForm = {
+      flownOn,
+      tachStart,
+      tachEnd,
+      hobbsStart,
+      hobbsEnd,
+      airports,
+      fuelAdded,
+      fuelCost,
+      oilAdded,
+      paidPersonally,
+      edited,
+    };
+    if (!quickLogHasProgress(form)) {
+      clearQuickLogDraft(deviceStore(), who);
+      setDraftSavedAt(null);
+      return;
+    }
+    const savedAt = new Date().toISOString();
+    if (writeQuickLogDraft(deviceStore(), { ...form, ...who, savedAt })) {
+      setDraftSavedAt(savedAt);
+    }
+  }, [
+    me,
+    aircraftId,
+    draftOwner,
+    restoredFor,
+    flownOn,
+    tachStart,
+    tachEnd,
+    hobbsStart,
+    hobbsEnd,
+    airports,
+    fuelAdded,
+    fuelCost,
+    oilAdded,
+    paidPersonally,
+    edited,
+  ]);
 
   const walkedTach = todaysPreflight?.values["cockpit.meters.tach"];
   const walkedHobbs = todaysPreflight?.values["cockpit.meters.hobbs"];
@@ -294,8 +408,37 @@ export default function QuickLogPage() {
   }
   const airportsHint = airportsHintText();
 
+  /**
+   * Which tach reading is missing, worded the way the log's badge words it
+   * ("Needs tach end"), so the dialog and the log say the same thing.
+   */
+  function missingTach(): string {
+    if (tachStart === "" && tachEnd === "") return "start & tach end";
+    if (tachEnd === "") return "end";
+    return "start";
+  }
+  const missingReading = missingTach();
+
+  /**
+   * The File button. A tach reading missing at either end asks first (the
+   * dialog explains the gap and how to close it); anything else files.
+   */
+  function requestFile() {
+    setError(null);
+    if (meterError) {
+      setError(meterError);
+      return;
+    }
+    if (tachStart === "" || tachEnd === "") {
+      setConfirmingGap(true);
+      return;
+    }
+    void submit();
+  }
+
   async function submit() {
     if (!selected || !me) return;
+    setConfirmingGap(false);
     setError(null);
     setSaved(null);
     setQueued(false);
@@ -695,12 +838,33 @@ export default function QuickLogPage() {
           entry — it bills nothing until the number arrives, and filling it in
           from the log bills it then. What still stops a file is a meter
           ERROR, because that's a wrong number rather than a missing one. */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={submit} disabled={busy || Boolean(meterError)}>
-          {busy ? "Filing…" : hasEndTach ? "File flight" : "File incomplete"}
+      {/* Phone and tablet: File runs the full width, the easy target for a
+          thumb at the tail, with its note beneath. A computer (`lg` up): the
+          button sits at the RIGHT, where a form's submit is expected, and the
+          note takes the left. `flex-row-reverse` keeps the button first in
+          the DOM, so it's still the first thing tabbed to after the form. */}
+      <div className="flex flex-col gap-2 lg:flex-row-reverse lg:items-center lg:justify-between lg:gap-4">
+        <Button
+          size="lg"
+          className="w-full lg:w-auto"
+          onClick={requestFile}
+          disabled={busy || Boolean(meterError)}
+        >
+          {busy ? "Filing…" : "File"}
         </Button>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          {hasEndTach ? (
+          {draftSavedAt ? (
+            <>
+              Saved on this device ·{" "}
+              <button
+                type="button"
+                onClick={resetTyped}
+                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Discard
+              </button>
+            </>
+          ) : (
             <>
               Goes straight to the{" "}
               <Link
@@ -711,21 +875,33 @@ export default function QuickLogPage() {
               </Link>
               , where it can be corrected or have a write-up added.
             </>
-          ) : (
-            <>
-              No tach end yet — this files the flight with a gap, marked
-              incomplete in the{" "}
-              <Link
-                href="/log"
-                className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-              >
-                flight log
-              </Link>
-              . It bills nothing until you add the reading there.
-            </>
           )}
         </p>
       </div>
+
+      {/* A missing reading files an honest GAP, not a refusal — but the member
+          is told what that means, and how to close it, before it happens. */}
+      <ConfirmModal
+        open={confirmingGap}
+        title={`File without a tach ${missingReading === "start & tach end" ? "reading" : missingReading}?`}
+        confirmLabel="File anyway"
+        cancelLabel="Keep editing"
+        busy={busy}
+        onConfirm={() => void submit()}
+        onCancel={() => setConfirmingGap(false)}
+      >
+        <p>
+          It goes into the flight log marked{" "}
+          <strong>
+            Needs tach {missingReading}
+          </strong>{" "}
+          and bills nothing yet.
+        </p>
+        <p>
+          To finish it: open the entry in the <strong>Flight log</strong>, tap
+          Edit, and add the reading. The hours bill as soon as it&rsquo;s saved.
+        </p>
+      </ConfirmModal>
     </div>
   );
 }

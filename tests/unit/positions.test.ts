@@ -43,15 +43,18 @@ describe("positions", () => {
     expect(can(finance, "squawk:manage")).toBe(false);
   });
 
-  it("gives the Maintenance Officer the airplane's due list and nothing else", () => {
-    const shop = { isAdmin: false, positions: ["MAINTENANCE_OFFICER" as const] };
-    expect(can(shop, "maintenance:manage")).toBe(true);
-    // Recording that the annual was done is not triaging what members report:
-    // the two jobs meet at the airplane and are held by different people.
-    expect(can(shop, "squawk:manage")).toBe(false);
-    expect(can(shop, "finance:manage")).toBe(false);
-    // …and nobody but an admin or the Maintenance Officer may write the sheet.
+  it("gives the Safety Officer both squawks and the maintenance sheet, and no money", () => {
+    const safety = { isAdmin: false, positions: ["SAFETY_OFFICER" as const] };
+    // One office for "can it fly": what members report AND what it's due for.
+    expect(can(safety, "squawk:manage")).toBe(true);
+    expect(can(safety, "maintenance:manage")).toBe(true);
+    expect(can(safety, "finance:manage")).toBe(false);
+    // …and nobody but an admin or the Safety Officer may write the sheet.
     expect(can(nobody, "maintenance:manage")).toBe(false);
+  });
+
+  it("has no Maintenance Officer office any more", () => {
+    expect(Object.keys(POSITION_LABELS)).not.toContain("MAINTENANCE_OFFICER");
   });
 
   it("unions the capabilities of someone holding two offices", () => {
