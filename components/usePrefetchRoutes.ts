@@ -3,7 +3,7 @@
 // them.
 //
 // The checkouts run in a fixed order and the app already knows it: preflight at
-// the airplane, taxi & runway in the seat, post-flight at the tail. What sits
+// the airplane, startup & runup in the seat, post-flight at the tail. What sits
 // in the MIDDLE of that sequence is a flight. A member who walks the preflight
 // card standing in the clubhouse wifi and then taxis out has left it behind by
 // the time they want the next card — and Next fetches a route's payload and its

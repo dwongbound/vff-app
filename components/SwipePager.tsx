@@ -1,5 +1,7 @@
 "use client";
-// Touch tab-swipe (phone AND tablet). The page itself never moves sideways:
+// Touch tab-swipe — PHONES ONLY (`swipeEnabledAt`): on a tablet the rail is
+// right there to tap, so the gesture is switched off from the `md` breakpoint
+// up. The page itself never moves sideways:
 // a vertical scroll that drifts a few pixels laterally used to drag the whole
 // page off to one side, and you then had to put it back. Instead a horizontal
 // pull fades in a plain circled ARROW at the edge you're pulling toward, and only once it's fully pulled does letting go change tab. Short
@@ -18,7 +20,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { scrollAppToTop } from "@/lib/appScroll";
 import { consumeNavDirection } from "@/lib/navDirection";
-import { commitDistance, pullProgress, touchIntent } from "@/lib/swipe";
+import { commitDistance, pullProgress, swipeEnabledAt, touchIntent } from "@/lib/swipe";
 import { useSwipe } from "./SwipeProvider";
 
 // useLayoutEffect warns during SSR; fall back to useEffect on the server (the
@@ -117,6 +119,9 @@ export default function SwipePager({ children }: { children: React.ReactNode }) 
     const onStart = (e: TouchEvent) => {
       mode = "none";
       if (e.touches.length !== 1) return;
+      // Tablets navigate by the rail. Read on every touch rather than once,
+      // so rotating a device across the breakpoint takes effect at once.
+      if (!swipeEnabledAt(window.innerWidth)) return;
       if (window.location.pathname === "/login") return; // no tabs on the auth page
       // Don't hijack touches while a dialog is open — its own scroll/controls
       // should win.

@@ -211,7 +211,7 @@ export default function AddMoneyModal({
   }
   const preview = previewText();
 
-  const title = officer ? OFFICER_TITLES[mode] : "Claim a reimbursement";
+  const title = officer ? OFFICER_TITLES[mode] : "Claim reimbursement";
 
   /** The button says what pressing it records. */
   function submitLabelText(): string {
@@ -323,8 +323,8 @@ export default function AddMoneyModal({
               <Segmented
                 label="Which way"
                 options={[
-                  { value: true, title: "Money in", blurb: "A deposit, a grant" },
-                  { value: false, title: "Money out", blurb: "A bill the club paid" },
+                  { value: true, title: "Money in", blurb: "Deposit, grant" },
+                  { value: false, title: "Money out", blurb: "A paid bill" },
                 ]}
                 value={fundsIn}
                 onChange={setFundsIn}
@@ -335,8 +335,8 @@ export default function AddMoneyModal({
               <Segmented
                 label="How the amount is charged"
                 options={[
-                  { value: "split" as const, title: "Split a total", blurb: "Shared between them" },
-                  { value: "each" as const, title: "Each pays", blurb: "The same for everyone" },
+                  { value: "split" as const, title: "Split a total", blurb: "Shared" },
+                  { value: "each" as const, title: "Each pays", blurb: "Same for each" },
                 ]}
                 value={chargeMode}
                 onChange={setChargeMode}
@@ -431,8 +431,7 @@ export default function AddMoneyModal({
 
             {mode === "reimburse" && !officer && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                It goes on your statement as money the club owes you. The
-                Finance Officer pays it out — keep the receipt.
+                The Finance Officer pays it out. Keep the receipt.
               </p>
             )}
 

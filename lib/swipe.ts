@@ -18,6 +18,20 @@ export const COMMIT_PX = 140;
 /** …capped at this fraction of the screen, so a narrow phone isn't asked for half its width. */
 export const COMMIT_RATIO = 0.4;
 
+/**
+ * The narrowest TABLET width (px) — the `md` breakpoint where the side rail
+ * replaces the bottom pill (AppShell's `md:pl-60`). Tab swipe is a PHONE
+ * gesture: on a tablet the rail is right there to tap, and a sideways pull on
+ * a big screen is far more often a drag across a calendar or a table than a
+ * request to change tab.
+ */
+export const TABLET_MIN_WIDTH = 768;
+
+/** Whether a screen this wide gets the tab swipe at all — phones only. */
+export function swipeEnabledAt(screenWidth: number): boolean {
+  return screenWidth < TABLET_MIN_WIDTH;
+}
+
 export type TouchIntent = "undecided" | "scroll" | "swipe";
 
 /**

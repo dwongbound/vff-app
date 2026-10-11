@@ -8,7 +8,7 @@
 // Overview to see that it is.
 //
 // Overview and Squawks are RAIL children under Plane Status (see Navbar's NAV),
-// exactly like Preflight/Taxi & Runway/Post-flight under Checkouts — not tabs drawn
+// exactly like Preflight/Startup & Runup/Post-flight under Checkouts — not tabs drawn
 // inside the page. So this layout carries no navigation at all: just the two
 // things both children need above them.
 import Link from "next/link";
@@ -78,7 +78,7 @@ export default function StatusLayout({
             ))}
           </ul>
           <p className="mt-3 text-xs text-red-800/80 dark:text-red-200/80">
-            The Maintenance Officer records the sign-off on the Overview tab,
+            The Safety Officer records the sign-off on the Overview tab,
             which clears this.
           </p>
         </div>

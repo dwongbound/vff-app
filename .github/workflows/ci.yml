@@ -69,7 +69,7 @@ jobs:
   # legs share nothing at all. Serialising them behind one runner meant the
   # slowest shape set the wall clock for the whole gate.
   e2e:
-    name: E2E (${{ matrix.project }})
+    name: E2E (${{ matrix.project }} ${{ matrix.shard }})
     runs-on: ubuntu-latest
     # Every shape is worth running even when another fails — "it breaks on a
     # phone" and "it breaks everywhere" are different bugs and you want to know
@@ -79,9 +79,16 @@ jobs:
 
     strategy:
       fail-fast: false
+      # Desktop carries ~three quarters of the specs, so it alone is split in
+      # two SHARDS (`--shard=N/2`): each leg is a whole separate world (its own
+      # runner and Postgres), runs half the spec files in their usual order,
+      # and the gate's wall clock becomes half of desktop instead of all of it.
+      # `shardKey` is the same thing without the slash, for the artifact name.
       matrix:
         include:
           - project: desktop
+            shard: 1/2
+            shardKey: "1"
             # Which engine to download. NOT cosmetic and NOT uniform: only the
             # desktop project is Chromium. Playwright's iPad/iPhone descriptors
             # are Safari device profiles and default to WEBKIT, so installing
@@ -94,9 +101,17 @@ jobs:
             # around: an iPhone member is on Safari, and a phone-shaped Chromium
             # would miss exactly the bugs these two legs exist to catch.
             browser: chromium
+          - project: desktop
+            shard: 2/2
+            shardKey: "2"
+            browser: chromium
           - project: ipad
+            shard: 1/1
+            shardKey: "1"
             browser: webkit
           - project: iphone
+            shard: 1/1
+            shardKey: "1"
             browser: webkit
 
     services:
@@ -160,7 +175,7 @@ jobs:
           DATABASE_URL: postgresql://vff:vff@localhost:5433/vff_test
 
       - name: Run the e2e suite
-        run: npm run test:e2e -- --project=${{ matrix.project }}
+        run: npm run test:e2e -- --project=${{ matrix.project }} --shard=${{ matrix.shard }}
         env:
           CI: "true"
 
@@ -172,7 +187,7 @@ jobs:
         with:
           # Suffixed, or the three legs race to upload under one name and only
           # one report survives — the wrong one, as often as not.
-          name: playwright-report-${{ matrix.project }}
+          name: playwright-report-${{ matrix.project }}-${{ matrix.shardKey }}
           path: |
             playwright-report/
             test-results/

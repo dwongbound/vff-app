@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { COMMIT_PX, commitDistance, pullProgress, touchIntent } from "@/lib/swipe";
+import {
+  COMMIT_PX,
+  TABLET_MIN_WIDTH,
+  commitDistance,
+  pullProgress,
+  swipeEnabledAt,
+  touchIntent,
+} from "@/lib/swipe";
 
 describe("touchIntent", () => {
   it("waits until the finger has really moved", () => {
@@ -36,5 +43,15 @@ describe("commitDistance / pullProgress", () => {
 
   it("shows nothing when there's no tab that way", () => {
     expect(pullProgress(200, 834, false)).toBe(0);
+  });
+});
+
+describe("swipeEnabledAt", () => {
+  it("is a phone gesture: on below the tablet breakpoint, off from it up", () => {
+    expect(swipeEnabledAt(402)).toBe(true); // iPhone
+    expect(swipeEnabledAt(TABLET_MIN_WIDTH - 1)).toBe(true);
+    expect(swipeEnabledAt(TABLET_MIN_WIDTH)).toBe(false); // narrowest iPad
+    expect(swipeEnabledAt(834)).toBe(false); // iPad Pro 11
+    expect(swipeEnabledAt(1280)).toBe(false);
   });
 });

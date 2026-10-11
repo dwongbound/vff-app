@@ -20,6 +20,15 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `iphone` (402 — bottom pill + the narrow page branches). `tour.spec.ts` runs
   in all three; everything else is scoped by `testMatch`/`testIgnore`.
   One project: `npx playwright test --project=ipad`.
+  Faster locally: `npm run test:e2e:parallel` (or `scripts/e2e-parallel.sh 4`)
+  runs N SHARDS at once, each its own compose project (`vff-e2e-N`) with its own
+  Postgres and `next dev` — `workers` stays 1 because specs share a database
+  and depend on order WITHIN a run, but separate shards share nothing. Logs in
+  `test-results/shards/`, traces in `test-results/shard-N/`. The speed-up is
+  capped by Docker Desktop's CPU allowance, not the Mac's: at Docker's default
+  4 CPUs three shards (three `next dev`s compiling at once) were SLOWER than
+  one — give Docker ~2 CPUs per shard. CI splits the desktop leg into two
+  shards on separate runners, where there's no such contention.
   They are NOT all the same browser engine: desktop is Chromium, but the iPad
   and iPhone presets are Safari device profiles and run on **webkit**. CI runs
   the three as parallel matrix jobs, each installing only its own engine.
@@ -225,7 +234,14 @@ meters from the session ▸ today's preflight walk ▸ the last filed flight and
 names WHOSE reading each is and when, and validates through the same
 `validateMeters`. Landings are entered as a list of AIRPORTS rather than a
 count (`lib/landingAirports.ts`), and it can file an INCOMPLETE entry — see the
-gotcha.
+gotcha. The button always says "File"; a missing tach reading opens a
+`ConfirmModal` ("File without a tach end?") saying the entry lands as "Needs
+tach end" and how to finish it from the log. It AUTOSAVES on the device
+(`lib/quickLogDraft.ts`, per member AND per airplane, swept with the other
+drafts) — only what the member brought counts as a draft, never the prefilled
+start boxes — and the draft goes on File or Discard. `deviceStore()`
+(components/deviceStore.ts) is the one localStorage accessor all three draft
+hooks share.
 `tools/` is a nav GROUP — planning arithmetic isn't only W&B, and promoting a
 leaf to a group later moves a link people have learned. `tools/my-plane` is the
 airplane's own manual as data: V-speeds, arcs, stall matrix, climb rates,
@@ -598,7 +614,10 @@ owns the only splash in the app.
   this person the Finance Officer". **Admins hold every capability implicitly**,
   so the club is never blocked by one member being away. FINANCE_OFFICER holds
   `finance:read-all` + `finance:manage`; SAFETY_OFFICER holds
-  `squawk:manage`; MAINTENANCE_OFFICER holds `maintenance:manage` (the write
+  `squawk:manage` AND `maintenance:manage` — the club has no separate
+  maintenance office; MAINTENANCE_OFFICER was folded in by migration
+  `20261011000000_fold_maintenance_into_safety`, which moved its holders to
+  Safety Officer (`maintenance:manage` is the write
   side of the due list — reading it is open to every member, because "the annual
   is out next week" is not privileged); INSTRUCTOR holds `flight:sign`. MEMBERSHIP (rather than any
   office) carries `reservation:book` + `finance:read-own` +
@@ -752,7 +771,8 @@ floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
 rather than centred on the pill — a menu is the answer to the thing you just
 touched, and on a five-tab bar "centred" is a different tab entirely),
 `SwipePager`/`SwipeProvider`
-(touch tab swipe, phone AND tablet — the page never moves sideways; a clearly
+(touch tab swipe, PHONES ONLY — off from the `md` breakpoint up, where the rail
+is there to tap (`swipeEnabledAt`); the page never moves sideways; a clearly
 horizontal pull fades in an edge arrow and only a FULL pull, released, changes
 tab, so a vertical scroll that drifts laterally does nothing — rules in
 `lib/swipe.ts`. `touchcancel` never commits. `.app-scroll` is
@@ -781,6 +801,14 @@ two-liner would tax the height of every screen of the card),
 `usePostflightDraft` (the same, for the post-flight form — deliberately NOT
 CheckoutDraftBar, which has a whole vocabulary for the gap between the device
 and the server that would be a lie here),
+`useKeepInViewport` (every popup anchored to a control — the pill's group
+sheet, `Dropdown`, `ChipSelect`, `DateTimeField`'s calendar — is measured once
+open and nudged back inside the window, by `viewportShift` in
+`lib/viewport.ts`. Applied as a MARGIN on both sides, not a transform: these
+popups already use `-translate-x-1/2` and the fade-in animation, and a box
+anchored by `left` moves by its left margin while one anchored by `right`
+moves by its right one. InfoTip and GuidedTour clamp themselves; the
+utilisation chart's hover labels open inward at the chart's two ends),
 `usePrefetchRoutes` (the checkouts run in a fixed order with a FLIGHT in the
 middle of it, so each card pulls the ones downstream into the router cache while
 the clubhouse wifi is still in reach — preflight fetches `/runway` and

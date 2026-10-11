@@ -3,7 +3,13 @@
 // the "+" FAB is how you book. Runs on real device presets (see
 // playwright.config.ts projects) rather than a narrow desktop window.
 import { expect, test } from "@playwright/test";
-import { clearCheckoutDrafts, clearOpenSessions, openPostflightSection, signIn } from "./helpers";
+import {
+  clearCheckoutDrafts,
+  clearOpenSessions,
+  openPostflightSection,
+  signIn,
+  swipeLeft,
+} from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -148,8 +154,14 @@ test("Quick Log is reachable from the pill and files from a phone", async ({
   ).toBeVisible({ timeout: 60_000 });
 
   const main = page.getByRole("main");
+  // The start box FOLLOWS the best reading the app knows — the open flight,
+  // then today's preflight walk, then the last filed flight — until it's typed
+  // in, and those answers arrive at different moments. Read it only once the
+  // page has stopped asking, or the box can change under the test after it
+  // has read it (and the flight files with a different span than it typed).
   const tachStart = main.getByLabel("Tach start", { exact: true });
   await expect(tachStart).not.toHaveValue("");
+  await page.waitForLoadState("networkidle");
   const start = Number(await tachStart.inputValue());
 
   // The meter boxes stack rather than sitting two-up, so all four are
@@ -205,8 +217,14 @@ test("a flight filed offline shows one short line, then sends itself", async ({
   await clearOpenSessions(page);
   await page.goto("/quick-log");
   const main = page.getByRole("main");
+  // The start box FOLLOWS the best reading the app knows — the open flight,
+  // then today's preflight walk, then the last filed flight — until it's typed
+  // in, and those answers arrive at different moments. Read it only once the
+  // page has stopped asking, or the box can change under the test after it
+  // has read it (and the flight files with a different span than it typed).
   const tachStart = main.getByLabel("Tach start", { exact: true });
   await expect(tachStart).not.toHaveValue("");
+  await page.waitForLoadState("networkidle");
   const start = Number(await tachStart.inputValue());
   await main.getByLabel("Tach end", { exact: true }).fill((start + 0.4).toFixed(1));
   await main.getByLabel("Landed at", { exact: true }).fill("KTOA");
@@ -291,4 +309,194 @@ test("double-tap zoom is off, but pinch-zoom is left alone", async ({ page }) =>
   // kill pinch-zoom for anyone who needs it to read the page.
   const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
   expect(viewport ?? "").not.toMatch(/maximum-scale|user-scalable\s*=\s*(no|0)/);
+});
+
+test("a full sideways pull changes tab on a phone", async ({ page }) => {
+  // The positive half of the tablet test in ipad.spec.ts: the same gesture
+  // that must do nothing on an iPad does change tab here — so that test can't
+  // pass just because the simulated swipe never worked.
+  await expect(page.getByRole("main")).toBeVisible();
+  const before = new URL(page.url()).pathname;
+  await swipeLeft(page);
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).not.toBe(before);
+});
+
+test("every group menu on the pill stays on the screen, even over the first tab", async ({
+  page,
+}) => {
+  // Centred over its tab, the Status sheet (the pill's FIRST tab) used to
+  // hang half off the left edge. useKeepInViewport nudges it back in.
+  const width = page.viewportSize()!.width;
+  for (const group of ["Status", "Checks", "Tools"]) {
+    await page.getByRole("button", { name: group, exact: true }).click();
+    const sheet = page.getByRole("menu");
+    await expect(sheet).toBeVisible();
+    const box = (await sheet.boundingBox())!;
+    expect(box.x, `${group} sheet's left edge`).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, `${group} sheet's right edge`).toBeLessThanOrEqual(width);
+    // Close it again before the next one.
+    await page.getByRole("button", { name: group, exact: true }).click();
+    await expect(sheet).toBeHidden();
+  }
+});
+
+test("Finances fits a phone: title and Export share a row, the balance reads on one line", async ({
+  page,
+}) => {
+  await page.goto("/finances");
+  const main = page.getByRole("main");
+  const heading = main.getByRole("heading", { name: "Finances", exact: true });
+  await expect(heading).toBeVisible({ timeout: 60_000 });
+  // No subtitle under the title any more.
+  await expect(main.getByText(/every month/)).toHaveCount(0);
+
+  // Export sits on the title's row, at the right.
+  const exportButton = main.getByRole("button", { name: "Export", exact: true });
+  const title = (await heading.boundingBox())!;
+  const exp = (await exportButton.boundingBox())!;
+  expect(Math.abs(exp.y + exp.height / 2 - (title.y + title.height / 2))).toBeLessThan(12);
+  expect(exp.x).toBeGreaterThan(title.x + title.width);
+
+  // The switch is worded short: Unpaid / All.
+  await expect(main.getByText("Unpaid", { exact: true })).toBeVisible();
+  await expect(main.getByText("All", { exact: true })).toBeVisible();
+
+  // The verdict and the amount share one line.
+  const verdict = main.locator("[data-tone]");
+  const [words, amount] = await Promise.all([
+    verdict.locator("p").first().boundingBox(),
+    verdict.locator("p").last().boundingBox(),
+  ]);
+  expect(Math.abs(words!.y + words!.height - (amount!.y + amount!.height))).toBeLessThan(10);
+
+  // And nothing on the page is wider than the phone.
+  const overflow = await page.evaluate(() => {
+    const scroller = document.getElementById("app-scroll")!;
+    return scroller.scrollWidth - scroller.clientWidth;
+  });
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("the flight log fits a phone: three stats in a row, + Add flight at the right", async ({
+  page,
+}) => {
+  await page.goto("/log");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Flight log" })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  // Three stat tiles on ONE row, not two and one.
+  const tiles = main.getByText(/^(Hours this year|Flights|Landings)$/);
+  await expect(tiles).toHaveCount(3);
+  const tops = await tiles.evaluateAll((els) =>
+    els.map((el) => Math.round(el.getBoundingClientRect().top))
+  );
+  expect(new Set(tops).size).toBe(1);
+
+  // "+ Add flight" is the primary (orange) button, at the far right of its row.
+  const add = main.getByRole("button", { name: "Add flight" }).first();
+  await expect(add).toHaveClass(/bg-indigo-600/);
+  const mainBox = (await main.boundingBox())!;
+  const addBox = (await add.boundingBox())!;
+  expect(mainBox.x + mainBox.width - (addBox.x + addBox.width)).toBeLessThan(24);
+
+  // Currency is one line — a verdict — with the rest behind the (i).
+  await expect(main.getByRole("heading", { name: "Landing currency" })).toBeVisible();
+  await expect(main.getByText(/^(Current|Not current)$/)).toBeVisible();
+  await expect(main.getByText(/Day: \d+\/3 landings/)).toHaveCount(0);
+
+  const overflow = await page.evaluate(() => {
+    const scroller = document.getElementById("app-scroll")!;
+    return scroller.scrollWidth - scroller.clientWidth;
+  });
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+
+test("My plane fits a phone: no value runs over its label, no table scrolls sideways", async ({
+  page,
+}) => {
+  await page.goto("/tools/my-plane");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "My plane", exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  // Nothing wider than the phone — the page, or any of the three tables.
+  const overflow = await page.evaluate(() => {
+    const scroller = document.getElementById("app-scroll")!;
+    const tables = [...document.querySelectorAll("main .overflow-x-auto")].map(
+      (box) => box.scrollWidth - box.clientWidth
+    );
+    return Math.max(scroller.scrollWidth - scroller.clientWidth, ...tables);
+  });
+  expect(overflow).toBeLessThanOrEqual(0);
+
+  // In every figure row the value stays INSIDE the row, the name keeps a
+  // usable width, and the two don't overlap. (The bug this guards: a long
+  // value refused to shrink, crushed the name to a 0px column and ran past
+  // the card's edge — which a plain overlap test misses, because a 0px-wide
+  // name overlaps nothing.)
+  const collisions = await page.evaluate(() => {
+    const bad: string[] = [];
+    for (const row of document.querySelectorAll("main ul > li")) {
+      if (row.children.length < 2) continue;
+      const r = row.getBoundingClientRect();
+      const a = row.children[0].getBoundingClientRect();
+      const b = row.children[row.children.length - 1].getBoundingClientRect();
+      const name = (row.textContent ?? "").slice(0, 40);
+      if (b.right > r.right + 1 || b.left < r.left - 1) bad.push(`value outside row: ${name}`);
+      if (a.width < 80) bad.push(`name crushed to ${Math.round(a.width)}px: ${name}`);
+      const overlap =
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      if (overlap) bad.push(`overlap: ${name}`);
+    }
+    return bad;
+  });
+  expect(collisions).toEqual([]);
+
+  // And a figure's (i) sits on the line where its name ENDS, not on a line of
+  // its own: the marker's vertical centre lies within the name's last line.
+  const strays = await page.evaluate(() => {
+    const bad: string[] = [];
+    for (const marker of document.querySelectorAll('main li p button[aria-label^="Why:"]')) {
+      const p = marker.closest("p")!;
+      const lines = p.getClientRects();
+      const last = [...lines].pop() ?? p.getBoundingClientRect();
+      const m = marker.getBoundingClientRect();
+      const centre = m.top + m.height / 2;
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+      const lastLine = rects.length ? rects[rects.length - 1] : last;
+      if (centre < lastLine.top - 4 || centre > lastLine.bottom + 4) {
+        bad.push(marker.getAttribute("aria-label") ?? "?");
+      }
+    }
+    return bad;
+  });
+  expect(strays).toEqual([]);
+});
+
+/** The content column's left and right edges (main, inside its padding). */
+async function contentEdges(page: import("@playwright/test").Page) {
+  return page.getByRole("main").evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const css = getComputedStyle(el);
+    return {
+      left: box.left + parseFloat(css.paddingLeft),
+      right: box.right - parseFloat(css.paddingRight),
+    };
+  });
+}
+
+test("Quick Log's File button runs the full width on a phone", async ({ page }) => {
+  await page.goto("/quick-log");
+  const file = page.getByRole("main").getByRole("button", { name: "File", exact: true });
+  await expect(file).toBeVisible({ timeout: 60_000 });
+  const edges = await contentEdges(page);
+  const box = (await file.boundingBox())!;
+  expect(Math.abs(box.x - edges.left)).toBeLessThan(2);
+  expect(Math.abs(box.x + box.width - edges.right)).toBeLessThan(2);
 });

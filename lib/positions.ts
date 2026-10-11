@@ -22,7 +22,6 @@ export const POSITION_LABELS = {
   SECRETARY: "Secretary",
   FINANCE_OFFICER: "Finance Officer",
   SAFETY_OFFICER: "Safety Officer",
-  MAINTENANCE_OFFICER: "Maintenance Officer",
   INSTRUCTOR: "Flight Instructor (CFI)",
 } as const;
 
@@ -39,9 +38,7 @@ export const POSITION_BLURBS: Record<Position, string> = {
   FINANCE_OFFICER:
     "Keeps the books: sees every member's charges, adds dues and one-off charges, and sets the hourly rate.",
   SAFETY_OFFICER:
-    "The person to call about an open squawk — and the one who triages it: sets its status, and decides whether the airplane flies.",
-  MAINTENANCE_OFFICER:
-    "Keeps the airplane's maintenance sheet: what's due, when it was last done, and what comes next.",
+    "Decides whether the airplane flies: triages every squawk (sets its status), and keeps the maintenance sheet — what's due, when it was last done, what comes next.",
   INSTRUCTOR:
     "A CFI who teaches here: can be named on a training booking, and signs off the flight-log entry afterwards.",
 };
@@ -124,8 +121,9 @@ const POSITION_CAPABILITIES: Record<Position, Capability[]> = {
   VICE_PRESIDENT: [],
   SECRETARY: [],
   FINANCE_OFFICER: ["finance:read-all", "finance:manage"],
-  SAFETY_OFFICER: ["squawk:manage"],
-  MAINTENANCE_OFFICER: ["maintenance:manage"],
+  // One office for both halves of "can it fly": what members report, and
+  // what the airplane is due for. The club has no separate maintenance office.
+  SAFETY_OFFICER: ["squawk:manage", "maintenance:manage"],
   INSTRUCTOR: ["flight:sign"],
 };
 

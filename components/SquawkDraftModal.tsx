@@ -11,7 +11,6 @@ import { useEffect, useState } from "react";
 import Button from "./common/Button";
 import Modal from "./common/Modal";
 import Input from "./common/Input";
-import Select from "./common/Select";
 import Textarea from "./common/Textarea";
 import PhotoUploader from "./PhotoUploader";
 

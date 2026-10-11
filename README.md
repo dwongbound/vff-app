@@ -10,7 +10,7 @@ signed off on its own, in the order a flight actually happens:
 | ----------------- | ------------- |
 | **Status**        | Overview (meters, fuel/oil, hours flown) and Squawks — the club's squawk sheet, read-only unless you're the Safety Officer |
 | **Preflight**     | The preflight card: I'M SAFE, homework, consumables, cockpit, and the walk around the airplane |
-| **Taxi & Runway** | The in-cockpit card: passengers, before start, pre-lube, start, runup, pre-takeoff, 5 Ps |
+| **Startup & Runup** | The in-cockpit card: passengers, before start, pre-lube, start, runup, pre-takeoff, 5 Ps |
 | **Post-flight**   | Tach/Hobbs in-out, landings, fuel, oil, and the turn-off checkout — one line of the club log |
 | **Tools**         | Weight & balance for this airframe — its own empty weight already in it, checked at takeoff *and* on landing |
 | **Flight Log**    | Club view: the airplane's hours, everyone's flights, squawks. Mine: your totals and currency |
@@ -18,7 +18,7 @@ signed off on its own, in the order a flight actually happens:
 | **Members**       | The club roster and how to reach people; admins promote other admins here |
 
 Takeoff, climb, cruise and descent are deliberately NOT checkouts: nothing gets
-ticked in the air, so they're a read-only card at the foot of the Taxi & Runway tab.
+ticked in the air, so they're a read-only card at the foot of the Startup & Runup tab.
 
 Light and dark themes follow the OS by default. On phones the nav collapses to
 a floating bottom bar and you can swipe left/right between tabs.
@@ -65,6 +65,8 @@ npm install && npm run dev
 - `npm run test:unit` (`vitest run`) · watch: `test:unit:watch`
 - `npm run test:e2e` — needs the test db (`docker compose --profile test up -d db-test`)
 - `docker compose --profile test up --abort-on-container-exit` — unit + e2e in one shot
+- `npm run test:e2e:parallel` — the e2e suite as 3 parallel shards in Docker,
+  each with its own database and server (`scripts/e2e-parallel.sh 4` for 4)
 - `npm run db:push` · `db:seed` · `db:studio`
 
 `docker compose --profile prod up -d --build` runs the built image against a

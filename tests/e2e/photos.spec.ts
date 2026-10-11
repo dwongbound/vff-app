@@ -7,6 +7,7 @@ import {
   gotoTab,
   openMeters,
   openPostflightSection,
+  settledTachStart,
   signIn,
 } from "./helpers";
 
@@ -26,7 +27,7 @@ test("a photo attached to a flight comes back on the log entry", async ({ page }
   await gotoTab(page, "/postflight", "Post-flight");
 
   await openMeters(page);
-  const tachStart = await page.getByLabel("Tach start").inputValue();
+  const tachStart = await settledTachStart(page);
   await page.getByLabel("Tach end").fill((Number(tachStart) + 1.2).toFixed(1));
 
   // The uploader lives in Servicing, which is its own collapsed section now.
@@ -61,10 +62,22 @@ test("a photo attached to a flight comes back on the log entry", async ({ page }
 });
 
 test("photo bytes are only served to signed-in members", async ({ page, browser }) => {
-  // Grab a photo id the signed-in session can see…
-  const flights = await page.request.get("/api/flights?limit=1");
-  const [flight] = await flights.json();
-  test.skip(!flight?.photos?.length, "no photo on the newest flight");
+  // Grab a photo id the signed-in session can see. The test above files a
+  // flight with one, so SOME entry carries a photo — found by its count rather
+  // than by position: several specs file flights on the same day, so "the
+  // newest" isn't reliably the one with the photo, and this test used to
+  // quietly SKIP when it guessed wrong (which is how it went missing from a
+  // sharded run). List rows only count photos, so the photo itself comes off
+  // that entry's full record.
+  const rows = (await page.request
+    .get("/api/flights?limit=50")
+    .then((r) => r.json())) as { id: string; photoCount: number }[];
+  const withPhoto = rows.find((row) => row.photoCount > 0);
+  expect(withPhoto, "an entry with the photo the test above attached").toBeTruthy();
+  const flight = (await page.request
+    .get(`/api/flights/${withPhoto!.id}`)
+    .then((r) => r.json())) as { photos: { id: string }[] };
+  expect(flight.photos.length).toBeGreaterThan(0);
 
   const url = `/api/photos/${flight.photos[0].id}`;
   expect((await page.request.get(url)).status()).toBe(200);

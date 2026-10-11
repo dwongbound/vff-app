@@ -9,7 +9,7 @@
 // people who READ this and the people who MAINTAIN it come to it with
 // different questions, and one screen that did both would serve neither.
 //
-// Editing needs `maintenance:manage` (the Maintenance Officer, or an admin).
+// Editing needs `maintenance:manage` (the Safety Officer, or an admin).
 // Reading is open to every member: what the airplane is due for is not
 // privileged information.
 import { useAircraft } from "@/components/AircraftProvider";
@@ -40,7 +40,7 @@ export default function MaintenancePage() {
       <p className="text-sm text-gray-500 dark:text-gray-400">
         {canManage
           ? "Mark an item done when the shop hands the airplane back — that restarts both of its clocks."
-          : "Read-only — the Maintenance Officer records what's been signed off."}
+          : "Ask the Safety Officer to make changes to maintenance."}
       </p>
       <MaintenancePanel aircraft={selected} canManage={canManage} />
     </div>

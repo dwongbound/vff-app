@@ -48,10 +48,13 @@ export default function CollapsibleSection({
   return (
     <Card
       ref={ref}
+      // Edge to edge: a row's highlight (hover, a blocked item's red) runs the
+      // full width of the section. The header and rows pad themselves.
+      padded={false}
       // Scroll target. The margin keeps the sticky progress bar from parking on
       // top of the header it just scrolled to, so it clears the bar's HEIGHT —
       // roughly 100px, and ~115 while the two-line resume line is up.
-      className="scroll-mt-28 p-0"
+      className="scroll-mt-28"
     >
       <button
         onClick={onToggle}

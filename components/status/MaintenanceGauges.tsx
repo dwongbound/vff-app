@@ -63,7 +63,7 @@ export default function MaintenanceGauges({
               Add the annual, the oil change and the equipment checks
             </Link>
           ) : (
-            "The Maintenance Officer keeps this list."
+            "The Safety Officer keeps this list."
           )}
         </p>
       </Card>
