@@ -12,10 +12,11 @@
 // inside the page. So this layout carries no navigation at all: just the two
 // things both children need above them.
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import Badge from "@/components/common/Badge";
 import { useAircraft } from "@/components/AircraftProvider";
-import { formatRemaining, grounding, maintenanceDue } from "@/lib/maintenance";
-
+import { grounding } from "@/lib/maintenance";
+import { squawkBanner, type SquawkCounts } from "@/lib/squawks";
 
 export default function StatusLayout({
   children,
@@ -23,6 +24,11 @@ export default function StatusLayout({
   children: React.ReactNode;
 }) {
   const { selected } = useAircraft();
+  // A banner points at a tab; on that tab it would only point at the page
+  // you're already reading, so it isn't drawn there.
+  const pathname = usePathname();
+  const onSquawks = pathname.startsWith("/status/squawks");
+  const onMaintenance = pathname.startsWith("/status/maintenance");
 
   const grounded = selected?.groundingSquawks ?? [];
   const inWork = selected?.inWorkSquawks ?? [];
@@ -57,90 +63,82 @@ export default function StatusLayout({
       {/* Paperwork that has run out. Above the squawk banners and separate
           from them, because it isn't a defect and nobody reported it — the
           airplane is perfectly serviceable and may not legally be flown. */}
-      {outOfCheck.length > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-500/40 dark:bg-red-900/20">
-          <h2 className="text-sm font-semibold text-red-800 dark:text-red-200">
-            Do not fly — {outOfCheck.length === 1 ? "an inspection has" : "inspections have"}{" "}
-            run out on {selected?.tailNumber ?? "the airplane"}
-          </h2>
-          <ul className="mt-3 space-y-1.5 text-sm text-red-800 dark:text-red-200">
-            {outOfCheck.map((item) => (
-              <li key={item.id} className="flex gap-2">
-                <span aria-hidden="true" className="text-lg leading-5 opacity-70">
-                  ·
-                </span>
-                <span>
-                  {item.label}
-                  {item.reference ? ` (${item.reference})` : ""} —{" "}
-                  {formatRemaining(maintenanceDue(item, selected?.lastTach ?? null))}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-xs text-red-800/80 dark:text-red-200/80">
-            The Safety Officer records the sign-off on the Overview tab,
-            which clears this.
-          </p>
-        </div>
+      {/* One line per fact about whether it flies, worst first. Each is a
+          headline and a link to where the detail lives — the list of
+          squawks used to be printed here too, and on a phone a single
+          squawk's banner took a third of the first screen. */}
+      {outOfCheck.length > 0 && !onMaintenance && (
+        <StatusBanner tone="red" href="/status/maintenance" linkText="See maintenance">
+          Do not fly — {outOfCheck.length === 1 ? "an inspection has" : "inspections have"} run out
+        </StatusBanner>
       )}
-
-      {/* The dispatch answer, in priority order: grounded outranks in-work,
-          because an airplane that is both is simply not flying and saying
-          "in maintenance" underneath would soften it. */}
-      {grounded.length > 0 ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-500/40 dark:bg-red-900/20">
-          <h2 className="text-sm font-semibold text-red-800 dark:text-red-200">
-            Do not fly — {grounded.length}{" "}
-            {grounded.length === 1 ? "squawk has" : "squawks have"} grounded{" "}
-            {selected?.tailNumber ?? "the airplane"}
-          </h2>
-          <ul className="mt-3 space-y-1.5 text-sm text-red-800 dark:text-red-200">
-            {grounded.map((s) => (
-              <li key={s.id} className="flex gap-2">
-                <span aria-hidden="true" className="text-lg leading-5 opacity-70">
-                  ·
-                </span>
-                <span>{s.title}</span>
-              </li>
-            ))}
-          </ul>
-          <Link
-            href="/status/squawks"
-            className="mt-3 inline-block text-sm font-medium text-red-800 underline dark:text-red-200"
-          >
-            See the squawks
-          </Link>
-        </div>
-      ) : (
-        inWork.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-900/20">
-            <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-              In maintenance — {inWork.length}{" "}
-              {inWork.length === 1 ? "squawk is" : "squawks are"} being worked
-            </h2>
-            <ul className="mt-3 space-y-1.5 text-sm text-amber-900 dark:text-amber-200">
-              {inWork.map((s) => (
-                <li key={s.id} className="flex gap-2">
-                  <span aria-hidden="true" className="text-lg leading-5 opacity-70">
-                    ·
-                  </span>
-                  <span>{s.title}</span>
-                </li>
-              ))}
-            </ul>
-            {/* Deliberately not "do not fly": in-work means the shop has it,
-                not that it's unairworthy. The Safety Officer grounds it
-                explicitly if that's what they mean. */}
-            <p className="mt-3 text-xs text-amber-900/80 dark:text-amber-200/80">
-              Not a grounding on its own — check with the Safety Officer before
-              you book it.
-            </p>
-          </div>
-        )
+      {!onSquawks && (
+        <SquawkBanner
+          grounded={grounded.length}
+          inWork={inWork.length}
+          unreviewed={selected?.newSquawkCount ?? 0}
+          okToFly={selected?.okToFlySquawkCount ?? 0}
+        />
       )}
-
 
       {children}
     </div>
+  );
+}
+
+const BANNER_TONES = {
+  red: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/40 dark:bg-red-900/20 dark:text-red-200",
+  amber:
+    "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-200",
+} as const;
+
+/** The squawks' one dispatch line (see `squawkBanner`), or nothing. */
+function SquawkBanner(counts: SquawkCounts) {
+  const banner = squawkBanner(counts);
+  if (!banner) return null;
+  return (
+    <StatusBanner tone={banner.tone} href="/status/squawks" linkText="See squawks">
+      {banner.text}
+    </StatusBanner>
+  );
+}
+
+/** One dispatch line: a (!), a headline, and a link to the detail. */
+function StatusBanner({
+  tone,
+  href,
+  linkText,
+  children,
+}: {
+  tone: keyof typeof BANNER_TONES;
+  href: string;
+  linkText: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="alert"
+      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${BANNER_TONES[tone]}`}
+    >
+      <span aria-hidden="true" className="shrink-0">
+        <AlertIcon />
+      </span>
+      {/* A heading, small as it is: it's the page's answer to "does it fly". */}
+      <h2 className="min-w-0 flex-1 text-sm font-medium">{children}</h2>
+      <Link href={href} className="shrink-0 font-medium underline underline-offset-2">
+        {linkText}
+      </Link>
+    </div>
+  );
+}
+
+/** (!) in a circle. */
+function AlertIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" className="h-5 w-5">
+      <circle cx="10" cy="10" r="8" />
+      <path d="M10 6v5" strokeLinecap="round" />
+      <circle cx="10" cy="14" r="0.6" fill="currentColor" />
+    </svg>
   );
 }

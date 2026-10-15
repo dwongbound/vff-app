@@ -7,6 +7,7 @@ import {
   clearCheckoutDrafts,
   clearOpenSessions,
   expectFormsFitTouchScreen,
+  expectStatusPagesReadable,
   openPostflightSection,
   signIn,
   swipeLeft,
@@ -348,6 +349,34 @@ test("every group menu on the pill stays on the screen, even over the first tab"
   }
 });
 
+test("an open group menu freezes the page, and a tap outside only closes it", async ({
+  page,
+}) => {
+  await page.goto("/reservations");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Reservations", exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  await page.getByRole("button", { name: "Checks", exact: true }).click();
+  const sheet = page.getByRole("menu");
+  await expect(sheet).toBeVisible();
+
+  // The page underneath can't scroll while it's open.
+  const overflow = () =>
+    page.evaluate(() => getComputedStyle(document.getElementById("app-scroll")!).overflowY);
+  expect(await overflow()).toBe("hidden");
+
+  // A tap on the page — right where a booking control sits — closes the sheet
+  // and does nothing else: same page, no dialog.
+  const viewport = page.viewportSize()!;
+  await page.mouse.click(viewport.width / 2, viewport.height / 3);
+  await expect(sheet).toBeHidden();
+  await expect(page).toHaveURL(/\/reservations/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await overflow()).not.toBe("hidden");
+});
+
 test("Finances fits a phone: title and Export share a row, the balance reads on one line", async ({
   page,
 }) => {
@@ -507,4 +536,9 @@ test("Quick Log's File button runs the full width on a phone", async ({ page }) 
   const box = (await file.boundingBox())!;
   expect(Math.abs(box.x - edges.left)).toBeLessThan(2);
   expect(Math.abs(box.x + box.width - edges.right)).toBeLessThan(2);
+});
+
+test("Plane Status is readable at this width", async ({ page }) => {
+  test.setTimeout(180_000);
+  await expectStatusPagesReadable(page, "iphone");
 });

@@ -129,6 +129,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `squawk:manage`. `REVIEWED_GROUNDED` ⇒ app-wide red banner (Navbar) + the
   Status tab's "do not fly" card; `REVIEWED_IN_WORK` ⇒ an amber "in
   maintenance" card that is explicitly NOT a grounding.
+  `officerNote` (+ `officerNoteById`/`officerNoteAt`) is the Safety Officer's
+  note: ONE per squawk, read by every member on the Squawks tab, written only
+  through `PATCH /api/squawks/[id]` `{ note }` (squawk:manage; empty removes
+  it). Kept apart from `description`, which is what the reporter SAW.
 - **Checkout** — one run of ONE of the airplane's cards. `kind` is
   `PREFLIGHT | RUNWAY` (the third, TURNOFF, lives on Flight — it belongs to
   that flight, not to a standalone row). `flightId` is the SESSION this run
@@ -268,10 +272,20 @@ page is pure calculator over the aircraft's stored basis.
 Plane Status › Overview also carries the MAINTENANCE sheet (`MaintenancePanel`),
 below the day-to-day panels: anything that stops a flight is already a banner at
 the top, so what's left there is reference.
-`status/layout.tsx` owns the tail-number header, the dispatch banner
-(inspection run out ▸ grounded ▸ in-maintenance, in that priority — the first is `grounding()` over the maintenance sheet, which is also what the Airworthy badge reads) and the Overview/Squawks sub-tab
-bar — all three are true of the AIRPLANE rather than of a view, so both child
-tabs get them. Sub-tabs rather than rail entries: the rail lists places you go
+`status/layout.tsx` owns the tail-number header and the dispatch banners —
+ONE LINE each, a (!) + headline + link, never a list: an inspection run out
+(red, → Maintenance; `grounding()` over the sheet, which is also what the
+Airworthy badge reads), then the squawks' line (`squawkBanner` in
+lib/squawks.ts: red for a grounding and nothing else; otherwise ONE amber line
+joining in work · unreviewed · reviewed-okay-to-fly — `newSquawkCount` /
+`okToFlySquawkCount` on the aircraft — → Squawks). A banner is NOT drawn on the tab it
+links to. Both are true of the AIRPLANE rather than of a view, so every child
+tab gets them. The squawk cards and maintenance rows lay out by the CARD's
+width (`@container` / `@xl:` container queries), not the screen's: the
+control (status picker, Mark done) goes under the text until the card is
+wide, which on an iPad — narrower column, because of the rail — it isn't.
+A squawk's description is simply shown from `md` up and folds behind
+Details/Hide only on a phone (`useMediaQuery`). Sub-tabs rather than rail entries: the rail lists places you go
 during a flying day, and Navbar's `isActive` uses `startsWith`, so
 `/status/squawks` keeps the Status entry lit for free. `preflight` and `runway` are the two before-the-
 flight checkouts — separate pages with separate sign-offs, because they're
@@ -809,7 +823,10 @@ LEFT-hand rail hanging BELOW it from `md` up, holding only the vertical tabs
 with Checkouts expanding inline; below `md`, the rail is replaced by the
 floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
 rather than centred on the pill — a menu is the answer to the thing you just
-touched, and on a five-tab bar "centred" is a different tab entirely),
+touched, and on a five-tab bar "centred" is a different tab entirely; while
+one is open the page is FROZEN — `#app-scroll` overflow hidden, and a
+backdrop above everything but the pill takes the first outside tap and only
+closes it),
 `SwipePager`/`SwipeProvider`
 (touch tab swipe, PHONES ONLY — off from the `md` breakpoint up, where the rail
 is there to tap (`swipeEnabledAt`); the page never moves sideways; a clearly
@@ -921,7 +938,13 @@ share),
 `GoogleCalendarPanel` (Club settings: connect the account, pick each
 airplane's calendar, sync status), `SquawkDraftModal`, `SignupCodesPanel` (org settings' two code lists, side by
 side because which list a code is on is the only thing about it that matters
-when you read it out), `PhotoUploader`, `Logo`, `GuidedTour` (first-run walkthrough
+when you read it out), `PhotoUploader` (refuses a file at PICK time through
+`lib/photoTypes.ts`'s `photoProblem` — the same rule the upload route
+applies, so the outbox never discovers a GIF after the member has left the
+airplane; an untyped file, iOS's HEIC, is judged by its extension),
+`useMediaQuery` (a media query as a live boolean, for the few places a width
+changes WHICH elements render — Finances' table vs list, squawk details),
+`Logo`, `GuidedTour` (first-run walkthrough
 that SPOTLIGHTS live nav controls — each step names `data-tour` keys, the nav
 stamps them on both the rail and the pill via `tourKey`, and the tour takes
 whichever copy is on screen and measures it; a step whose keys match nothing

@@ -17,6 +17,7 @@ import Card from "@/components/common/Card";
 import ChipSelect from "@/components/common/ChipSelect";
 import InfoTip from "@/components/common/InfoTip";
 import LoadingDots from "@/components/common/LoadingDots";
+import Textarea from "@/components/common/Textarea";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
@@ -26,15 +27,16 @@ import { fetchJsonArray, sendJson } from "@/lib/api";
 import { formatDay } from "@/lib/dates";
 import { squawkJob } from "@/lib/outbox";
 import {
+  MAX_SQUAWK_NOTE_CHARS,
   SQUAWK_STATUSES,
   SQUAWK_STATUS_HINTS,
   SQUAWK_STATUS_LABELS,
-  SQUAWK_STATUS_SHORT,
   SQUAWK_STATUS_TONES,
   SQUAWK_TRIAGE_ORDER,
   type SquawkStatus,
 } from "@/lib/squawks";
 import type { ApiSquawk } from "@/lib/types";
+import { MD_UP, useMediaQuery } from "@/components/useMediaQuery";
 
 export default function SquawksPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -238,6 +240,7 @@ export default function SquawksPage() {
               canManage={canManage}
               busy={busyId === s.id}
               onStatus={(status) => setStatus(s, status)}
+              onChanged={load}
             />
           ))}
         </ul>
@@ -262,6 +265,7 @@ function SquawkRow({
   canManage,
   busy,
   onStatus,
+  onChanged,
 }: {
   squawk: ApiSquawk;
   /** Arrived here by a link to this row — say which one. */
@@ -269,33 +273,31 @@ function SquawkRow({
   canManage: boolean;
   busy: boolean;
   onStatus: (status: SquawkStatus) => void;
+  /** Something on the row was saved (the officer's note) — reload the list. */
+  onChanged: () => void;
 }) {
+  // From the iPad up a squawk's details are simply part of the card — there's
+  // room to read them without asking. Only a phone folds them behind
+  // Details/Hide, where the list itself is the point.
+  const wide = useMediaQuery(MD_UP, true);
   const [open, setOpen] = useState(false);
 
   return (
     <li id={`squawk-${squawk.id}`} className="scroll-mt-24">
+      {/* A CONTAINER, so the row lays out by the card's width: on a phone
+          the status picker goes UNDER the title, full width, rather than
+          beside it squeezing the title into a column a few words wide. */}
       <Card
-        className={`space-y-2 transition ${
+        className={`@container space-y-2 transition ${
           linked ? "ring-2 ring-indigo-400 dark:ring-indigo-500" : ""
         }`}
       >
-        <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-col gap-2 @xl:flex-row @xl:items-start @xl:justify-between">
           <div className="min-w-0 flex-1">
-            {/* The officer's card keeps a short badge here AND the picker on
-                the right (the badge is what they scan down the list). A
-                member's card has no picker, so its status takes the picker's
-                place on the right instead — one status per card, in the same
-                spot for everyone. */}
-            {canManage && (
-              <div className="mb-1 flex items-center gap-2">
-                <Badge tone={SQUAWK_STATUS_TONES[squawk.status]}>
-                  {SQUAWK_STATUS_SHORT[squawk.status]}
-                </Badge>
-                <InfoTip label={SQUAWK_STATUS_LABELS[squawk.status]}>
-                  {SQUAWK_STATUS_HINTS[squawk.status]}
-                </InfoTip>
-              </div>
-            )}
+            {/* One status per card. An officer's is the picker beside (or,
+                on a narrow card, under) the title, in the status's own colour;
+                a member's is a badge in the same place. A second badge above
+                the title said the same thing twice. */}
             <p className="font-medium">{squawk.title}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Noted {formatDay(new Date(squawk.createdAt))} by{" "}
@@ -321,7 +323,7 @@ function SquawkRow({
               hideLabel
               value={squawk.status}
               onChange={onStatus}
-              className="w-56"
+              className="w-full @xl:w-56"
               options={SQUAWK_STATUSES.map((status) => ({
                 value: status,
                 label: SQUAWK_STATUS_LABELS[status],
@@ -342,22 +344,22 @@ function SquawkRow({
           )}
         </div>
 
-        {squawk.description && (
-          <>
-            <button
-              onClick={() => setOpen((v) => !v)}
-              aria-expanded={open}
-              className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-            >
-              {open ? "Hide" : "Details"}
-            </button>
-            {open && (
-              <p className="whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">
-                {squawk.description}
-              </p>
-            )}
-          </>
+        {squawk.description && !wide && (
+          <button
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            {open ? "Hide" : "Details"}
+          </button>
         )}
+        {squawk.description && (wide || open) && (
+          <p className="whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">
+            {squawk.description}
+          </p>
+        )}
+
+        <OfficerNote squawk={squawk} canManage={canManage} onSaved={onChanged} />
 
         {squawk.status === "CLOSED" && squawk.resolvedBy && (
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -368,5 +370,115 @@ function SquawkRow({
         )}
       </Card>
     </li>
+  );
+}
+
+/**
+ * The Safety Officer's note on a squawk. Everyone reads it; only someone with
+ * `squawk:manage` sees Add note / Edit, and the route refuses anyone else.
+ * Edited in place on the card — the note is a sentence or two about the
+ * squawk in front of you, not a form of its own. Saving an empty box removes
+ * it.
+ */
+function OfficerNote({
+  squawk,
+  canManage,
+  onSaved,
+}: {
+  squawk: ApiSquawk;
+  canManage: boolean;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const note = squawk.note;
+
+  /** Open the editor on the current note (or an empty box). */
+  function startEditing() {
+    setDraft(note?.text ?? "");
+    setError(null);
+    setEditing(true);
+  }
+
+  /** PATCH the note — `null` removes it — then reload the list. */
+  async function save(text: string | null) {
+    setBusy(true);
+    setError(null);
+    const result = await sendJson(`/api/squawks/${squawk.id}`, "PATCH", { note: text });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error ?? "Could not save the note.");
+      return;
+    }
+    setEditing(false);
+    onSaved();
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-2">
+        <Textarea
+          label="Safety Officer's note"
+          rows={3}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Parts on order, OK for local flights until then…"
+          maxLength={MAX_SQUAWK_NOTE_CHARS}
+        />
+        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => save(draft)} disabled={busy}>
+            {busy ? <LoadingDots size="sm" /> : "Save note"}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
+            Cancel
+          </Button>
+          {note && (
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => save(null)} disabled={busy}>
+              Remove note
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!note) {
+    if (!canManage) return null;
+    return (
+      <button
+        onClick={startEditing}
+        className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+      >
+        Add a note
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900/40">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Safety Officer&rsquo;s note
+        </p>
+        {canManage && (
+          <button
+            onClick={startEditing}
+            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Edit note
+          </button>
+        )}
+      </div>
+      <p className="mt-1 whitespace-pre-wrap text-sm">{note.text}</p>
+      {(note.by || note.at) && (
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {note.by ? note.by.name : "Safety Officer"}
+          {note.at ? `, ${formatDay(new Date(note.at))}` : ""}
+        </p>
+      )}
+    </div>
   );
 }

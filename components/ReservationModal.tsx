@@ -256,8 +256,13 @@ export default function ReservationModal({
         // already close it, and a footer of two grey buttons made Export
         // look like the dismissive one.
         footer={
-          <Button variant="secondary" onClick={() => downloadIcs(reservation, tailNumber)}>
-            Export .ics
+          // "Export 📅" on screen; screen readers hear what it hands you.
+          <Button
+            variant="secondary"
+            aria-label="Export .ics"
+            onClick={() => downloadIcs(reservation, tailNumber)}
+          >
+            Export <span aria-hidden="true">📅</span>
           </Button>
         }
       >
@@ -336,16 +341,20 @@ export default function ReservationModal({
               disabled={busy}
               className="mr-auto"
             >
-              {deleteLabel(reservation, confirmingCancel)}
+              {/* Delete either way. A calendar booking is really renamed
+                  "CANCELLED - …" on Google — the note above the footer says
+                  so once it's pressed. */}
+              {confirmingCancel ? "Confirm" : "Delete"}
             </Button>
           )}
           {reservation && (
             <Button
               variant="secondary"
+              aria-label="Export .ics"
               onClick={() => downloadIcs(reservation, tailNumber)}
               disabled={busy}
             >
-              Export .ics
+              Export <span aria-hidden="true">📅</span>
             </Button>
           )}
           <Button onClick={save} disabled={busy}>
@@ -453,18 +462,6 @@ export default function ReservationModal({
       </div>
     </Modal>
   );
-}
-
-/**
- * The destructive button's words. A calendar booking is CANCELLED (renamed on
- * Google Calendar, kept as a record); an app-only one is deleted outright.
- * Second press confirms.
- */
-function deleteLabel(reservation: ApiReservation, confirming: boolean): string {
-  if (reservation.onGoogleCalendar) {
-    return confirming ? "Confirm cancel" : "Cancel booking";
-  }
-  return confirming ? "Confirm" : "Delete";
 }
 
 /** "All day · Sat, Aug 8", or "4 days · Thu, Aug 27 – Sun, Aug 30". */

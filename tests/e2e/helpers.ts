@@ -363,3 +363,60 @@ export async function expectFormsFitTouchScreen(page: Page) {
 
   expect(problems, problems.join("\n")).toEqual([]);
 }
+
+/**
+ * Rows on a list page get (nearly) the card's whole width for their text,
+ * rather than a squeezed column beside a control. `rows` are the cards; the
+ * first child block of each is its text.
+ */
+async function expectRowsNotSqueezed(rows: Locator, label: string) {
+  expect(await rows.count(), `${label}: no rows to check`).toBeGreaterThan(0);
+  for (const row of (await rows.all()).slice(0, 3)) {
+    const rowWidth = (await row.boundingBox())!.width;
+    const text = (await row.locator("p").first().boundingBox())!.width;
+    expect(text, `${label}: a row's text is squeezed beside its controls`).toBeGreaterThan(
+      rowWidth * 0.6
+    );
+  }
+}
+
+/**
+ * Plane Status is readable at this width — the overview, the squawk list and
+ * the maintenance sheet: nothing past the edge of the screen, and no list's
+ * text crushed into a column beside its buttons or picker. Shared by the phone
+ * and tablet specs; saves screenshots under test-results/ for a human to look
+ * at.
+ */
+export async function expectStatusPagesReadable(page: Page, device: string) {
+  const main = page.getByRole("main");
+
+  await page.goto("/status");
+  // The tach FIGURE, not the "Tach" label: the label is drawn under the
+  // splash before the page's data has even been asked for. Then wait for the
+  // splash itself to go, or the screenshot is of the splash.
+  await expect(main.getByText(/^\d+\.\d\s*hrs$/).first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole("status", { name: "Loading" })).toHaveCount(0, { timeout: 60_000 });
+  expect(await widerThanTheScreen(page)).toEqual([]);
+  await page.screenshot({ path: `test-results/status-${device}.png` });
+
+  await page.goto("/status/squawks");
+  const squawks = main.locator("li[id^=squawk-]");
+  await expect(squawks.first()).toBeVisible({ timeout: 60_000 });
+  expect(await widerThanTheScreen(page)).toEqual([]);
+  await expectRowsNotSqueezed(squawks, "squawks");
+  // A squawk's details fold behind "Details" on a phone; from the iPad up
+  // they're just shown, with nothing to hide them.
+  if (device === "iphone") {
+    await expect(squawks.getByRole("button", { name: "Details" }).first()).toBeVisible();
+  } else {
+    await expect(squawks.getByRole("button", { name: /^(Details|Hide)$/ })).toHaveCount(0);
+  }
+  await page.screenshot({ path: `test-results/squawks-${device}.png` });
+
+  await page.goto("/status/maintenance");
+  const sheet = main.locator("ul.\\@container").first();
+  await expect(sheet).toBeVisible({ timeout: 60_000 });
+  expect(await widerThanTheScreen(page)).toEqual([]);
+  await expectRowsNotSqueezed(sheet.locator(":scope > li"), "maintenance");
+  await page.screenshot({ path: `test-results/maintenance-${device}.png` });
+}

@@ -4,6 +4,9 @@ import {
   SQUAWK_STATUS_HINTS,
   SQUAWK_STATUS_LABELS,
   SQUAWK_STATUS_SHORT,
+  squawkBanner,
+  normalizeSquawkNote,
+  MAX_SQUAWK_NOTE_CHARS,
   SQUAWK_STATUS_TONES,
   SQUAWK_TRIAGE_ORDER,
   isAwaitingReview,
@@ -112,5 +115,52 @@ describe("SQUAWK_TRIAGE_ORDER", () => {
       "REVIEWED_OK_TO_FLY",
       "CLOSED",
     ]);
+  });
+});
+
+describe("squawkBanner", () => {
+  const none = { grounded: 0, inWork: 0, unreviewed: 0, okToFly: 0 };
+
+  it("is nothing with nothing open", () => {
+    expect(squawkBanner(none)).toBeNull();
+  });
+
+  it("is red for a grounding, and says only that", () => {
+    expect(squawkBanner({ ...none, grounded: 1, inWork: 2, unreviewed: 3 })).toEqual({
+      tone: "red",
+      text: "Do not fly — grounded by 1 squawk",
+    });
+  });
+
+  it("puts everything else worth reading on ONE amber line, worst first", () => {
+    expect(squawkBanner({ ...none, inWork: 1, unreviewed: 2 })).toEqual({
+      tone: "amber",
+      text: "In maintenance — 1 squawk being worked · 2 unreviewed squawks",
+    });
+    expect(squawkBanner({ ...none, unreviewed: 1 })?.text).toBe("1 unreviewed squawk");
+  });
+
+  // Reviewed and okay to fly is still OPEN — amber, not green.
+  it("keeps okay-to-fly amber", () => {
+    expect(squawkBanner({ ...none, okToFly: 2 })).toEqual({
+      tone: "amber",
+      text: "2 squawks reviewed, okay to fly",
+    });
+  });
+});
+
+describe("normalizeSquawkNote", () => {
+  it("trims what the officer typed", () => {
+    expect(normalizeSquawkNote("  Parts on order.  ")).toEqual({ note: "Parts on order." });
+  });
+
+  it("treats an empty box as removing the note", () => {
+    expect(normalizeSquawkNote("   ")).toEqual({ note: null });
+    expect(normalizeSquawkNote(null)).toEqual({ note: null });
+  });
+
+  it("refuses something that isn't text, or is far too long", () => {
+    expect(normalizeSquawkNote(42)).toHaveProperty("error");
+    expect(normalizeSquawkNote("x".repeat(MAX_SQUAWK_NOTE_CHARS + 1))).toHaveProperty("error");
   });
 });

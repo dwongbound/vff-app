@@ -180,7 +180,7 @@ export default function StatusPage() {
             without the other. Proportional figures, not `tabular` — tabular
             gives every digit the width of a zero, which looks loose at this
             size and only earns its keep in aligned columns. */}
-        <Card className="sm:col-span-2 flex flex-col justify-between gap-3">
+        <Card className="sm:col-span-2 flex flex-col justify-between gap-2 sm:gap-3">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Tach
@@ -189,28 +189,37 @@ export default function StatusPage() {
               After the last filed flight
             </p>
           </div>
-          <p className="text-5xl font-bold leading-none">
+          {/* Smaller on a phone: at 5xl the figure and its card were most of
+              the first screen. */}
+          <p className="text-4xl font-bold leading-none sm:text-5xl">
             {selected.lastTach != null ? selected.lastTach.toFixed(1) : "—"}
             <span className="ml-2 text-base font-normal text-gray-500 dark:text-gray-400">
               hrs
             </span>
           </p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Hobbs{" "}
-            <span className="font-semibold text-gray-700 dark:text-gray-200">
-              {selected.lastHobbs != null ? selected.lastHobbs.toFixed(1) : "—"}
-            </span>
-            {selected.lastHobbs == null && " · not recorded"}
-          </p>
-          {/* The tach only means something against what it's counting DOWN to.
-              The maintenance card below has the whole sheet; this is the one
-              line a pilot reads off the hero figure. */}
-          {nextMaintenance && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {formatRemaining(maintenanceDue(nextMaintenance, selected.lastTach))}{" "}
-              to {nextMaintenance.label.toLowerCase()}
+          <div className="space-y-0.5 text-sm text-gray-500 dark:text-gray-400">
+            <p>
+              {selected.lastHobbs != null ? (
+                <>
+                  Hobbs{" "}
+                  <span className="font-semibold text-gray-700 dark:text-gray-200">
+                    {selected.lastHobbs.toFixed(1)}
+                  </span>
+                </>
+              ) : (
+                "Hobbs not recorded"
+              )}
             </p>
-          )}
+            {/* The tach only means something against what it's counting DOWN
+                to. The maintenance card has the whole sheet; this is the one
+                line a pilot reads off the hero figure. */}
+            {nextMaintenance && (
+              <p>
+                Next due: {nextMaintenance.label} ·{" "}
+                {formatRemaining(maintenanceDue(nextMaintenance, selected.lastTach))}
+              </p>
+            )}
+          </div>
         </Card>
 
         <Meter

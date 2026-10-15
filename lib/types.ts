@@ -46,6 +46,8 @@ export interface ApiAircraft {
   openSquawkCount: number;
   /** Filed but not yet triaged — what the Safety Officer owes the club. */
   newSquawkCount: number;
+  /** Reviewed and okay to fly — open, but cleared for dispatch. */
+  okToFlySquawkCount: number;
   /**
    * What the airplane is due for — the club's maintenance sheet, still tracked.
    *
@@ -242,6 +244,11 @@ export interface ApiSquawk {
   resolvedBy: ApiUserSummary | null;
   resolvedAt: string | null;
   resolution: string | null;
+  /**
+   * The Safety Officer's note — read by everyone, written only with
+   * `squawk:manage`. Null when there isn't one.
+   */
+  note: { text: string; by: ApiUserSummary | null; at: string | null } | null;
   photos: ApiPhoto[];
   createdAt: string;
 }

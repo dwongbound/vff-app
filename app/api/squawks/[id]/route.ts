@@ -14,11 +14,12 @@ import { getSessionUser } from "@/lib/auth";
 import { can } from "@/lib/positions";
 import { prisma } from "@/lib/prisma";
 import { serializeSquawk } from "@/lib/serialize";
-import { isSquawkStatus } from "@/lib/squawks";
+import { isSquawkStatus, normalizeSquawkNote } from "@/lib/squawks";
 
 const INCLUDE = {
   reportedBy: { select: { id: true, name: true, email: true } },
   resolvedBy: { select: { id: true, name: true, email: true } },
+  officerNoteBy: { select: { id: true, name: true, email: true } },
   photos: true,
 } as const;
 
@@ -76,6 +77,19 @@ export async function PATCH(
   }
   if ("description" in body) {
     data.description = body.description ? String(body.description).trim() : null;
+  }
+
+  // The Safety Officer's note. The whole route already needs squawk:manage,
+  // which is the rule: everyone READS the note, only the office WRITES it.
+  // An empty note removes it, and its byline with it.
+  if ("note" in body) {
+    const result = normalizeSquawkNote(body.note);
+    if ("error" in result) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    data.officerNote = result.note;
+    data.officerNoteById = result.note ? user.id : null;
+    data.officerNoteAt = result.note ? new Date() : null;
   }
 
   const updated = await prisma.squawk.update({

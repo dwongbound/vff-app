@@ -273,6 +273,7 @@ export function serializeAircraft(a: AircraftRow): ApiAircraft {
       .map(summary),
     openSquawkCount: open.length,
     newSquawkCount: open.filter((s) => s.status === "NEW").length,
+    okToFlySquawkCount: open.filter((s) => s.status === "REVIEWED_OK_TO_FLY").length,
     // Absent (a route that didn't include them) reads as an empty sheet rather
     // than an error — the same shape a club that hasn't typed one in yet has.
     maintenance: (a.maintenance ?? [])
@@ -332,6 +333,10 @@ interface SquawkRow {
   resolvedBy?: UserRow | null;
   resolvedAt: Date | null;
   resolution: string | null;
+  // Optional: the flight log's squawk queries don't select the note.
+  officerNote?: string | null;
+  officerNoteBy?: UserRow | null;
+  officerNoteAt?: Date | null;
   photos?: PhotoRow[];
   createdAt: Date;
 }
@@ -347,6 +352,13 @@ export function serializeSquawk(s: SquawkRow): ApiSquawk {
     resolvedBy: s.resolvedBy ? serializeUser(s.resolvedBy) : null,
     resolvedAt: s.resolvedAt?.toISOString() ?? null,
     resolution: s.resolution,
+    note: s.officerNote
+      ? {
+          text: s.officerNote,
+          by: s.officerNoteBy ? serializeUser(s.officerNoteBy) : null,
+          at: s.officerNoteAt?.toISOString() ?? null,
+        }
+      : null,
     photos: (s.photos ?? []).map(serializePhoto),
     createdAt: s.createdAt.toISOString(),
   };

@@ -314,6 +314,38 @@ export function gaugePosition(due: MaintenanceDue): number | null {
 export const MAX_GAUGE_URGENCY = 10;
 
 /** "19.3 hrs" / "112 days" — the countdown, in whichever unit is running out. */
+/** "12.5 hrs left", or "4.0 hrs over" — never a minus sign. */
+export function formatHoursLeft(hours: number): string {
+  if (hours < 0) return `${Math.abs(hours).toFixed(1)} hrs over`;
+  return `${hours.toFixed(1)} hrs left`;
+}
+
+/** "16 days left", "1 day left", "due today", or "3 days over". */
+export function formatDaysLeft(days: number): string {
+  if (days < 0) return `${Math.abs(days)} ${Math.abs(days) === 1 ? "day" : "days"} over`;
+  if (days === 0) return "due today";
+  return `${days} ${days === 1 ? "day" : "days"} left`;
+}
+
+/** An average calendar month, for drawing a months interval as a bar. */
+const DAYS_PER_MONTH = 30.44;
+
+/**
+ * How much of an item's interval is left, 0–1, for its countdown bar: 19.3
+ * hours left of a 50-hour oil change is 0.39. Clamped — an overdue item reads
+ * empty rather than drawing backwards. Null when the item has no interval on
+ * that clock, so there's nothing to measure against.
+ */
+export function fractionLeft(
+  remaining: number | null,
+  interval: number | null,
+  unit: "hours" | "months"
+): number | null {
+  if (remaining == null || interval == null || interval <= 0) return null;
+  const span = unit === "months" ? interval * DAYS_PER_MONTH : interval;
+  return Math.max(0, Math.min(1, remaining / span));
+}
+
 export function formatRemaining(due: MaintenanceDue): string {
   if (due.limitedBy === "hours" && due.hoursRemaining != null) {
     const hours = due.hoursRemaining;

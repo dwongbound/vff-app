@@ -38,7 +38,7 @@ test("booking the airplane, then cancelling it", async ({ page }) => {
   // It shows up as "your next flight" or on the grid as a You chip.
   await expect(page.getByRole("button", { name: /You/ }).first()).toBeVisible();
 
-  // Reopen it: the footer is Delete · Export .ics · Save — no Close (the ✕
+  // Reopen it: the footer is Delete · Export 📅 (named "Export .ics") · Save — no Close (the ✕
   // in the header closes it).
   await page.getByRole("button", { name: /You/ }).first().click();
   const dialog = page.getByRole("dialog");

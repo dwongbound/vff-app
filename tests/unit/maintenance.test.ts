@@ -6,7 +6,10 @@ import {
   daysRemaining,
   dueAtTach,
   dueOn,
+  formatDaysLeft,
+  formatHoursLeft,
   formatRemaining,
+  fractionLeft,
   grounding,
   hoursRemaining,
   maintenanceDue,
@@ -291,5 +294,37 @@ describe("validating an item somebody typed in", () => {
     expect(maintenanceItemError({ label: "Oil", intervalHours: 0 })).toMatch(/hour/i);
     expect(maintenanceItemError({ label: "Oil", intervalMonths: -1 })).toMatch(/month/i);
     expect(maintenanceItemError({ label: "Oil", lastDoneTach: -5 })).toMatch(/tach/i);
+  });
+});
+
+describe("one clock, in words", () => {
+  it("says left or over, never a minus sign", () => {
+    expect(formatHoursLeft(19.34)).toBe("19.3 hrs left");
+    expect(formatHoursLeft(-4)).toBe("4.0 hrs over");
+    expect(formatDaysLeft(16)).toBe("16 days left");
+    expect(formatDaysLeft(1)).toBe("1 day left");
+    expect(formatDaysLeft(0)).toBe("due today");
+    expect(formatDaysLeft(-1)).toBe("1 day over");
+    expect(formatDaysLeft(-3)).toBe("3 days over");
+  });
+});
+
+describe("fractionLeft", () => {
+  // The bar used to divide hours left by the TACH reading (~1500), so every
+  // hour bar sat at a sliver however fresh the oil was.
+  it("measures against the item's own interval", () => {
+    expect(fractionLeft(25, 50, "hours")).toBe(0.5);
+    expect(fractionLeft(183, 12, "months")).toBeCloseTo(0.5, 1);
+  });
+
+  it("reads empty when overdue and full at most", () => {
+    expect(fractionLeft(-4, 50, "hours")).toBe(0);
+    expect(fractionLeft(60, 50, "hours")).toBe(1);
+  });
+
+  it("is null with nothing to measure against", () => {
+    expect(fractionLeft(10, null, "hours")).toBeNull();
+    expect(fractionLeft(10, 0, "months")).toBeNull();
+    expect(fractionLeft(null, 50, "hours")).toBeNull();
   });
 });

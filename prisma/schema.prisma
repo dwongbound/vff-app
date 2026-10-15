@@ -201,6 +201,7 @@ model User {
   servicing       Servicing[]
   squawksReported Squawk[]   @relation("SquawkReporter")
   squawksResolved Squawk[]   @relation("SquawkResolver")
+  squawkNotes     Squawk[]   @relation("SquawkNoteAuthor")
   photos          Photo[]
 
   // The instructing side of the same two rows. Named relations because a User
@@ -721,6 +722,15 @@ model Squawk {
   resolvedById String?
   resolvedAt   DateTime?
   resolution   String?
+
+  // The Safety Officer's note: one per squawk, read by every member, written
+  // only with `squawk:manage` (app/api/squawks/[id]). Separate from the
+  // reporter's `description` on purpose — that's what was SEEN; this is what
+  // the club knows about it since ("parts on order, OK for local flights").
+  officerNote     String?
+  officerNoteBy   User?     @relation("SquawkNoteAuthor", fields: [officerNoteById], references: [id], onDelete: SetNull)
+  officerNoteById String?
+  officerNoteAt   DateTime?
 
   // Idempotency key — see Flight.clientRequestId.
   clientRequestId String? @unique

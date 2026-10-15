@@ -98,3 +98,62 @@ export function isInMaintenance(status: SquawkStatus): boolean {
 export function isAwaitingReview(status: SquawkStatus): boolean {
   return status === "NEW";
 }
+
+/** How many open squawks the airplane has in each state that matters. */
+export interface SquawkCounts {
+  grounded: number;
+  inWork: number;
+  unreviewed: number;
+  okToFly: number;
+}
+
+/** "1 squawk", "3 squawks". */
+function squawkCount(n: number): string {
+  return `${n} ${n === 1 ? "squawk" : "squawks"}`;
+}
+
+/**
+ * The squawks' answer to "can it fly", as ONE line for the top of Plane
+ * Status — or null when there's nothing open to read.
+ *
+ * Grounded is red and says only that: it's the whole answer. Otherwise every
+ * open squawk worth reading before you go shares one AMBER line, worst first —
+ * in the shop (not a grounding on its own; the Safety Officer grounds it
+ * explicitly if that's what they mean), not yet reviewed by anyone, and
+ * reviewed-but-still-open okay-to-fly. One line, because the list of squawks
+ * printed here used to take a third of a phone's first screen.
+ */
+export function squawkBanner(
+  counts: SquawkCounts
+): { tone: "red" | "amber"; text: string } | null {
+  if (counts.grounded > 0) {
+    return { tone: "red", text: `Do not fly — grounded by ${squawkCount(counts.grounded)}` };
+  }
+  const parts: string[] = [];
+  if (counts.inWork > 0) parts.push(`In maintenance — ${squawkCount(counts.inWork)} being worked`);
+  if (counts.unreviewed > 0) {
+    parts.push(`${counts.unreviewed} unreviewed ${counts.unreviewed === 1 ? "squawk" : "squawks"}`);
+  }
+  if (counts.okToFly > 0) parts.push(`${squawkCount(counts.okToFly)} reviewed, okay to fly`);
+  if (parts.length === 0) return null;
+  return { tone: "amber", text: parts.join(" · ") };
+}
+
+/** Long enough for "parts on order, ETA, what the shop said" — not an essay. */
+export const MAX_SQUAWK_NOTE_CHARS = 2000;
+
+/**
+ * A Safety Officer's note as typed → what to store: trimmed, null for an
+ * empty box (which REMOVES the note), or an error for one that's too long.
+ */
+export function normalizeSquawkNote(
+  raw: unknown
+): { note: string | null } | { error: string } {
+  if (raw == null) return { note: null };
+  if (typeof raw !== "string") return { error: "A note has to be text." };
+  const note = raw.trim();
+  if (note.length > MAX_SQUAWK_NOTE_CHARS) {
+    return { error: `Keep the note under ${MAX_SQUAWK_NOTE_CHARS} characters.` };
+  }
+  return { note: note || null };
+}

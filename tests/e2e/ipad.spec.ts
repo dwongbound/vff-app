@@ -7,7 +7,7 @@
 // page is likeliest to overflow or collide with the rail. Desktop Chrome at
 // 1280 would never catch it.
 import { expect, test } from "@playwright/test";
-import { expectFormsFitTouchScreen, signIn, swipeLeft } from "./helpers";
+import { expectFormsFitTouchScreen, expectStatusPagesReadable, signIn, swipeLeft } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -139,4 +139,9 @@ test("Quick Log's File button runs the full width on a tablet too", async ({ pag
   const box = (await file.boundingBox())!;
   expect(Math.abs(box.x - edges.left)).toBeLessThan(2);
   expect(Math.abs(box.x + box.width - edges.right)).toBeLessThan(2);
+});
+
+test("Plane Status is readable at this width", async ({ page }) => {
+  test.setTimeout(180_000);
+  await expectStatusPagesReadable(page, "ipad");
 });
