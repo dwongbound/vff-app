@@ -7,7 +7,7 @@
 // page is likeliest to overflow or collide with the rail. Desktop Chrome at
 // 1280 would never catch it.
 import { expect, test } from "@playwright/test";
-import { signIn, swipeLeft } from "./helpers";
+import { expectFormsFitTouchScreen, signIn, swipeLeft } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
@@ -83,6 +83,13 @@ test("double-tap zoom is off on a tablet too, pinch-zoom kept", async ({ page })
   }
   const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
   expect(viewport ?? "").not.toMatch(/maximum-scale|user-scalable\s*=\s*(no|0)/);
+});
+
+test("no field zooms the page on focus, and no form is wider than the screen", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await expectFormsFitTouchScreen(page);
 });
 
 test("Finances keeps its table on a tablet, with the + panel above it", async ({ page }) => {

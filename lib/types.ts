@@ -92,11 +92,21 @@ export interface ApiReservation {
   id: string;
   aircraftId: string;
   aircraft: { id: string; tailNumber: string };
-  user: ApiUserSummary;
+  /**
+   * Who booked it. Null only for an event typed straight into the airplane's
+   * Google Calendar by somebody with no account here — `title` names it then.
+   */
+  user: ApiUserSummary | null;
   startsAt: string;
   endsAt: string;
+  /** A whole-day Google event: club midnight to club midnight. */
+  allDay: boolean;
   purpose: Purpose;
   notes: string | null;
+  /** The Google event's own title, when it isn't one the app generated. */
+  title: string | null;
+  /** Mirrors an event on the airplane's Google Calendar. */
+  onGoogleCalendar: boolean;
   status: "CONFIRMED" | "CANCELED";
   /**
    * The CFI this lesson is booked with. Only ever set on a TRAINING booking —
@@ -454,4 +464,34 @@ export interface ApiLedgerPage {
      */
     paidCents: number;
   } | null;
+}
+
+/** Club settings' view of the Google Calendar sync (GET /api/calendar). */
+export interface ApiCalendarStatus {
+  /** GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set on this deployment. */
+  configured: boolean;
+  connection: {
+    accountEmail: string;
+    connectedBy: string | null;
+    connectedAt: string;
+  } | null;
+  /**
+   * The viewer is the admin who connected the Google account, and so the one
+   * who may see its calendar list and pick from it. Everyone else gets an
+   * empty `calendars`.
+   */
+  canPick: boolean;
+  /** Calendars the connected account can write to (connector only). */
+  calendars: { id: string; name: string }[];
+  calendarsError: string | null;
+  aircraft: {
+    id: string;
+    tailNumber: string;
+    calendar: {
+      calendarId: string;
+      calendarName: string | null;
+      syncedAt: string | null;
+      syncError: string | null;
+    } | null;
+  }[];
 }

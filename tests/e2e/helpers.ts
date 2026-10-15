@@ -259,3 +259,107 @@ export async function settledTachStart(page: Page, scope: Page | Locator = page)
   return box.inputValue();
 }
 
+/**
+ * Every visible text field under 16px, described — iOS Safari zooms the whole
+ * page in when one of those is focused, and leaves it zoomed. The phone and
+ * tablet specs walk the pages that have fields and assert this comes back
+ * empty (the rule that makes it so is in app/globals.css).
+ */
+export async function fieldsThatZoomOnFocus(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const NOT_TEXT = new Set(["checkbox", "radio", "file", "hidden", "range", "submit", "button", "color"]);
+    return [...document.querySelectorAll<HTMLInputElement>("input, select, textarea")]
+      .filter((el) => !NOT_TEXT.has(el.type))
+      .filter((el) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 1 && box.height > 1;
+      })
+      .map((el) => ({ el, size: parseFloat(getComputedStyle(el).fontSize) }))
+      .filter(({ size }) => size < 16)
+      .map(({ el, size }) => `${size}px ${el.type} ${el.id || el.name || el.getAttribute("aria-label") || ""}`);
+  });
+}
+
+/**
+ * Anything drawn past either edge of the window, innermost offenders only —
+ * except inside a box that is MEANT to scroll sideways (a wide table). Covers
+ * sheets as well as the page, which `#app-scroll`'s own scrollWidth can't:
+ * a modal is outside the scroller.
+ */
+export async function widerThanTheScreen(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const inSideScroller = (el: Element) => {
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        const ox = getComputedStyle(p).overflowX;
+        if (ox === "auto" || ox === "scroll") return true;
+      }
+      return false;
+    };
+    const out = [...document.querySelectorAll("body *")].filter((el) => {
+      const box = el.getBoundingClientRect();
+      if (box.width <= 1 || box.height <= 1) return false;
+      return (box.right > vw + 0.5 || box.left < -0.5) && !inSideScroller(el);
+    });
+    return out
+      .filter((el) => !out.some((other) => other !== el && el.contains(other)))
+      .slice(0, 5)
+      .map((el) => `<${el.tagName.toLowerCase()} class="${el.className}"> ${(el.textContent ?? "").slice(0, 40)}`);
+  });
+}
+
+/**
+ * The touch-screen form pass shared by the phone and tablet specs: every page
+ * and sheet with fields on it, checked for a field that would zoom the page on
+ * focus and for anything wider than the screen. Fails naming the place and the
+ * offenders, so a regression says where it is.
+ */
+export async function expectFormsFitTouchScreen(page: Page) {
+  const problems: string[] = [];
+  const check = async (where: string) => {
+    for (const f of await fieldsThatZoomOnFocus(page)) problems.push(`${where}: zooms on focus — ${f}`);
+    for (const w of await widerThanTheScreen(page)) problems.push(`${where}: wider than the screen — ${w}`);
+  };
+  const main = page.getByRole("main");
+
+  for (const [path, ready] of [
+    ["/quick-log", "File"],
+    ["/profile", "Save"],
+  ] as const) {
+    await page.goto(path);
+    await expect(main.getByRole("button", { name: ready, exact: true }).first()).toBeVisible({
+      timeout: 60_000,
+    });
+    await check(path);
+  }
+
+  await page.goto("/tools/weight-balance");
+  await expect(main.locator("input").first()).toBeVisible({ timeout: 60_000 });
+  await check("/tools/weight-balance");
+
+  // The card's clock field is the widest field on any card.
+  await page.goto("/preflight");
+  await main.getByRole("button", { name: /^\d+\s*Cockpit.*\d+\/\d+$/ }).click();
+  await expect(main.locator("input[type=time]").first()).toBeVisible();
+  await check("/preflight › Cockpit");
+
+  await page.goto("/postflight");
+  for (const section of [/Meter readings/, /The flight/]) {
+    await openPostflightSection(page, section);
+    await check(`/postflight › ${section.source}`);
+  }
+
+  // The booking sheet — the date fields that started this.
+  await page.goto("/reservations");
+  await page.getByRole("button", { name: /^New( reservation)?$/ }).filter({ visible: true }).first().click();
+  await expect(page.getByRole("dialog").getByLabel("Start", { exact: true })).toBeVisible();
+  await check("booking sheet");
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+
+  await page.goto("/log");
+  await main.getByRole("button", { name: /Add flight/ }).filter({ visible: true }).first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await check("add-flight sheet");
+
+  expect(problems, problems.join("\n")).toEqual([]);
+}

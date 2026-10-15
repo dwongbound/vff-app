@@ -43,6 +43,7 @@ import { formatDay, formatTime, formatTimeRange } from "@/lib/dates";
 import { formatRemaining, maintenanceDue, nextDue } from "@/lib/maintenance";
 import { formatHours, monthlyTachHours, tachHours } from "@/lib/hours";
 import { isOpenSession } from "@/lib/flightSession";
+import { bookedBy } from "@/lib/reservations";
 import type {
   ApiCheckout,
   ApiFlightSummary,
@@ -264,7 +265,7 @@ export default function StatusPage() {
             <>
               <p className="text-sm">
                 <span className="font-medium">
-                  {nextBooking.mine ? "You" : nextBooking.user.name}
+                  {nextBooking.mine ? "You" : bookedBy(nextBooking)}
                 </span>{" "}
                 — {formatDay(new Date(nextBooking.startsAt))}
               </p>

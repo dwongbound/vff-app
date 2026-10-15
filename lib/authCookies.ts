@@ -18,14 +18,29 @@ export const SESSION_COOKIE_NAME = isHttps
   ? "__Secure-vff.session-token"
   : "vff.session-token";
 
+const options = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  path: "/",
+  secure: isHttps,
+};
+
+// The rest of NextAuth's cookies get our prefix too, for the same reason. The
+// session token was renamed first; these were left on their defaults until
+// Google sign-in was switched on, and then a Google round trip on localhost
+// failed with "State cookie was missing" whenever another local NextAuth app
+// had written its own `next-auth.state` / `next-auth.pkce.code_verifier`
+// (and `next-auth.callback-url` could send a member to the other app).
+const prefix = isHttps ? "__Secure-vff" : "vff";
+
 export const authCookies = {
-  sessionToken: {
-    name: SESSION_COOKIE_NAME,
-    options: {
-      httpOnly: true,
-      sameSite: "lax" as const,
-      path: "/",
-      secure: isHttps,
-    },
-  },
+  sessionToken: { name: SESSION_COOKIE_NAME, options },
+  // `__Host-` is NextAuth's own production choice for this one: host-only,
+  // path "/", secure — it can't be overwritten from a subdomain.
+  csrfToken: { name: isHttps ? "__Host-vff.csrf-token" : "vff.csrf-token", options },
+  callbackUrl: { name: `${prefix}.callback-url`, options },
+  // The OAuth round trip's one-time values. 15 minutes, NextAuth's default.
+  state: { name: `${prefix}.state`, options: { ...options, maxAge: 900 } },
+  pkceCodeVerifier: { name: `${prefix}.pkce.code_verifier`, options: { ...options, maxAge: 900 } },
+  nonce: { name: `${prefix}.nonce`, options },
 };

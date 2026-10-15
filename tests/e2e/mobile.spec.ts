@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
 import {
   clearCheckoutDrafts,
   clearOpenSessions,
+  expectFormsFitTouchScreen,
   openPostflightSection,
   signIn,
   swipeLeft,
@@ -309,6 +310,13 @@ test("double-tap zoom is off, but pinch-zoom is left alone", async ({ page }) =>
   // kill pinch-zoom for anyone who needs it to read the page.
   const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
   expect(viewport ?? "").not.toMatch(/maximum-scale|user-scalable\s*=\s*(no|0)/);
+});
+
+test("no field zooms the page on focus, and no form is wider than the screen", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await expectFormsFitTouchScreen(page);
 });
 
 test("a full sideways pull changes tab on a phone", async ({ page }) => {

@@ -29,7 +29,8 @@ function LoginForm() {
   const callbackUrl = searchParams.get("callbackUrl") || "/reservations";
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [googleAvailable, setGoogleAvailable] = useState(false);
-  const [error, setError] = useState("");
+  // A refused Google sign-in comes back as ?error=<code> (see lib/auth.ts).
+  const [error, setError] = useState(() => oauthErrorMessage(searchParams.get("error")));
   const [submitting, setSubmitting] = useState(false);
 
   const [email, setEmail] = useState("");
@@ -47,6 +48,13 @@ function LoginForm() {
 
   useEffect(() => {
     setReady(true);
+    // The message above has been read off ?error=; drop it from the address
+    // so a reload doesn't show it again.
+    if (searchParams.get("error")) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("error");
+      window.history.replaceState(null, "", url.pathname + url.search);
+    }
     getProviders().then((providers) => setGoogleAvailable(!!providers?.google));
   }, []);
 
@@ -64,6 +72,11 @@ function LoginForm() {
       redirect: false,
       username: email,
       password,
+      // Explicit, never the default: NextAuth's default is THIS page's URL,
+      // and it reads success back as "no ?error= in the URL it returns". After
+      // a refused Google sign-in this page is /login?error=GoogleNoAccount, so
+      // the default made a successful sign-in report itself as a failure.
+      callbackUrl,
     });
     setSubmitting(false);
     if (result?.error) {
@@ -98,11 +111,18 @@ function LoginForm() {
       redirect: false,
       username: email,
       password,
+      // Explicit, never the default: NextAuth's default is THIS page's URL,
+      // and it reads success back as "no ?error= in the URL it returns". After
+      // a refused Google sign-in this page is /login?error=GoogleNoAccount, so
+      // the default made a successful sign-in report itself as a failure.
+      callbackUrl,
     });
     setSubmitting(false);
     if (result?.error) {
-      setError("Account created — please sign in.");
+      // Mode first: switchMode clears the error, so the other order showed a
+      // blank sign-in form with no word of the account just created.
       switchMode("signin");
+      setError("Account created — please sign in.");
     } else {
       router.push(callbackUrl);
       router.refresh();
@@ -261,4 +281,20 @@ function VersionFooter() {
       {sha && <span className="ml-1 font-mono">{sha.slice(0, 7)}</span>}
     </p>
   );
+}
+
+/**
+ * What a NextAuth ?error= code means, in words. The two Google ones are this
+ * app's own refusals (lib/auth.ts); anything else is NextAuth's, and gets a
+ * generic line rather than its code.
+ */
+function oauthErrorMessage(code: string | null): string {
+  if (!code) return "";
+  if (code === "GoogleNoAccount") {
+    return "That Google account isn't a member here yet. Create an account with your sign-up code first — then Continue with Google will work.";
+  }
+  if (code === "GoogleNoEmail") {
+    return "Google didn't share an email address, so we couldn't find your account.";
+  }
+  return "Sign-in didn't work. Please try again.";
 }

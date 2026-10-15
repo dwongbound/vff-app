@@ -43,7 +43,7 @@ You need Docker. Node on the host is optional — everything runs in containers.
 ```bash
 cp env.example/dev.env  env/dev.env      # env/ is gitignored
 cp env.example/test.env env/test.env
-docker compose --profile dev up          # → http://localhost:3000
+docker compose --profile dev up          # → http://localhost:3001
 ```
 
 That boots Postgres, installs deps, pushes the schema, seeds demo data, and
@@ -168,7 +168,8 @@ stays private to each member — the roster shows contact details only.
   form pre-fills.
 - **Reservation** — one airplane, one time block. Overlap is rejected by the
   API (`lib/reservations.ts`) rather than a db constraint so the message can
-  name who has the airplane. Cancelling marks `CANCELED`, never deletes.
+  name who has the airplane. Once an airplane is linked to a Google Calendar
+  (below), its reservations are a mirror of that calendar's events.
 - **Flight** — the post-flight entry and one line of the log: tach/Hobbs in-out,
   landings, route, fuel, oil, put-away flags. Optionally closes out a
   Reservation (one flight per booking).
@@ -218,6 +219,73 @@ never exceed. Set up:
 Nothing else changes: photos are always read back through `/api/photos/[id]`,
 which checks the session first, so the bucket never needs to be public and no
 signed URLs leak into the client.
+
+## Google Calendar
+
+The club already keeps each airplane's schedule on a Google Calendar (the
+"N8318B" calendar). Linking it makes **that calendar the source of truth** for
+the Reservations tab:
+
+- Opening the schedule pulls whatever changed in Google first (at most once a
+  minute per airplane), so bookings typed straight into Google show up here.
+- Booking, editing and cancelling in the app write to Google first. If Google
+  refuses, nothing changes in the app either.
+- **Cancelling renames the event** to `CANCELLED - <title>` rather than deleting
+  it, so the calendar keeps the record. Any event whose title starts with
+  "Cancelled" (the club's existing habit) no longer holds the airplane.
+  Deleting an event in Google removes the booking.
+- Bookings that came from Google are matched to members by the email of the
+  Google account that created them. One whose creator has no account here is
+  still shown, labelled with its own title. They also skip the app's booking
+  limits (12 hours, how far ahead), which only apply to times picked in the app.
+- Bookings already in the app from before an airplane is linked stay in the app
+  only; they are not copied to Google.
+
+### Environment variables
+
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` — the same pair the login page's
+"Continue with Google" reads, so there is nothing new to add, but **both are
+empty out of the box** and calendar sync stays off until they're set (step 1
+below creates them). Setting them also turns on "Continue with Google", which
+only signs in members who ALREADY have an account with that email — joining
+still takes a sign-up code.
+
+Two existing variables matter as well: the redirect is built from
+`NEXTAUTH_URL`, and the stored Google token is encrypted with
+`NEXTAUTH_SECRET`, so changing that secret means an admin has to reconnect the
+calendar.
+
+### Setting it up
+
+1. **Google Cloud console** (console.cloud.google.com), in a project for the
+   club:
+   - **APIs & Services → Library → Google Calendar API → Enable.**
+   - **Credentials → Create credentials → OAuth client ID**, type **Web
+     application**. Under **Authorized redirect URIs** add
+     `https://<your-domain>/api/calendar/callback` (and
+     `http://localhost:3001/api/calendar/callback` for dev). Add
+     `…/api/auth/callback/google` too if you want "Continue with Google".
+   - Copy the client ID and secret into `GOOGLE_CLIENT_ID` /
+     `GOOGLE_CLIENT_SECRET` — in `env/*.env`, and in the Vercel project's
+     environment variables for `main` and `staging` — then redeploy.
+   - **OAuth consent screen**: add the scopes `calendar.events` and
+     `calendar.calendarlist.readonly`, and set the publishing status to
+     **In production**. While it's in *Testing*, Google expires refresh tokens
+     after **7 days** and the sync silently stops a week later. Google will
+     show the admin an "unverified app" warning on the consent screen, which
+     is fine for a single club account. (On Google Workspace, set the app to
+     *Internal* instead and there's no warning.)
+2. **In the app**, as an admin: avatar menu → **Club settings → Google
+   Calendar → Connect Google**, and sign in with a Google account that can
+   **edit** the airplane's calendar. Only the admin sees this consent screen;
+   members sign in exactly as before.
+3. Pick each airplane's calendar from the list. The first sync copies the
+   whole calendar in; after that, only changes are fetched.
+
+Sync errors are shown under the airplane in Club settings, with a **Sync now**
+button. If the connecting account loses access to the calendar, or someone
+revokes the app in their Google account, Club settings shows the error and
+an admin reconnects.
 
 ## Gotchas
 

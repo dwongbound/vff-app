@@ -25,6 +25,7 @@ import {
 import {
   addDays,
   addMinutes,
+  formatDay,
   formatDuration,
   formatFullDate,
   splitLocalDateTime,
@@ -32,7 +33,7 @@ import {
   toLocalInputValue,
 } from "@/lib/dates";
 import { buildIcs, icsFilename } from "@/lib/ics";
-import { validateReservation } from "@/lib/reservations";
+import { allDayLabel, bookedBy, validateReservation } from "@/lib/reservations";
 import type { ApiMember, ApiReservation } from "@/lib/types";
 
 /**
@@ -54,9 +55,9 @@ function downloadIcs(reservation: ApiReservation, tailNumberAsGiven: string) {
         uid: `reservation-${reservation.id}@vffclub`,
         start,
         end: new Date(reservation.endsAt),
-        summary: `${tailNumber} — ${PURPOSE_LABELS[reservation.purpose]}`,
+        summary: `${tailNumber} — ${reservation.title ?? PURPOSE_LABELS[reservation.purpose]}`,
         description: [
-          `Booked by ${reservation.user.name}`,
+          `Booked by ${bookedBy(reservation)}`,
           reservation.notes,
         ]
           .filter(Boolean)
@@ -114,9 +115,9 @@ export default function ReservationModal({
   const [instructorId, setInstructorId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Two-step delete: the destructive action shouldn't be one stray tap. (It's
-  // labelled Delete — what it does from the member's side — though the row is
-  // kept as CANCELED; see the reservations route.)
+  // Two-step delete: the destructive action shouldn't be one stray tap. An
+  // app-only booking is deleted; one on the airplane's Google Calendar is
+  // CANCELLED instead (renamed there, kept as a record), and says so.
   const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   // The club's CFIs, for the picker. Fetched once the modal is first opened
@@ -188,9 +189,18 @@ export default function ReservationModal({
   const timesUsable =
     !Number.isNaN(startsAt.getTime()) && !Number.isNaN(endsAt.getTime());
 
+  // The club's booking rules apply to times a member PICKS. A booking that
+  // came in from Google Calendar (a four-day trip, last week's lesson) keeps
+  // its times through an edit to its notes — the server only re-checks moved
+  // times too.
+  const timesChanged =
+    !reservation ||
+    startsAt.getTime() !== new Date(reservation.startsAt).getTime() ||
+    endsAt.getTime() !== new Date(reservation.endsAt).getTime();
+
   async function save() {
     setError(null);
-    const invalid = validateReservation({ startsAt, endsAt });
+    const invalid = timesChanged ? validateReservation({ startsAt, endsAt }) : null;
     if (invalid) {
       setError(invalid);
       return;
@@ -240,7 +250,7 @@ export default function ReservationModal({
       <Modal
         open={open}
         onClose={onClose}
-        title={reservation.user.name}
+        title={bookedBy(reservation)}
         subtitle={`${tailNumber} · ${formatFullDate(reservation.startsAt)}`}
         // No Close button: the header's ✕ (and Escape, and the backdrop)
         // already close it, and a footer of two grey buttons made Export
@@ -252,20 +262,29 @@ export default function ReservationModal({
         }
       >
         <dl className="space-y-3 text-sm">
-          <Row label="Time">
-            {new Date(reservation.startsAt).toLocaleTimeString(undefined, {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-            {" – "}
-            {new Date(reservation.endsAt).toLocaleTimeString(undefined, {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-            <span className="ml-2 text-gray-500">
-              ({formatDuration(reservation.startsAt, reservation.endsAt)})
-            </span>
-          </Row>
+          {reservation.user && reservation.title && (
+            <Row label="Title">{reservation.title}</Row>
+          )}
+          {reservation.allDay ? (
+            <Row label="Time">
+              <AllDayRange reservation={reservation} />
+            </Row>
+          ) : (
+            <Row label="Time">
+              {new Date(reservation.startsAt).toLocaleTimeString(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+              {" – "}
+              {new Date(reservation.endsAt).toLocaleTimeString(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+              <span className="ml-2 text-gray-500">
+                ({formatDuration(reservation.startsAt, reservation.endsAt)})
+              </span>
+            </Row>
+          )}
           <Row label="Purpose">
             <Badge tone={PURPOSE_TONES[reservation.purpose]}>
               {PURPOSE_LABELS[reservation.purpose]}
@@ -278,7 +297,7 @@ export default function ReservationModal({
             <Row label="Instructor">{reservation.instructor.name}</Row>
           )}
           {reservation.notes && <Row label="Notes">{reservation.notes}</Row>}
-          {reservation.user.email && (
+          {reservation.user?.email && (
             <Row label="Contact">
               <a
                 href={`mailto:${reservation.user.email}`}
@@ -287,6 +306,9 @@ export default function ReservationModal({
                 {reservation.user.email}
               </a>
             </Row>
+          )}
+          {reservation.onGoogleCalendar && (
+            <Row label="Calendar">On {tailNumber}&rsquo;s Google Calendar</Row>
           )}
         </dl>
       </Modal>
@@ -314,7 +336,7 @@ export default function ReservationModal({
               disabled={busy}
               className="mr-auto"
             >
-              {confirmingCancel ? "Confirm" : "Delete"}
+              {deleteLabel(reservation, confirmingCancel)}
             </Button>
           )}
           {reservation && (
@@ -333,6 +355,24 @@ export default function ReservationModal({
       }
     >
       <div className="space-y-4">
+        {/* What's different about a booking that lives on Google Calendar,
+            said once, above the fields it affects. */}
+        {reservation?.onGoogleCalendar && (reservation.title || reservation.allDay) && (
+          <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-gray-900/40 dark:text-gray-300">
+            {reservation.title && (
+              <p>
+                <span className="text-gray-500 dark:text-gray-400">On Google Calendar as </span>
+                &ldquo;{reservation.title}&rdquo;
+              </p>
+            )}
+            {reservation.allDay && (
+              <p>
+                <AllDayRange reservation={reservation} />. Changing the times
+                below makes it an ordinary timed booking.
+              </p>
+            )}
+          </div>
+        )}
         <DateTimeField
           label="Start"
           value={start}
@@ -398,6 +438,13 @@ export default function ReservationModal({
           placeholder="Where you're headed, who's flying with you…"
         />
 
+        {confirmingCancel && reservation?.onGoogleCalendar && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+            It stays on {tailNumber}&rsquo;s Google Calendar, renamed
+            &ldquo;CANCELLED - &hellip;&rdquo;, and stops holding the airplane.
+          </p>
+        )}
+
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
             {error}
@@ -405,6 +452,31 @@ export default function ReservationModal({
         )}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * The destructive button's words. A calendar booking is CANCELLED (renamed on
+ * Google Calendar, kept as a record); an app-only one is deleted outright.
+ * Second press confirms.
+ */
+function deleteLabel(reservation: ApiReservation, confirming: boolean): string {
+  if (reservation.onGoogleCalendar) {
+    return confirming ? "Confirm cancel" : "Cancel booking";
+  }
+  return confirming ? "Confirm" : "Delete";
+}
+
+/** "All day · Sat, Aug 8", or "4 days · Thu, Aug 27 – Sun, Aug 30". */
+function AllDayRange({ reservation }: { reservation: ApiReservation }) {
+  // The end is the club midnight AFTER the last day, so step back a minute.
+  const lastDay = new Date(new Date(reservation.endsAt).getTime() - 60_000);
+  const label = allDayLabel(reservation);
+  return (
+    <>
+      {label} · {formatDay(reservation.startsAt)}
+      {label === "All day" ? "" : ` – ${formatDay(lastDay)}`}
+    </>
   );
 }
 

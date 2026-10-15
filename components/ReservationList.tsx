@@ -6,6 +6,7 @@
 import Badge from "./common/Badge";
 import { PURPOSE_LABELS, PURPOSE_TONES } from "@/lib/constants";
 import { dayKey, formatDay, formatDuration, formatTime, relativeDay } from "@/lib/dates";
+import { allDayLabel, bookedBy } from "@/lib/reservations";
 import type { ApiReservation } from "@/lib/types";
 
 export default function ReservationList({
@@ -62,20 +63,27 @@ export default function ReservationList({
               {/* Time column — the thing you're actually scanning for. */}
               <div className="w-20 shrink-0">
                 <div className="text-sm font-semibold tabular">
-                  {formatTime(r.startsAt)}
+                  {r.allDay ? "All day" : formatTime(r.startsAt)}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">
-                  {formatDuration(r.startsAt, r.endsAt)}
+                  {r.allDay ? allDayLabel(r) : formatDuration(r.startsAt, r.endsAt)}
                 </div>
               </div>
 
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">
-                  {r.mine ? "You" : r.user.name}
+                  {r.mine ? "You" : bookedBy(r)}
                 </div>
                 <div className="truncate text-xs text-gray-500 dark:text-gray-400">
-                  {formatTime(r.startsAt)} – {formatTime(r.endsAt)}
-                  {r.notes ? ` · ${r.notes}` : ""}
+                  {/* An all-day booking's time column already says it all;
+                      a member's booking typed into Google keeps its own words. */}
+                  {[
+                    r.allDay ? null : `${formatTime(r.startsAt)} – ${formatTime(r.endsAt)}`,
+                    r.user ? r.title : null,
+                    r.notes,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </div>
               </div>
 

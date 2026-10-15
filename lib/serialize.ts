@@ -285,12 +285,15 @@ interface ReservationRow {
   id: string;
   aircraftId: string;
   aircraft: { id: string; tailNumber: string };
-  user: UserRow;
-  userId: string;
+  user: UserRow | null;
+  userId: string | null;
   startsAt: Date;
   endsAt: Date;
+  allDay: boolean;
   purpose: string;
   notes: string | null;
+  title: string | null;
+  googleEventId: string | null;
   status: string;
   instructor?: UserRow | null;
   flight?: { id: string } | null;
@@ -304,15 +307,18 @@ export function serializeReservation(
     id: r.id,
     aircraftId: r.aircraftId,
     aircraft: { id: r.aircraft.id, tailNumber: r.aircraft.tailNumber },
-    user: serializeUser(r.user),
+    user: r.user ? serializeUser(r.user) : null,
     startsAt: r.startsAt.toISOString(),
     endsAt: r.endsAt.toISOString(),
+    allDay: r.allDay,
     purpose: r.purpose as Purpose,
     notes: r.notes,
+    title: r.title,
+    onGoogleCalendar: r.googleEventId !== null,
     status: r.status as "CONFIRMED" | "CANCELED",
     instructor: r.instructor ? serializeUser(r.instructor) : null,
     hasFlight: Boolean(r.flight),
-    mine: r.userId === viewerId,
+    mine: r.userId !== null && r.userId === viewerId,
   };
 }
 
