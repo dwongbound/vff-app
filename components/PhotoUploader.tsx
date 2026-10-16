@@ -14,7 +14,7 @@ import {
   NoImageSupport,
   usePhotoSupport,
 } from "@/components/PhotoSupportProvider";
-import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES } from "@/lib/constants";
+import { photoProblem } from "@/lib/photoTypes";
 
 export default function PhotoUploader({
   files,
@@ -40,25 +40,18 @@ export default function PhotoUploader({
 
   function addFiles(picked: FileList | null) {
     if (!picked) return;
+    // The SAME rule the upload route applies (lib/photoTypes.ts), so a file
+    // the server would refuse is refused here, now, rather than by the outbox
+    // after the member has left the airplane.
     const next: File[] = [];
+    const problems: string[] = [];
     for (const file of Array.from(picked)) {
-      // iOS reports HEIC files with an empty type often enough that rejecting
-      // on type alone would block real photos — allow anything the browser
-      // calls an image, and let the server have the final say.
-      if (file.type && !ALLOWED_PHOTO_TYPES.includes(file.type) && !file.type.startsWith("image/")) {
-        setError("Photos need to be JPEG, PNG, WebP or HEIC.");
-        continue;
-      }
-      if (file.size > MAX_PHOTO_BYTES) {
-        setError(`${file.name} is over ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} MB.`);
-        continue;
-      }
-      next.push(file);
+      const problem = photoProblem(file);
+      if (problem) problems.push(problem);
+      else next.push(file);
     }
-    if (next.length) {
-      setError(null);
-      onChange([...files, ...next]);
-    }
+    setError(problems.length > 0 ? problems.join(" ") : null);
+    if (next.length > 0) onChange([...files, ...next]);
   }
 
   // Nowhere to put the bytes. Say so INSTEAD of the picker rather than

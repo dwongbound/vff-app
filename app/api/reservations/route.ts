@@ -5,11 +5,23 @@
 //      list's horizon on phones). Canceled bookings are excluded unless
 //      ?includeCanceled=1, so the calendar shows the schedule as flown.
 // POST /api/reservations  { aircraftId, startsAt, endsAt, purpose, notes }
+//
+// An airplane with a Google Calendar linked reads and writes THROUGH it — see
+// lib/googleCalendarSync.ts. GET pulls what changed in Google first (at most
+// once a minute); POST re-syncs before its conflict check, writes the event to
+// Google, and only then records the row.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeReservation } from "@/lib/serialize";
-import { findConflict, validateReservation } from "@/lib/reservations";
+import { conflictMessage, findConflict, validateReservation } from "@/lib/reservations";
+import {
+  calendarLinkFor,
+  insertCalendarBooking,
+  syncAircraftCalendar,
+  syncAllCalendars,
+  type CalendarLink,
+} from "@/lib/googleCalendarSync";
 import { resolveBookingInstructor, resolutionFailed } from "@/lib/instructors";
 import { can } from "@/lib/positions";
 import { PURPOSE_LABELS, type Purpose } from "@/lib/constants";
@@ -39,6 +51,12 @@ export async function GET(req: Request) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const mine = url.searchParams.get("mine") === "1";
+
+  // Google is the source of truth for a linked airplane. A failed sync is
+  // recorded for Club settings and the schedule is served from the last copy —
+  // a read is no reason to show an empty calendar.
+  if (aircraftId) await syncAircraftCalendar(aircraftId);
+  else await syncAllCalendars();
 
   const rows = await prisma.reservation.findMany({
     where: {
@@ -109,6 +127,29 @@ export async function POST(req: Request) {
   const invalid = validateReservation({ startsAt, endsAt });
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
+  // A linked airplane's conflict check has to be against what Google holds
+  // NOW — the member who typed a booking into Google a minute ago included.
+  let link: CalendarLink | null;
+  try {
+    link = await calendarLinkFor(aircraftId);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Google Calendar is unavailable." },
+      { status: 503 }
+    );
+  }
+  if (link) {
+    const synced = await syncAircraftCalendar(aircraftId, { force: true });
+    if (!synced.ok) {
+      return NextResponse.json(
+        {
+          error: `Couldn't check ${aircraft.tailNumber}'s Google Calendar, so nothing was booked. ${synced.error}`,
+        },
+        { status: 503 }
+      );
+    }
+  }
+
   // Only bookings that could possibly touch this window need loading.
   const neighbors = await prisma.reservation.findMany({
     where: {
@@ -124,24 +165,53 @@ export async function POST(req: Request) {
   if (conflict) {
     return NextResponse.json(
       {
-        error:
-          `${conflict.user.name} already has ${aircraft.tailNumber} from ` +
-          `${formatTimeRange(conflict.startsAt, conflict.endsAt)}.`,
+        error: conflictMessage(
+          conflict,
+          aircraft.tailNumber,
+          formatTimeRange(conflict.startsAt, conflict.endsAt)
+        ),
       },
       { status: 409 }
     );
   }
 
-  const created = await prisma.reservation.create({
-    data: {
-      aircraftId,
-      userId: user.id,
-      startsAt,
-      endsAt,
-      purpose,
-      notes,
-      instructorId: instructor.instructorId,
-    },
+  const data = {
+    aircraftId,
+    userId: user.id,
+    startsAt,
+    endsAt,
+    purpose,
+    notes,
+    instructorId: instructor.instructorId,
+  };
+
+  if (!link) {
+    const created = await prisma.reservation.create({ data, include: INCLUDE });
+    return NextResponse.json(serializeReservation(created, user.id), { status: 201 });
+  }
+
+  // Google first: if it refuses, nothing has been written here.
+  let googleEventId: string;
+  try {
+    const event = await insertCalendarBooking(link, { ...data, memberName: user.name });
+    googleEventId = event.id;
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: `Couldn't add the booking to ${aircraft.tailNumber}'s Google Calendar, so nothing was booked. ${
+          e instanceof Error ? e.message : ""
+        }`.trim(),
+      },
+      { status: 502 }
+    );
+  }
+
+  // Upsert, not create: a schedule read elsewhere may already have pulled the
+  // new event in by the time this runs.
+  const created = await prisma.reservation.upsert({
+    where: { googleEventId },
+    create: { ...data, googleEventId },
+    update: { ...data, title: null, status: "CONFIRMED" },
     include: INCLUDE,
   });
 

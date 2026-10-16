@@ -34,10 +34,10 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import Badge from "@/components/common/Badge";
+import { SM_UP, useMediaQuery } from "@/components/useMediaQuery";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import ConfirmModal from "@/components/common/ConfirmModal";
@@ -134,18 +134,8 @@ interface Ledger {
 // so a locator never finds a copy that isn't on screen. The server snapshot
 // is irrelevant here (nothing renders until the ledger has loaded on the
 // client), and says wide.
-const WIDE_QUERY = "(min-width: 640px)";
-function subscribeWide(onChange: () => void) {
-  const mq = window.matchMedia(WIDE_QUERY);
-  mq.addEventListener("change", onChange);
-  return () => mq.removeEventListener("change", onChange);
-}
 function useIsWide(): boolean {
-  return useSyncExternalStore(
-    subscribeWide,
-    () => window.matchMedia(WIDE_QUERY).matches,
-    () => true
-  );
+  return useMediaQuery(SM_UP, true);
 }
 
 export default function FinancesPage() {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  allDayLabel,
+  bookedBy,
+  conflictMessage,
+  daysCovered,
   findConflict,
   overlaps,
   past,
@@ -134,5 +138,49 @@ describe("upcoming / past", () => {
 
   it("returns finished bookings most recent first", () => {
     expect(past(rows, now).map((r) => r.id)).toEqual(["done"]);
+  });
+});
+
+describe("bookedBy / conflictMessage", () => {
+  it("names the member, or the Google event's own title", () => {
+    expect(bookedBy({ user: { name: "George" }, title: "George Flight with Matt" })).toBe("George");
+    expect(bookedBy({ user: null, title: "Strut Maintanence" })).toBe("Strut Maintanence");
+    expect(bookedBy({ user: null, title: null })).toBe("Someone");
+  });
+
+  it("words a clash with a member and with an ownerless event", () => {
+    const at = { startsAt: iso(9), endsAt: iso(11) };
+    expect(conflictMessage({ ...at, user: { name: "George" } }, "N8318B", "9–11")).toBe(
+      "George already has N8318B from 9–11."
+    );
+    expect(
+      conflictMessage({ ...at, user: null, title: "Strut Maintanence" }, "N8318B", "9–11")
+    ).toBe('N8318B is already booked from 9–11 ("Strut Maintanence").');
+  });
+});
+
+describe("daysCovered / allDayLabel", () => {
+  const local = (d: number, h = 0) => new Date(2026, 7, d, h);
+
+  it("lists every day a booking touches, end exclusive at midnight", () => {
+    const days = daysCovered({ startsAt: local(27), endsAt: local(31) });
+    expect(days.map((d) => d.getDate())).toEqual([27, 28, 29, 30]);
+  });
+
+  it("covers both days of an overnight booking", () => {
+    const days = daysCovered({ startsAt: local(8, 21), endsAt: local(9, 22) });
+    expect(days.map((d) => d.getDate())).toEqual([8, 9]);
+  });
+
+  it("is one day for an ordinary booking, and capped for a runaway one", () => {
+    expect(daysCovered({ startsAt: local(8, 9), endsAt: local(8, 12) })).toHaveLength(1);
+    expect(
+      daysCovered({ startsAt: local(1), endsAt: new Date(2030, 0, 1) })
+    ).toHaveLength(62);
+  });
+
+  it("labels all-day bookings in days", () => {
+    expect(allDayLabel({ startsAt: local(27), endsAt: local(28) })).toBe("All day");
+    expect(allDayLabel({ startsAt: local(27), endsAt: local(31) })).toBe("4 days");
   });
 });

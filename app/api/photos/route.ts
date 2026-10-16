@@ -16,7 +16,8 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getStorage, photoKey, storageStatus } from "@/lib/storage";
 import { serializePhoto } from "@/lib/serialize";
-import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES } from "@/lib/constants";
+import { MAX_PHOTO_BYTES } from "@/lib/constants";
+import { photoContentType } from "@/lib/photoTypes";
 import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
 
 type Subject = "flight" | "squawk" | "checkout";
@@ -64,7 +65,10 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
+  // Same rule as the picker (lib/photoTypes.ts): the browser's type, or the
+  // extension's when it sent none (iOS, with a HEIC).
+  const contentType = photoContentType(file);
+  if (contentType === null) {
     return NextResponse.json(
       { error: "Photos need to be JPEG, PNG, WebP or HEIC." },
       { status: 415 }
@@ -91,17 +95,17 @@ export async function POST(req: Request) {
   const key = photoKey(
     subject === "flight" ? "flights" : subject === "squawk" ? "squawks" : "checkouts",
     subjectId,
-    file.type
+    contentType
   );
 
-  await getStorage().put(key, bytes, file.type);
+  await getStorage().put(key, bytes, contentType);
 
   let photo;
   try {
     photo = await prisma.photo.create({
       data: {
         key,
-        contentType: file.type,
+        contentType,
         sizeBytes: bytes.byteLength,
         caption,
         uploadedById: user.id,

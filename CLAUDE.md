@@ -12,7 +12,7 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 
 ## Commands
 
-- Dev (docker): `docker compose --profile dev up` → `http://localhost:3000`
+- Dev (docker): `docker compose --profile dev up` → `http://localhost:3001` (3001 on the host — 3000 is usually another app's)
 - Dev (host): `npm run dev` (loads `env/dev.env`)
 - Unit: `npm run test:unit` · E2E: `npm run test:e2e` (needs `db-test` up).
   Three e2e projects, one per layout: `desktop` (1280), `ipad` (834 — the
@@ -65,9 +65,15 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   signed W&B revision — which changes with every radio swap, so it's columns.
   Either half missing ⇒ the tool declines rather than assuming an airplane.
 - **Reservation** — `startsAt`/`endsAt`, `purpose`, `status`. Overlap enforced
-  in the API via `lib/reservations.ts`; DELETE removes the row (owner or admin; the UI calls it Delete). The
-  `CANCELED` status is legacy — older databases may still hold such rows, and
-  GET filters them out.
+  in the API via `lib/reservations.ts`; DELETE removes an app-only row (owner or
+  admin; the UI calls it Delete). A row with a `googleEventId` MIRRORS an event
+  on the airplane's Google Calendar, which is the source of truth for it (see
+  `lib/googleCalendarSync.ts` and the gotcha): DELETE on one CANCELS — renames
+  the event "CANCELLED - <title>" and keeps the row as `CANCELED`, which every
+  read filters out. Mirrored rows bring three things app bookings never had:
+  `userId` NULL (the event's creator has no account here), `allDay` (a
+  date-only event, club midnight to club midnight) and `title` (the event's own
+  words; null when the app generated it).
   `instructorId` is the CFI a lesson is booked with — only ever set when
   `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
   rather than leaving a stale name on a booking that changed.
@@ -123,6 +129,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `squawk:manage`. `REVIEWED_GROUNDED` ⇒ app-wide red banner (Navbar) + the
   Status tab's "do not fly" card; `REVIEWED_IN_WORK` ⇒ an amber "in
   maintenance" card that is explicitly NOT a grounding.
+  `officerNote` (+ `officerNoteById`/`officerNoteAt`) is the Safety Officer's
+  note: ONE per squawk, read by every member on the Squawks tab, written only
+  through `PATCH /api/squawks/[id]` `{ note }` (squawk:manage; empty removes
+  it). Kept apart from `description`, which is what the reporter SAW.
 - **Checkout** — one run of ONE of the airplane's cards. `kind` is
   `PREFLIGHT | RUNWAY` (the third, TURNOFF, lives on Flight — it belongs to
   that flight, not to a standalone row). `flightId` is the SESSION this run
@@ -147,6 +157,12 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   retired by clearing `active`, and DELETE is refused once it has let anyone in
   so the record of how they joined survives.
 - **Photo** — storage `key` + metadata; `flightId` / `squawkId` / `preflightId`.
+- **GoogleConnection** (singleton, `id` "club") — the ONE Google account the
+  club's calendars are written through: its email and a refresh token SEALED
+  with `lib/secretBox.ts` under NEXTAUTH_SECRET. **AircraftCalendar** — which
+  calendar is an airplane's schedule, plus Google's `syncToken` cursor,
+  `syncedAt` and the last `syncError`. No row = app-only booking, exactly as
+  before the feature.
 - `clientRequestId` (unique, nullable) on **Flight**, **Checkout** (sign-offs
   only), **Squawk** and **Photo** — the outbox's idempotency key, so a
   submission retried after its reply was lost returns the row it already wrote
@@ -216,7 +232,7 @@ reimbursement"; an officer gets Reimburse / Charge members / Club funds /
 Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
 `profile` ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
-then the sign-up code lists).
+its Google Calendar link, then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
 flight log, a READ-ONLY reservations calendar (no New, no per-day "+", every
 booking opens the read-only view the modal already had for somebody else's),
@@ -256,10 +272,20 @@ page is pure calculator over the aircraft's stored basis.
 Plane Status › Overview also carries the MAINTENANCE sheet (`MaintenancePanel`),
 below the day-to-day panels: anything that stops a flight is already a banner at
 the top, so what's left there is reference.
-`status/layout.tsx` owns the tail-number header, the dispatch banner
-(inspection run out ▸ grounded ▸ in-maintenance, in that priority — the first is `grounding()` over the maintenance sheet, which is also what the Airworthy badge reads) and the Overview/Squawks sub-tab
-bar — all three are true of the AIRPLANE rather than of a view, so both child
-tabs get them. Sub-tabs rather than rail entries: the rail lists places you go
+`status/layout.tsx` owns the tail-number header and the dispatch banners —
+ONE LINE each, a (!) + headline + link, never a list: an inspection run out
+(red, → Maintenance; `grounding()` over the sheet, which is also what the
+Airworthy badge reads), then the squawks' line (`squawkBanner` in
+lib/squawks.ts: red for a grounding and nothing else; otherwise ONE amber line
+joining in work · unreviewed · reviewed-okay-to-fly — `newSquawkCount` /
+`okToFlySquawkCount` on the aircraft — → Squawks). A banner is NOT drawn on the tab it
+links to. Both are true of the AIRPLANE rather than of a view, so every child
+tab gets them. The squawk cards and maintenance rows lay out by the CARD's
+width (`@container` / `@xl:` container queries), not the screen's: the
+control (status picker, Mark done) goes under the text until the card is
+wide, which on an iPad — narrower column, because of the rail — it isn't.
+A squawk's description is simply shown from `md` up and folds behind
+Details/Hide only on a phone (`useMediaQuery`). Sub-tabs rather than rail entries: the rail lists places you go
 during a flying day, and Navbar's `isActive` uses `startsWith`, so
 `/status/squawks` keeps the Status entry lit for free. `preflight` and `runway` are the two before-the-
 flight checkouts — separate pages with separate sign-offs, because they're
@@ -313,6 +339,10 @@ owns the only splash in the app.
   the club's codes; the code's LIST decides the account (member vs CFI), so an
   applicant never picks. The ONE exception is the very first account at a fresh
   install — nobody could have issued a code yet — and that one becomes admin.
+  Google sign-in (when `GOOGLE_CLIENT_*` are set — the same pair the calendar
+  sync uses) is a way into an EXISTING account only: an email with no row here
+  is bounced to `/login?error=GoogleNoAccount`. It used to find-or-create,
+  which skipped the code entirely.
 - `signup-codes` (GET/POST, admin) · `signup-codes/[id]` (PATCH to retire /
   relabel, DELETE only while `uses` is 0). The code STRING is deliberately not
   editable: somebody is holding a slip of paper with it on.
@@ -399,7 +429,16 @@ owns the only splash in the app.
 - `reservations` (GET window, POST — needs `reservation:book`, and resolves the
   TRAINING instructor) · `reservations/[id]` (PATCH, DELETE=cancel). The
   instructor is re-resolved on every PATCH against the purpose the booking will
-  HAVE, not the one it had.
+  HAVE, not the one it had. For a Google-linked airplane GET syncs first
+  (throttled), and POST/PATCH force a sync before the conflict check and write
+  to Google BEFORE the row — a Google refusal is a 502 and nothing changed.
+- `calendar` (GET status + the connected account's writable calendars, DELETE
+  disconnect — both admin). The calendar LIST, and PUT-ing a calendar from it,
+  belong to the admin who CONNECTED the account alone (`canPick`): it's their
+  own Google account, so other admins see only the one linked calendar's name. · `calendar/connect` → Google consent →
+  `calendar/callback` (a `state` cookie between them) ·
+  `calendar/aircraft/[id]` (PUT `{ calendarId | null }` link/unlink, which runs
+  a FULL sync; POST = Sync now).
 - `flights` (GET `?instructing=1` for the lessons you're the CFI on,
   `?mine=1&open=1` for "have I got the airplane out"; POST FILES A SESSION —
   the one the caller's preflight walk opened, which the route finds for itself
@@ -716,6 +755,21 @@ owns the only splash in the app.
   because a fuel cost on a flight is exactly what raises that member's
   FUEL_CREDIT. ✅tested
 - `dates.ts` — formatting, `toLocalInputValue`, `calendarMonthsFrom`.
+- `calendarEvents.ts` — Google event ⇄ booking as pure rules:
+  `eventToBooking` (the app's private `extendedProperties` FIRST, then the
+  creator's email and a title guess — `guessPurpose` is deliberately timid),
+  `isCancelledTitle`/`cancelledTitle`, all-day dates read as CLUB midnights
+  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing.
+  ✅tested
+- `googleCalendar.ts` — OAuth + Calendar REST by hand with fetch, same reasoning
+  as `storage/s3.ts`. Reuses the sign-in OAuth client through its OWN consent
+  flow. `googleCalendarSync.ts` — the db half: `syncAircraftCalendar`
+  (incremental via sync token, FULL on first link / 410 / Sync now, never
+  throws — a failure lands in `syncError`), and the insert/patch/cancel calls
+  the booking routes make. Every redirect it sends a browser to is built from
+  `appBaseUrl` (NEXTAUTH_URL first), never `req.url` — inside the dev container
+  that's `0.0.0.0:3000`, which on the host is a different app.
+  `secretBox.ts` — AES-GCM for the refresh token. ✅tested
 - `constants.ts` — club name, purposes/severities + tones, policy limits.
 - `auth.ts` — `authOptions`, `getSessionUser()`, `getAdminUser()` (re-reads db).
 - `serialize.ts` — row → wire shapes; `types.ts` — the `Api*` interfaces.
@@ -769,7 +823,10 @@ LEFT-hand rail hanging BELOW it from `md` up, holding only the vertical tabs
 with Checkouts expanding inline; below `md`, the rail is replaced by the
 floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
 rather than centred on the pill — a menu is the answer to the thing you just
-touched, and on a five-tab bar "centred" is a different tab entirely),
+touched, and on a five-tab bar "centred" is a different tab entirely; while
+one is open the page is FROZEN — `#app-scroll` overflow hidden, and a
+backdrop above everything but the pill takes the first outside tap and only
+closes it),
 `SwipePager`/`SwipeProvider`
 (touch tab swipe, PHONES ONLY — off from the `md` breakpoint up, where the rail
 is there to tap (`swipeEnabledAt`); the page never moves sideways; a clearly
@@ -878,9 +935,16 @@ depend on how far down the page you'd scrolled; the narrowing rules are
 `exportPeriods`/`selectLines` in `lib/ledgerView.ts`, which also holds the
 by-person grouping (`statementsFor`, `CLUB_ACCOUNT`) the page and the export
 share),
-`SquawkDraftModal`, `SignupCodesPanel` (org settings' two code lists, side by
+`GoogleCalendarPanel` (Club settings: connect the account, pick each
+airplane's calendar, sync status), `SquawkDraftModal`, `SignupCodesPanel` (org settings' two code lists, side by
 side because which list a code is on is the only thing about it that matters
-when you read it out), `PhotoUploader`, `Logo`, `GuidedTour` (first-run walkthrough
+when you read it out), `PhotoUploader` (refuses a file at PICK time through
+`lib/photoTypes.ts`'s `photoProblem` — the same rule the upload route
+applies, so the outbox never discovers a GIF after the member has left the
+airplane; an untyped file, iOS's HEIC, is judged by its extension),
+`useMediaQuery` (a media query as a live boolean, for the few places a width
+changes WHICH elements render — Finances' table vs list, squawk details),
+`Logo`, `GuidedTour` (first-run walkthrough
 that SPOTLIGHTS live nav controls — each step names `data-tour` keys, the nav
 stamps them on both the rail and the pill via `tourKey`, and the tour takes
 whichever copy is on screen and measures it; a step whose keys match nothing
@@ -921,6 +985,20 @@ only when the options carry tones. Not built on `Dropdown`, which opens on
 hover: brushing past a control that changes a stored value shouldn't open it.
 
 ## Gotchas
+
+- **A Google-linked airplane's schedule is Google's, not the database's.**
+  Reservation rows with a `googleEventId` are rewritten by every sync, so an
+  edit made only to the row is overwritten — every write path goes to Google
+  first (`googleCalendarSync.ts`). A FULL sync deletes this airplane's mirrored
+  rows whose event is gone (guarded by `updatedAt` against a booking written
+  mid-listing); app-only rows are never touched. Cancelling RENAMES the event
+  ("CANCELLED - …", the club's own habit) rather than deleting it, so DELETE
+  on a mirrored booking leaves a CANCELED row behind. Events typed into Google
+  bypass `validateReservation` (a 4-day trip, last week's lesson) — the rules
+  apply only to times a member picks, which is why the modal re-validates only
+  when the times moved. The OAuth app must be **In production** on Google's
+  consent screen: in Testing, refresh tokens die after 7 days and the symptom
+  is `invalid_grant` in Club settings a week after connecting.
 
 - **A schema change now needs a migration.** Dev still uses `db push` (fast,
   no migration written), but every deployed environment's schema is whatever
@@ -1513,6 +1591,15 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   specificity so anything needing its own `touch-action` wins. Don't "finish
   the job" with `maximum-scale=1` in the viewport: that kills pinch-zoom too,
   and the e2e phone/tablet specs assert it isn't there.
+- **Fields are 16px on a touch screen, 15px on desktop.** iOS Safari (iPad
+  too) zooms the page in on focusing any field under 16px and leaves it
+  zoomed, and `text-sm` is 15px here — so every field did it. An UNLAYERED
+  `@media (pointer: coarse)` rule in globals.css lifts `input/select/textarea`
+  carrying `.text-xs`/`.text-sm` to 1rem. Overriding `--text-sm` doesn't work:
+  through `@config` the utilities compile to literal sizes. A field that
+  inherits a small size from its parent slips past the rule;
+  `expectFormsFitTouchScreen` (mobile + ipad specs) is what catches it, along
+  with anything drawn wider than the screen, sheets included.
 - **The knots on Tools › My plane are this app's arithmetic, not the manual's.**
   (MPH is the big figure, knots the small line under it — `displaySpeed`
   returns `{ primary: MPH, knots }`.)
@@ -1532,8 +1619,14 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   into `REFERENCE_SECTIONS` — a borrowed number sitting among the sourced ones
   is a number the club will fly as though it were certified data for this
   airplane.
-- The session cookie is renamed (`lib/authCookies.ts`) because cookies are
-  scoped to a host, not a port, and every local app would otherwise share
-  NextAuth's default name. `proxy.ts` must be given the same config — it reads
+- EVERY NextAuth cookie is renamed (`lib/authCookies.ts`) — session, CSRF,
+  callback URL, and the OAuth round trip's state/PKCE/nonce — because cookies
+  are scoped to a host, not a port, and every local app would otherwise share
+  NextAuth's default names. Only the session cookie was renamed at first; the
+  first Google sign-in on localhost then failed with "State cookie was missing"
+  beside another local NextAuth app. A unit test now holds all of them to the
+  `vff.` prefix. (Same symptom, different cause: starting a Google sign-in from
+  `0.0.0.0:3001` or `127.0.0.1` while `NEXTAUTH_URL` says `localhost:3001` —
+  the cookie is on one host and Google returns to the other.) `proxy.ts` must be given the same config — it reads
   the token itself, and with the default name it bounces every signed-in
   member straight back to /login.

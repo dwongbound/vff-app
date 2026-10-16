@@ -66,3 +66,28 @@ test("signing up without a code is refused", async ({ page }) => {
   await expect(page.getByText(/sign-up code is required/i)).toBeVisible();
   await expect(page).toHaveURL(/\/login/);
 });
+
+// Google sign-in only lets EXISTING members in (lib/auth.ts); anyone else is
+// sent back here with ?error=GoogleNoAccount. Two things broke on that page
+// once: the message, and — because NextAuth's default callbackUrl is the
+// current address, ?error= and all — signing up from it reported a
+// successful sign-in as a failure and left the new member on the form.
+test("a refused Google sign-in explains itself, and signing up from there still lands in the app", async ({
+  page,
+}) => {
+  await page.goto("/login?error=GoogleNoAccount");
+  await expect(page.getByText(/isn't a member here yet/)).toBeVisible();
+  // Read once, then dropped, so a reload doesn't repeat it.
+  await expect(page).not.toHaveURL(/error=/);
+
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByLabel("Sign-up code").fill("VFF-MEMBER");
+  await page.getByLabel("Name").fill("Google Latecomer");
+  await page.getByLabel("Email").fill(`latecomer-${Date.now()}@vffclub.test`);
+  await page.getByLabel("Password", { exact: true }).fill("skyhawk172");
+  await page.getByLabel("Confirm password").fill("skyhawk172");
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await expect(page.getByRole("heading", { name: "Reservations" })).toBeVisible({
+    timeout: 60_000,
+  });
+});

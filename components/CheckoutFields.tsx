@@ -84,7 +84,9 @@ export default function CheckoutFields({
               }}
               // Stop a tap on the input from also toggling the row underneath.
               onClick={(e) => e.stopPropagation()}
-              className={`mt-0.5 w-28 rounded-lg border bg-white px-2 py-1 text-sm tabular dark:bg-gray-800 ${
+              // A clock reading ("10:30 AM") is wider than a meter reading, and at
+              // w-28 the browser clipped its last characters inside the box.
+              className={`mt-0.5 ${field.kind === "time" ? "w-36" : "w-28"} rounded-lg border bg-white px-2 py-1 text-sm tabular dark:bg-gray-800 ${
                 warning
                   ? "border-amber-500 dark:border-amber-500"
                   : "border-gray-300 dark:border-gray-600"

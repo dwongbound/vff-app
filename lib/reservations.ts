@@ -92,6 +92,56 @@ export function upcoming<T extends Interval>(rows: T[], now: Date = new Date()):
     .sort((a, b) => ms(a.startsAt) - ms(b.startsAt));
 }
 
+/**
+ * Who (or what) a booking is, in words. Most bookings belong to a member; one
+ * typed straight into the airplane's Google Calendar by somebody without an
+ * account here has only its own title ("Strut Maintanence").
+ */
+export function bookedBy(r: {
+  user: { name: string } | null;
+  title?: string | null;
+}): string {
+  return r.user?.name ?? r.title ?? "Someone";
+}
+
+/** The refusal for a booking that collides with `conflict`. */
+export function conflictMessage(
+  conflict: Interval & { user: { name: string } | null; title?: string | null },
+  tailNumber: string,
+  range: string
+): string {
+  return conflict.user
+    ? `${conflict.user.name} already has ${tailNumber} from ${range}.`
+    : `${tailNumber} is already booked from ${range} ("${bookedBy(conflict)}").`;
+}
+
+/**
+ * How long an all-day booking runs, in days: "All day", "3 days". Its times
+ * are club midnights, so this is a count of days rather than a clock range.
+ */
+export function allDayLabel(r: Interval): string {
+  const days = Math.max(1, Math.round((ms(r.endsAt) - ms(r.startsAt)) / 86_400_000));
+  return days === 1 ? "All day" : `${days} days`;
+}
+
+/**
+ * The local days a booking covers, as midnights — so a three-day trip shows on
+ * all three days of the calendar rather than only the first. A booking ending
+ * exactly at midnight doesn't cover the day it ends on. Capped, because a
+ * mistyped year on a Google event shouldn't paint the whole grid.
+ */
+export function daysCovered(r: Interval, maxDays = 62): Date[] {
+  const start = new Date(ms(r.startsAt));
+  const end = ms(r.endsAt);
+  const day = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const out: Date[] = [];
+  while (day.getTime() < end && out.length < maxDays) {
+    out.push(new Date(day));
+    day.setDate(day.getDate() + 1);
+  }
+  return out.length ? out : [new Date(start.getFullYear(), start.getMonth(), start.getDate())];
+}
+
 /** Past bookings, most recent first. */
 export function past<T extends Interval>(rows: T[], now: Date = new Date()): T[] {
   return rows
