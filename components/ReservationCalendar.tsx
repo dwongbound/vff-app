@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import Modal from "./common/Modal";
 import { PURPOSE_LABELS } from "@/lib/constants";
 import { addDays, dayKey, formatTime, sameDay } from "@/lib/dates";
+import { bookedBy, daysCovered } from "@/lib/reservations";
 import type { ApiReservation } from "@/lib/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -45,17 +46,23 @@ export default function ReservationCalendar({
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
 
-  // Group bookings by local day, each day's list sorted by start time.
+  // Group bookings by local day — EVERY day a booking covers, so a weekend
+  // trip holds both days — each day's list with all-day bookings first, then
+  // by start time.
   const byDay = useMemo(() => {
     const map = new Map<string, ApiReservation[]>();
     for (const r of reservations) {
-      const key = dayKey(new Date(r.startsAt));
-      const list = map.get(key) ?? [];
-      list.push(r);
-      map.set(key, list);
+      for (const day of daysCovered(r)) {
+        const key = dayKey(day);
+        const list = map.get(key) ?? [];
+        list.push(r);
+        map.set(key, list);
+      }
     }
     for (const list of map.values()) {
-      list.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+      list.sort(
+        (a, b) => Number(b.allDay) - Number(a.allDay) || a.startsAt.localeCompare(b.startsAt)
+      );
     }
     return map;
   }, [reservations]);
@@ -182,6 +189,7 @@ export default function ReservationCalendar({
                   <BookingChip
                     key={r.id}
                     reservation={r}
+                    day={date}
                     past={new Date(r.endsAt) < today}
                     onClick={() => onSelect(r)}
                   />
@@ -225,9 +233,9 @@ export default function ReservationCalendar({
                 className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left text-sm transition hover:border-indigo-400 dark:border-gray-700"
               >
                 <span>
-                  <span className="font-medium">{r.user.name}</span>
+                  <span className="font-medium">{bookedBy(r)}</span>
                   <span className="ml-2 text-gray-500 dark:text-gray-400">
-                    {formatTime(r.startsAt)} – {formatTime(r.endsAt)}
+                    {r.allDay ? "All day" : `${formatTime(r.startsAt)} – ${formatTime(r.endsAt)}`}
                   </span>
                 </span>
                 <span className="text-xs text-gray-500">
@@ -255,29 +263,47 @@ function chipFillClasses(reservation: ApiReservation): string {
   return "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/70";
 }
 
-/** Who the chip is for: the club, you, or the member who booked it. */
+/**
+ * Who the chip is for: the club, you, or the member who booked it. A Google
+ * event with nobody behind it is labelled by its own title.
+ */
 function chipLabel(reservation: ApiReservation): string {
-  if (reservation.purpose === "MAINTENANCE") return "Maintenance";
+  if (reservation.purpose === "MAINTENANCE") return reservation.title ?? "Maintenance";
   if (reservation.mine) return "You";
-  return reservation.user.name;
+  return bookedBy(reservation);
+}
+
+/**
+ * The time on a chip, for the day the chip is drawn on: "All day", the start
+ * time on the day it starts, and "cont." on the later days of a long one.
+ */
+function chipTime(reservation: ApiReservation, day: Date): string {
+  if (reservation.allDay) return "All day";
+  if (!sameDay(new Date(reservation.startsAt), day)) return "cont.";
+  return formatTime(reservation.startsAt);
 }
 
 // One booking as a compact chip inside a day cell.
 function BookingChip({
   reservation,
+  day,
   past,
   onClick,
 }: {
   reservation: ApiReservation;
+  /** The cell it's drawn in — a multi-day booking has a chip on each. */
+  day: Date;
   past: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      title={`${reservation.user.name} · ${formatTime(reservation.startsAt)}–${formatTime(
-        reservation.endsAt
-      )} · ${PURPOSE_LABELS[reservation.purpose]}`}
+      title={`${reservation.title ?? bookedBy(reservation)} · ${
+        reservation.allDay
+          ? "All day"
+          : `${formatTime(reservation.startsAt)}–${formatTime(reservation.endsAt)}`
+      } · ${PURPOSE_LABELS[reservation.purpose]}`}
       // Past bookings read as done — dimmed, but still a live button.
       className={`flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-xs font-medium transition
         ${chipFillClasses(reservation)}
@@ -285,7 +311,7 @@ function BookingChip({
     >
       <span className="truncate">
         <span className={reservation.mine ? "opacity-90" : "opacity-70"}>
-          {formatTime(reservation.startsAt)}
+          {chipTime(reservation, day)}
         </span>{" "}
         {chipLabel(reservation)}
       </span>

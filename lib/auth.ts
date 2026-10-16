@@ -17,7 +17,10 @@ const googleEnabled =
 export const authOptions: NextAuthOptions = {
   // Credentials logins require JWT sessions (no db session rows).
   session: { strategy: "jwt" },
-  pages: { signIn: "/login" },
+  // OAuth refusals (and any other NextAuth error) land back on the login page
+  // with ?error=<code>, which it turns into words, rather than on NextAuth's
+  // own unstyled error page.
+  pages: { signIn: "/login", error: "/login" },
   // Our own session cookie name, so two apps on localhost don't fight over
   // NextAuth's default one. proxy.ts has to be told the same name — see
   // lib/authCookies.ts.
@@ -66,25 +69,25 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
   callbacks: {
-    // Google sign-ins have no row in our User table yet: find-or-create one by
-    // email. Credentials logins are already validated in authorize().
+    // Google is a way IN to an account that already exists — never a way to
+    // create one. Joining the club takes a sign-up code (app/api/signup), and
+    // this used to find-or-create a row by email, which let any Google account
+    // walk past that and land as a flying member. Now an email with no account
+    // here is sent back to the login page to sign up with a code first; after
+    // that, "Continue with Google" works for them. Credentials logins are
+    // already validated in authorize().
     async signIn({ user, account }) {
       if (account?.provider !== "google") return true;
       const email = user.email;
-      if (!email) return false;
+      if (!email) return "/login?error=GoogleNoEmail";
 
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (!existing) {
-        await prisma.user.create({
-          data: {
-            email,
-            username: email,
-            name: user.name ?? email,
-            passwordHash: "", // OAuth account — no usable password
-          },
-        });
-      }
-      return true;
+      // Case-insensitive: Google reports the address as the member typed it
+      // when they made the Google account, not as they typed it here.
+      const existing = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { id: true },
+      });
+      return existing ? true : "/login?error=GoogleNoAccount";
     },
 
     async jwt({ token, user, account, trigger, session }) {
@@ -93,8 +96,8 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         const isOAuth = account?.provider === "google";
         if (isOAuth && user.email) {
-          const dbUser = await prisma.user.findUnique({
-            where: { email: user.email },
+          const dbUser = await prisma.user.findFirst({
+            where: { email: { equals: user.email, mode: "insensitive" } },
           });
           if (dbUser) {
             token.id = dbUser.id;

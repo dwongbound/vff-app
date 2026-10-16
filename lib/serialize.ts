@@ -273,6 +273,7 @@ export function serializeAircraft(a: AircraftRow): ApiAircraft {
       .map(summary),
     openSquawkCount: open.length,
     newSquawkCount: open.filter((s) => s.status === "NEW").length,
+    okToFlySquawkCount: open.filter((s) => s.status === "REVIEWED_OK_TO_FLY").length,
     // Absent (a route that didn't include them) reads as an empty sheet rather
     // than an error — the same shape a club that hasn't typed one in yet has.
     maintenance: (a.maintenance ?? [])
@@ -285,12 +286,15 @@ interface ReservationRow {
   id: string;
   aircraftId: string;
   aircraft: { id: string; tailNumber: string };
-  user: UserRow;
-  userId: string;
+  user: UserRow | null;
+  userId: string | null;
   startsAt: Date;
   endsAt: Date;
+  allDay: boolean;
   purpose: string;
   notes: string | null;
+  title: string | null;
+  googleEventId: string | null;
   status: string;
   instructor?: UserRow | null;
   flight?: { id: string } | null;
@@ -304,15 +308,18 @@ export function serializeReservation(
     id: r.id,
     aircraftId: r.aircraftId,
     aircraft: { id: r.aircraft.id, tailNumber: r.aircraft.tailNumber },
-    user: serializeUser(r.user),
+    user: r.user ? serializeUser(r.user) : null,
     startsAt: r.startsAt.toISOString(),
     endsAt: r.endsAt.toISOString(),
+    allDay: r.allDay,
     purpose: r.purpose as Purpose,
     notes: r.notes,
+    title: r.title,
+    onGoogleCalendar: r.googleEventId !== null,
     status: r.status as "CONFIRMED" | "CANCELED",
     instructor: r.instructor ? serializeUser(r.instructor) : null,
     hasFlight: Boolean(r.flight),
-    mine: r.userId === viewerId,
+    mine: r.userId !== null && r.userId === viewerId,
   };
 }
 
@@ -326,6 +333,10 @@ interface SquawkRow {
   resolvedBy?: UserRow | null;
   resolvedAt: Date | null;
   resolution: string | null;
+  // Optional: the flight log's squawk queries don't select the note.
+  officerNote?: string | null;
+  officerNoteBy?: UserRow | null;
+  officerNoteAt?: Date | null;
   photos?: PhotoRow[];
   createdAt: Date;
 }
@@ -341,6 +352,13 @@ export function serializeSquawk(s: SquawkRow): ApiSquawk {
     resolvedBy: s.resolvedBy ? serializeUser(s.resolvedBy) : null,
     resolvedAt: s.resolvedAt?.toISOString() ?? null,
     resolution: s.resolution,
+    note: s.officerNote
+      ? {
+          text: s.officerNote,
+          by: s.officerNoteBy ? serializeUser(s.officerNoteBy) : null,
+          at: s.officerNoteAt?.toISOString() ?? null,
+        }
+      : null,
     photos: (s.photos ?? []).map(serializePhoto),
     createdAt: s.createdAt.toISOString(),
   };

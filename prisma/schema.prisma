@@ -201,6 +201,7 @@ model User {
   servicing       Servicing[]
   squawksReported Squawk[]   @relation("SquawkReporter")
   squawksResolved Squawk[]   @relation("SquawkResolver")
+  squawkNotes     Squawk[]   @relation("SquawkNoteAuthor")
   photos          Photo[]
 
   // The instructing side of the same two rows. Named relations because a User
@@ -217,6 +218,7 @@ model User {
   chargesDeleted          Charge[]          @relation("ChargeDeleter")
   recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
   recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
+  googleConnections       GoogleConnection[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -265,6 +267,7 @@ model Aircraft {
   notes  String?
 
   reservations Reservation[]
+  calendar     AircraftCalendar?
   flights      Flight[]
   checkouts    Checkout[]
   squawks      Squawk[]
@@ -345,14 +348,31 @@ model Reservation {
 
   aircraft   Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
   aircraftId String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     String
+  // Null only on a booking that came in from the airplane's Google Calendar
+  // and whose creator has no account here (or that nobody owns — a shop
+  // block typed in by hand). Every booking made IN the app has one.
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String?
 
   startsAt DateTime
   endsAt   DateTime
+  // A date-only Google event: the whole local day(s), midnight to midnight at
+  // the club. Kept as a flag rather than inferred from the times so a literal
+  // midnight-to-midnight booking and an all-day one stay distinguishable.
+  allDay Boolean @default(false)
 
   purpose ReservationPurpose @default(LOCAL)
   notes   String?
+
+  // The event this row mirrors on the aircraft's Google Calendar, when it has
+  // one (see lib/googleCalendarSync.ts). Google is the source of truth for
+  // these rows: the sync rewrites them, and the app's own edits go to Google
+  // first. Null = an app-only booking from before the calendar was connected.
+  googleEventId String? @unique
+  // The event's own title, for events typed straight into Google — "Strut
+  // Maintanence", "Varda camping trip". Null on bookings made in the app,
+  // whose title is generated from the member and purpose.
+  title         String?
 
   // The CFI this lesson is booked with. Only meaningful when `purpose` is
   // TRAINING, and the API nulls it out for every other purpose rather than
@@ -366,8 +386,11 @@ model Reservation {
   instructor   User?   @relation("ReservationInstructor", fields: [instructorId], references: [id], onDelete: SetNull)
   instructorId String?
 
-  // Canceled rows are kept (not deleted) so the calendar history stays honest;
-  // they're filtered out of conflict checks and the default list view.
+  // CANCELED: a booking on the airplane's Google Calendar that was cancelled
+  // (its event renamed "CANCELLED - …" — lib/calendarEvents.ts). The row lives
+  // exactly as long as its event does, and is filtered out of conflict checks
+  // and every list. App-only bookings are deleted outright instead; older
+  // databases may still hold CANCELED rows from before that.
   status ReservationStatus @default(CONFIRMED)
 
   // The flight actually flown against this booking, if one was filed.
@@ -700,6 +723,15 @@ model Squawk {
   resolvedAt   DateTime?
   resolution   String?
 
+  // The Safety Officer's note: one per squawk, read by every member, written
+  // only with `squawk:manage` (app/api/squawks/[id]). Separate from the
+  // reporter's `description` on purpose — that's what was SEEN; this is what
+  // the club knows about it since ("parts on order, OK for local flights").
+  officerNote     String?
+  officerNoteBy   User?     @relation("SquawkNoteAuthor", fields: [officerNoteById], references: [id], onDelete: SetNull)
+  officerNoteById String?
+  officerNoteAt   DateTime?
+
   // Idempotency key — see Flight.clientRequestId.
   clientRequestId String? @unique
 
@@ -941,4 +973,48 @@ model Charge {
   @@index([period])
   @@index([deletedAt])
   @@map("charges")
+}
+
+// The ONE Google account the club's calendars are written through. An admin
+// connects it from Club settings (app/api/calendar/connect), separately from
+// signing in: sign-in only ever asks Google for a name and an email, and asking
+// every member for calendar access to make one account's sync work would be
+// the wrong trade. Singleton — `id` is always "club".
+//
+// `refreshTokenEnc` is AES-GCM under a key derived from NEXTAUTH_SECRET
+// (lib/secretBox.ts): it can edit the club's calendar, so a database dump on
+// its own shouldn't be enough to.
+model GoogleConnection {
+  id              String  @id @default("club")
+  accountEmail    String
+  refreshTokenEnc String
+  connectedBy     User?   @relation(fields: [connectedById], references: [id], onDelete: SetNull)
+  connectedById   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("google_connections")
+}
+
+// Which Google Calendar is an airplane's schedule, and how far the app has
+// read it. One per aircraft, because that's how the club already keeps them:
+// a calendar called N8318B.
+model AircraftCalendar {
+  aircraft     Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  aircraftId   String   @id
+  calendarId   String
+  calendarName String?
+
+  // Google's incremental-sync cursor. Null = the next sync is a FULL one,
+  // which also removes rows whose events no longer exist.
+  syncToken  String?
+  syncedAt   DateTime?
+  // The last failure, in words, for Club settings. Cleared by a good sync.
+  syncError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("aircraft_calendars")
 }

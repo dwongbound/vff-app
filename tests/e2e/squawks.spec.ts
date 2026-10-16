@@ -30,7 +30,10 @@ import {
 /** A seeded member with no admin flag and no office. */
 const PLAIN_MEMBER = "alex@vffclub.test";
 
-/** The Status layout's dispatch card, as opposed to the navbar banner. */
+/**
+ * The Status layout's dispatch line, as opposed to the navbar banner. Read on
+ * Overview: the Squawks tab doesn't draw it (it would only link to itself).
+ */
 const doNotFlyCard = (page: Page) =>
   page.getByRole("heading", { name: /Do not fly/ });
 const inMaintenanceCard = (page: Page) =>
@@ -105,7 +108,13 @@ async function setStatus(page: Page, title: string, label: RegExp) {
   await expect(row).toBeVisible({ timeout: 60_000 });
   await statusPicker(row).click();
   // Scoped to this row: every open picker on the page renders its own listbox.
+  // Waits for the server's answer, not just the click: callers navigate away
+  // next, and a `page.goto` aborts a PATCH still in flight.
+  const saved = page.waitForResponse(
+    (r) => r.url().includes("/api/squawks/") && r.request().method() === "PATCH"
+  );
   await row.getByRole("option", { name: label }).click();
+  expect((await saved).ok()).toBe(true);
 }
 
 test("a member files a squawk as New and cannot triage it", async ({ page }) => {
@@ -185,6 +194,7 @@ test("grounding a squawk stops the club until it is closed", async ({ page }) =>
 
   try {
     await setStatus(page, title, /aircraft grounded/);
+    await gotoTab(page, "/status", "N8318B");
     await expect(doNotFlyCard(page)).toBeVisible({ timeout: 60_000 });
 
     // The banner is app-wide, not page-local.
@@ -195,6 +205,7 @@ test("grounding a squawk stops the club until it is closed", async ({ page }) =>
     await setStatus(page, title, /^Closed/);
   }
 
+  await gotoTab(page, "/status", "N8318B");
   await expect(doNotFlyCard(page)).toBeHidden({ timeout: 60_000 });
   await expect(groundedBanner(page)).toBeHidden();
 });
@@ -207,10 +218,16 @@ test("in work reads as maintenance, not as a grounding", async ({ page }) => {
   try {
     await setStatus(page, title, /in work/);
 
+    await gotoTab(page, "/status", "N8318B");
     await expect(inMaintenanceCard(page)).toBeVisible({ timeout: 60_000 });
     // The distinction that matters: the shop has it, but it isn't grounded.
     await expect(doNotFlyCard(page)).toBeHidden();
     await expect(groundedBanner(page)).toBeHidden();
+
+    // Not on the Squawks tab itself, where it would only link to itself.
+    await page.goto("/status/squawks");
+    await expect(rowFor(page, title)).toBeVisible({ timeout: 60_000 });
+    await expect(inMaintenanceCard(page)).toBeHidden();
   } finally {
     await setStatus(page, title, /^Closed/);
   }
@@ -264,4 +281,92 @@ test("an ordinary member can file one too, but still cannot triage it", async ({
   const row = rowFor(page, title);
   await expect(row).toBeVisible({ timeout: 60_000 });
   await expect(statusPicker(row)).toHaveCount(0);
+});
+
+test("a squawk's details are always shown on a wide screen", async ({ page }) => {
+  await signIn(page, PLAIN_MEMBER);
+  await page.goto("/status/squawks");
+  const main = page.getByRole("main");
+  await expect(main.locator("li[id^=squawk-]").first()).toBeVisible({ timeout: 60_000 });
+  // No Details/Hide toggle at desktop width: the description is part of the card.
+  await expect(main.getByRole("button", { name: /^(Details|Hide)$/ })).toHaveCount(0);
+});
+
+// The Safety Officer's note: everyone reads it, only the office writes it.
+test("the Safety Officer's note is read by everyone and written only by the office", async ({
+  page,
+}) => {
+  // An admin holds squawk:manage, the Safety Officer's power.
+  await signIn(page);
+  const aircraft = await (await page.request.get("/api/aircraft")).json();
+  const title = `E2E note on a squawk ${Date.now()}`;
+  const made = await page.request.post("/api/squawks", {
+    data: { aircraftId: aircraft[0].id, title },
+  });
+  expect(made.ok()).toBe(true);
+  const { id } = await made.json();
+
+  try {
+    await page.goto("/status/squawks");
+    const row = rowFor(page, title);
+    await expect(row).toBeVisible({ timeout: 60_000 });
+    await row.getByRole("button", { name: "Add a note" }).click();
+    await row.getByLabel("Safety Officer's note").fill("Parts on order — fine for local flights.");
+    await row.getByRole("button", { name: "Save note" }).click();
+    await expect(row.getByText("Parts on order — fine for local flights.")).toBeVisible();
+
+    // A plain member reads it, and gets no way to change it…
+    await page.context().clearCookies();
+    await signIn(page, PLAIN_MEMBER);
+    await page.goto("/status/squawks");
+    const theirRow = rowFor(page, title);
+    await expect(theirRow.getByText("Parts on order — fine for local flights.")).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(theirRow.getByRole("button", { name: /note/i })).toHaveCount(0);
+    // …and the route refuses them even if they try.
+    const refused = await page.request.patch(`/api/squawks/${id}`, { data: { note: "mine now" } });
+    expect(refused.status()).toBe(403);
+
+    // The office edits it, then removes it.
+    await page.context().clearCookies();
+    await signIn(page);
+    await page.goto("/status/squawks");
+    const officerRow = rowFor(page, title);
+    await officerRow.getByRole("button", { name: "Edit note" }).click({ timeout: 60_000 });
+    await officerRow.getByLabel("Safety Officer's note").fill("Fixed at the annual.");
+    await officerRow.getByRole("button", { name: "Save note" }).click();
+    await expect(officerRow.getByText("Fixed at the annual.")).toBeVisible();
+    await officerRow.getByRole("button", { name: "Edit note" }).click();
+    await officerRow.getByRole("button", { name: "Remove note" }).click();
+    await expect(officerRow.getByRole("button", { name: "Add a note" })).toBeVisible();
+    await expect(officerRow.getByText("Fixed at the annual.")).toHaveCount(0);
+  } finally {
+    // Close it, so later specs see the airplane as they expect.
+    await page.request.patch(`/api/squawks/${id}`, { data: { status: "CLOSED" } });
+  }
+});
+
+test("an unreviewed squawk puts an amber line on Overview, linking to the squawks", async ({
+  page,
+}) => {
+  await signIn(page);
+  const aircraft = await (await page.request.get("/api/aircraft")).json();
+  const made = await page.request.post("/api/squawks", {
+    data: { aircraftId: aircraft[0].id, title: `E2E unreviewed ${Date.now()}` },
+  });
+  const { id } = await made.json();
+  try {
+    await gotoTab(page, "/status", "N8318B");
+    // Filed squawks land at NEW — unreviewed — which is amber, not a grounding.
+    const line = page.getByRole("heading", { name: /\d+ unreviewed squawks?/ });
+    await expect(line).toBeVisible({ timeout: 60_000 });
+    await expect(doNotFlyCard(page)).toBeHidden();
+    await page.getByRole("main").getByRole("link", { name: "See squawks" }).click();
+    await expect(page).toHaveURL(/\/status\/squawks/);
+    // …and the Squawks tab doesn't repeat it.
+    await expect(line).toBeHidden();
+  } finally {
+    await page.request.patch(`/api/squawks/${id}`, { data: { status: "CLOSED" } });
+  }
 });

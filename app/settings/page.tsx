@@ -12,6 +12,7 @@ import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
+import GoogleCalendarPanel from "@/components/GoogleCalendarPanel";
 import SignupCodesPanel from "@/components/SignupCodesPanel";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
@@ -91,6 +92,12 @@ export default function SettingsPage() {
             </p>
           </Card>
         )}
+      </div>
+
+      {/* Where each airplane's schedule lives — right under the fleet, since
+          it's a fact about each airplane. */}
+      <div className="border-t border-gray-200 pt-4 dark:border-gray-700">
+        <GoogleCalendarPanel />
       </div>
 
       {/* Who can get IN, under who can fly: the fleet is what the club has, and

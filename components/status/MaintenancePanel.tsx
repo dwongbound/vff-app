@@ -37,7 +37,9 @@ import {
   MAINTENANCE_STATE_LABELS,
   MAINTENANCE_STATE_TONES,
   byUrgency,
-  formatRemaining,
+  formatDaysLeft,
+  formatHoursLeft,
+  fractionLeft,
   maintenanceDue,
   nextDue,
   type MaintenanceCategory,
@@ -143,7 +145,10 @@ export default function MaintenancePanel({
           {/* The sheet's own bottom line, first: one item, both clocks. */}
           {next && <NextDueStrip item={next} tach={tach} />}
 
-          <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+          {/* A CONTAINER, so each row lays out by the card's width rather
+              than the screen's — the card is narrower than the window on an
+              iPad (the rail) and on a phone alike. */}
+          <ul className="@container divide-y divide-gray-100 dark:divide-gray-700">
             {sorted.map((item) => (
               <MaintenanceRow
                 key={item.id}
@@ -208,33 +213,22 @@ function NextDueStrip({
   tach: number | null;
 }) {
   const due = maintenanceDue(item, tach);
+  const bothClocks = due.hoursRemaining != null && due.daysRemaining != null;
   return (
-    <div
-      className={`rounded-xl border px-4 py-3 ${TONE_SURFACE[due.state]}`}
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+    <div className={`rounded-xl border px-4 py-3 ${TONE_SURFACE[due.state]}`}>
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs uppercase tracking-wide opacity-70">Next due</p>
         <Badge tone={MAINTENANCE_STATE_TONES[due.state]}>
           {MAINTENANCE_STATE_LABELS[due.state]}
         </Badge>
       </div>
-      <p className="mt-1 text-lg font-semibold">{item.label}</p>
-      <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
-        {due.hoursRemaining != null && (
-          <span>
-            <span className="text-2xl font-bold">
-              {due.hoursRemaining.toFixed(1)}
-            </span>{" "}
-            hrs
-          </span>
-        )}
-        {due.daysRemaining != null && (
-          <span>
-            <span className="text-2xl font-bold">{due.daysRemaining}</span> days
-          </span>
-        )}
-        <span className="opacity-70">whichever comes first</span>
+      <p className="mt-1 text-base font-semibold">{item.label}</p>
+      {/* In words ("4.0 hrs over"), never a bare negative number. */}
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xl font-bold">
+        {due.hoursRemaining != null && <span>{formatHoursLeft(due.hoursRemaining)}</span>}
+        {due.daysRemaining != null && <span>{formatDaysLeft(due.daysRemaining)}</span>}
       </div>
+      {bothClocks && <p className="mt-0.5 text-xs opacity-70">whichever comes first</p>}
     </div>
   );
 }
@@ -256,6 +250,12 @@ const BAR_FILL: Record<string, string> = {
   UNTRACKED: "bg-gray-300 dark:bg-gray-600",
 };
 
+/**
+ * One item on the sheet. Stacked — name, status, a countdown per clock, when
+ * it was last done — with the buttons UNDER it on a narrow card and beside it
+ * once the card is wide enough (`@xl`, a container query on the list). Side
+ * by side at phone width left the text a column a third of the screen wide.
+ */
 function MaintenanceRow({
   item,
   tach,
@@ -274,46 +274,38 @@ function MaintenanceRow({
   const due = maintenanceDue(item, tach);
 
   return (
-    <li className="flex flex-wrap items-start gap-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{item.label}</span>
-          <Badge tone={MAINTENANCE_STATE_TONES[due.state]}>
-            {MAINTENANCE_STATE_LABELS[due.state]}
-          </Badge>
-          {/* What an overdue item MEANS. Only the law grounds an airplane; the
-              club's own schedule being late is a different sentence, and
-              saying "grounded" for both would wear the word out. */}
-          {item.requiredByReg && (
-            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-              Required
-            </span>
-          )}
-          {item.reference && (
-            <span className="text-xs text-gray-400 dark:text-gray-500">
-              {item.reference}
-            </span>
-          )}
+    <li className="flex flex-col gap-2 py-3 @xl:flex-row @xl:items-start @xl:gap-4">
+      <div className="min-w-0 flex-1 space-y-2">
+        <div>
+          <p className="text-sm font-medium">{item.label}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <Badge tone={MAINTENANCE_STATE_TONES[due.state]}>
+              {MAINTENANCE_STATE_LABELS[due.state]}
+            </Badge>
+            {/* What an overdue item MEANS. Only the law grounds an airplane;
+                the club's own schedule being late is a different sentence,
+                and saying "grounded" for both would wear the word out. */}
+            {item.requiredByReg && (
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                Required
+              </span>
+            )}
+            {item.reference && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">{item.reference}</span>
+            )}
+          </div>
         </div>
 
-        <CountdownBars due={due} />
+        <CountdownBars item={item} due={due} />
 
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {item.lastDoneOn || item.lastDoneTach != null ? (
-            <>
-              Last done
-              {item.lastDoneOn && ` ${formatFullDate(new Date(item.lastDoneOn))}`}
-              {item.lastDoneTach != null && ` at tach ${item.lastDoneTach.toFixed(1)}`}
-            </>
-          ) : (
-            "Never recorded"
-          )}
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          <LastDone item={item} />
           {item.notes ? ` · ${item.notes}` : ""}
         </p>
       </div>
 
       {canManage && (
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-2">
           {busy ? (
             <LoadingDots size="sm" />
           ) : (
@@ -333,94 +325,101 @@ function MaintenanceRow({
   );
 }
 
+/** "Last done June 14, 2025 at tach 1403.0", or "Never recorded". */
+function LastDone({ item }: { item: ApiMaintenanceItem }) {
+  if (!item.lastDoneOn && item.lastDoneTach == null) return <>Never recorded</>;
+  return (
+    <>
+      Last done
+      {item.lastDoneOn && ` ${formatFullDate(new Date(item.lastDoneOn))}`}
+      {item.lastDoneTach != null && ` at tach ${item.lastDoneTach.toFixed(1)}`}
+    </>
+  );
+}
+
 /**
  * The two countdowns, each against its own interval.
  *
  * A bar per clock rather than one bar for "the tightest": an item can be
  * comfortable on hours and nearly out of calendar, and that's precisely the
- * case the club's spreadsheet made hard to see.
+ * case the club's spreadsheet made hard to see. The binding clock is drawn
+ * full strength; the other is quieter, so the row has one answer.
  */
-function CountdownBars({ due }: { due: MaintenanceDue }) {
+function CountdownBars({ item, due }: { item: ApiMaintenanceItem; due: MaintenanceDue }) {
   if (due.state === "UNTRACKED") {
     return (
-      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-gray-500 dark:text-gray-400">
         No interval recorded — this item never comes due on its own.
       </p>
     );
   }
 
   return (
-    <div className="mt-1.5 space-y-1.5">
+    <div className="space-y-2">
       {due.hoursRemaining != null && due.dueAtTach != null && (
         <Countdown
           state={due.state}
-          // Fraction of the interval left. Clamped by the bar itself, so an
-          // overdue item simply reads empty rather than drawing backwards.
-          fraction={due.hoursRemaining / Math.max(1, due.dueAtTach)}
-          text={`${
-            due.hoursRemaining < 0
-              ? `${Math.abs(due.hoursRemaining).toFixed(1)} hrs over`
-              : `${due.hoursRemaining.toFixed(1)} hrs left`
-          } · due at tach ${due.dueAtTach.toFixed(1)}`}
+          fraction={fractionLeft(due.hoursRemaining, item.intervalHours, "hours")}
+          amount={formatHoursLeft(due.hoursRemaining)}
+          when={`due at tach ${due.dueAtTach.toFixed(1)}`}
           leading={due.limitedBy === "hours"}
         />
       )}
       {due.daysRemaining != null && due.dueOn != null && (
         <Countdown
           state={due.state}
-          fraction={due.daysRemaining / 365}
-          text={`${
-            due.daysRemaining < 0
-              ? `${Math.abs(due.daysRemaining)} days over`
-              : due.daysRemaining === 0
-                ? "due today"
-                : `${due.daysRemaining} days left`
-          } · due ${formatFullDate(due.dueOn)}`}
+          fraction={fractionLeft(due.daysRemaining, item.intervalMonths, "months")}
+          amount={formatDaysLeft(due.daysRemaining)}
+          when={`due ${formatFullDate(due.dueOn)}`}
           leading={due.limitedBy === "calendar"}
         />
-      )}
-      {due.limitedBy && (
-        <p className="text-xs font-medium text-gray-600 dark:text-gray-300">
-          {formatRemaining(due)} to go
-        </p>
       )}
     </div>
   );
 }
 
+/**
+ * One clock: what's left and when it's due on a line, then a full-width bar.
+ * Text ABOVE the bar rather than beside it, so neither is squeezed into a
+ * column at phone width.
+ */
 function Countdown({
   state,
   fraction,
-  text,
+  amount,
+  when,
   leading,
 }: {
   state: string;
-  fraction: number;
-  text: string;
+  /** Share of the interval left, 0–1; null draws no bar. */
+  fraction: number | null;
+  amount: string;
+  when: string;
   leading: boolean;
 }) {
-  const pct = Math.max(0, Math.min(1, fraction)) * 100;
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
-        <div
-          className={`h-full rounded-full ${BAR_FILL[state]} ${
-            // The clock that isn't binding is drawn quieter, so the row has one
-            // answer rather than two competing ones.
-            leading ? "" : "opacity-40"
-          }`}
-          style={{ width: `${pct}%` }}
-        />
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
+        <span
+          className={
+            leading
+              ? "font-semibold text-gray-800 dark:text-gray-100"
+              : "text-gray-500 dark:text-gray-400"
+          }
+        >
+          {amount}
+        </span>
+        <span className="text-gray-500 dark:text-gray-400">{when}</span>
       </div>
-      <span
-        className={`text-xs ${
-          leading
-            ? "text-gray-600 dark:text-gray-300"
-            : "text-gray-400 dark:text-gray-500"
-        }`}
-      >
-        {text}
-      </span>
+      {fraction != null && (
+        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+          <div
+            // The clock that isn't binding is drawn quieter.
+            className={`h-full rounded-full ${BAR_FILL[state]} ${leading ? "" : "opacity-40"}`}
+            style={{ width: `${fraction * 100}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

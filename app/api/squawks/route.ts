@@ -23,6 +23,7 @@ import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
 const INCLUDE = {
   reportedBy: { select: { id: true, name: true, email: true } },
   resolvedBy: { select: { id: true, name: true, email: true } },
+  officerNoteBy: { select: { id: true, name: true, email: true } },
   photos: true,
 } as const;
 

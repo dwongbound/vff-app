@@ -61,6 +61,27 @@ test("a photo attached to a flight comes back on the log entry", async ({ page }
     .toBeGreaterThan(0);
 });
 
+// The picker and the upload route share one rule (lib/photoTypes.ts). Before,
+// the picker let any image/* through and the SERVER refused the GIF — after
+// the outbox had sent it, long after the member left the airplane.
+test("a file the club can't take is refused when it's picked, not when it's sent", async ({
+  page,
+}) => {
+  await gotoTab(page, "/postflight", "Post-flight");
+  await openPostflightSection(page, /Servicing/);
+  const input = page.locator('input[type="file"]');
+
+  await input.setInputFiles({ name: "anim.gif", mimeType: "image/gif", buffer: PNG });
+  await expect(page.getByText(/anim\.gif isn't a photo the club can take/)).toBeVisible();
+  await expect(page.getByRole("img", { name: "anim.gif" })).toHaveCount(0);
+
+  // An iPhone HEIC often arrives with no type at all; its extension says
+  // what it is, and it's kept.
+  await input.setInputFiles({ name: "IMG_0412.HEIC", mimeType: "", buffer: PNG });
+  await expect(page.getByRole("img", { name: "IMG_0412.HEIC" })).toBeVisible();
+  await expect(page.getByText(/isn't a photo the club can take/)).toHaveCount(0);
+});
+
 test("photo bytes are only served to signed-in members", async ({ page, browser }) => {
   // Grab a photo id the signed-in session can see. The test above files a
   // flight with one, so SOME entry carries a photo — found by its count rather

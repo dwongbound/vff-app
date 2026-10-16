@@ -132,6 +132,55 @@
   display: none;
 }
 
+/* No zoom-on-focus: every text field is at least 16px on a touch screen.
+   ────────────────────────────────────────────────────────────────────────
+   iOS Safari (iPhone AND iPad) zooms the whole page in when you focus a field
+   whose text is under 16px, and leaves it zoomed after you're done — the member
+   then has to pinch back out, and until they do the page is wider than the
+   screen. Our fields are `text-sm`, which the type scale puts at 15px
+   (tailwind.config.ts), so EVERY field did it: the booking sheet's dates, the
+   meter boxes, the write-up.
+
+   Keyed on the small-text CLASSES rather than a flat `font-size` on every
+   field, so a field deliberately set larger keeps its size. (Redefining
+   `--text-sm` would have been tidier and does nothing: with the JS config
+   loaded through @config, the utilities compile to literal sizes, not var()
+   references.) UNLAYERED on purpose: Tailwind's utilities live in a cascade
+   layer, and an unlayered rule beats any layered one regardless of
+   specificity or order. `pointer: coarse` keeps desktop at the denser 15px.
+
+   A field that gets its size by INHERITING from a small-text parent isn't
+   covered here; `expectFormsFitTouchScreen` in the phone and tablet e2e specs
+   is what catches one.
+
+   Don't "solve" this with `maximum-scale=1` in the viewport: that kills
+   pinch-zoom too, and the e2e phone/tablet specs assert it isn't there. */
+@media (pointer: coarse) {
+  :is(input, select, textarea):is(.text-xs, .text-sm) {
+    font-size: 1rem;
+  }
+}
+
+/* iOS draws its date/time inputs with their own intrinsic width and a centred,
+   collapsible value: an empty one shrinks to a sliver, and one with a value
+   can refuse to narrow to its column. Dropping the native appearance makes it
+   size like every other box (the picker still opens on tap). Gated on an
+   iOS-only feature so Android and desktop keep their calendar buttons. */
+@supports (-webkit-touch-callout: none) {
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"],
+  input[type="month"] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+  }
+  input::-webkit-date-and-time-value {
+    text-align: left;
+    min-height: 1.25rem;
+  }
+}
+
 /* Always-visible, styled scrollbar for capped scroll areas (e.g. the checklist
    sections). macOS overlay scrollbars auto-hide, which hides the fact that
    there's more to scroll. */

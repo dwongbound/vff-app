@@ -682,7 +682,15 @@ test("deleting a DERIVED line sticks — the month's next read doesn't rebuild i
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect(row).toHaveCount(0);
   if (wasOpen) {
-    await expect.poll(() => figure(page, "Members owe")).toBe(owedBefore - 25_000);
+    // "Members owe" counts each member's balance only down to zero, so the
+    // figure falls by the full $250 only if this member had no credit to set
+    // against it. Whether they do depends on the seed's flights near today's
+    // date — the victim picked here had $113.88 of credit in October 2026,
+    // and the old exact `toBe(owedBefore - 25_000)` failed every run that
+    // month. What this test is FOR is that the summary moves on the spot, and
+    // by no more than the line was worth.
+    await expect.poll(() => figure(page, "Members owe")).toBeLessThan(owedBefore);
+    expect(await figure(page, "Members owe")).toBeGreaterThanOrEqual(owedBefore - 25_000);
   }
 
   // Reading the books is what materialises dues — and it must NOT write this

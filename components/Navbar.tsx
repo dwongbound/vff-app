@@ -41,7 +41,7 @@ import { useKeepInViewport } from "./useKeepInViewport";
 import { useBeginNavigation } from "./LoadingProvider";
 import { useSwipe } from "./SwipeProvider";
 import { sendJson } from "@/lib/api";
-import { appScrollTop } from "@/lib/appScroll";
+import { appScrollTop, getAppScroller } from "@/lib/appScroll";
 import { setNavDirection } from "@/lib/navDirection";
 import { applyTheme, getStoredTheme, storeTheme, type Theme } from "@/lib/theme";
 import { CLUB_NAME, CLUB_SHORT_NAME } from "@/lib/constants";
@@ -304,6 +304,25 @@ export default function Navbar() {
   // of the open group rather than a boolean: there is more than one group in
   // the pill now, and a shared boolean would open both at once.
   const [openSheet, setOpenSheet] = useState<string | null>(null);
+
+  // While a group sheet is open the page under it is frozen: no scrolling,
+  // and a tap anywhere outside the sheet only closes it (the backdrop below
+  // catches it) rather than also pressing whatever was underneath. Escape
+  // closes it too, for a phone with a keyboard attached.
+  useEffect(() => {
+    if (openSheet === null) return;
+    const scroller = getAppScroller();
+    const previousOverflow = scroller?.style.overflow ?? "";
+    if (scroller) scroller.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenSheet(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      if (scroller) scroller.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [openSheet]);
   // Rail sub-lists the member has explicitly opened or collapsed, by group
   // label. Absent = "not touched", and the DEFAULT is then derived from where
   // you are (see `groupExpanded`) rather than being "always open": with two
@@ -757,7 +776,24 @@ export default function Navbar() {
       {/* Phone-only bottom bar: an app-style floating pill fixed above the
           bottom edge (respecting the iOS home-indicator safe area). Same tabs
           as the top strip, but icon-first with short labels. */}
-      <nav className="fixed inset-x-4 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] z-30 md:hidden">
+      {/* The open sheet's backdrop: covers everything but the pill (the top
+          bar included), so the first tap outside the sheet closes it and does
+          nothing else. `touch-none` stops a drag on it scrolling the page. */}
+      {openSheet !== null && (
+        <div
+          aria-hidden="true"
+          onClick={() => setOpenSheet(null)}
+          className="fixed inset-0 z-40 touch-none bg-black/10 md:hidden dark:bg-black/30"
+        />
+      )}
+
+      {/* Above the backdrop while a sheet is open, so the sheet and the other
+          tabs stay tappable. */}
+      <nav
+        className={`fixed inset-x-4 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] md:hidden ${
+          openSheet !== null ? "z-50" : "z-30"
+        }`}
+      >
         <div
           className={`mx-auto flex items-stretch rounded-full border border-gray-200/60 bg-white/50 px-1.5 py-1.5 shadow-lg backdrop-blur-xl transition-all duration-300 ease-in-out dark:border-gray-700/60 dark:bg-gray-800/50 ${
             // Scroll down → also pull the pill in horizontally (centered), so it
