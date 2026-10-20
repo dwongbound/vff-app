@@ -661,6 +661,13 @@ test("a sheet drags by its handle: up to grow, down to shrink back, further to c
     await page.mouse.down();
     await page.mouse.move(x, y + dy, { steps: 12 });
     await page.mouse.up();
+    // What WebKit does after a mouse drag, done by hand so every engine sees
+    // it: a click on whatever is under the pointer at release. After a close
+    // that is the page, and it must not open a second sheet.
+    await page.evaluate(
+      ([cx, cy]) => (document.elementFromPoint(cx, cy) as HTMLElement | null)?.click(),
+      [x, y + dy]
+    );
     await page.waitForTimeout(450); // the settle
   };
 
