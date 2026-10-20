@@ -179,13 +179,15 @@ export default function FlightEntryModal({
       title="Add a flight"
       subtitle={`${aircraft.tailNumber} — for a flight that was never filed at the time`}
       footer={
-        <div className="flex items-center justify-between gap-2">
+        // On a phone the note sits ABOVE the buttons, so they can have the
+        // full width of the sheet (see Modal).
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-xs text-gray-500 dark:text-gray-400">
             {hours != null && !meterError
               ? `${formatHours(hours)} tach hours`
               : "Tach readings are what bill the flight."}
           </span>
-          <div className="flex gap-2">
+          <div className="flex gap-2 max-sm:gap-3 max-sm:[&>button]:flex-1">
             <Button variant="secondary" onClick={onClose} disabled={busy}>
               Cancel
             </Button>

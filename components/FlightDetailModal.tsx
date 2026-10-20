@@ -331,7 +331,7 @@ export default function FlightDetailModal({
               {saving ? <LoadingDots size="sm" /> : "File this flight"}
             </Button>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2 max-sm:flex-1 max-sm:[&>button]:flex-1">
             {editing && (
               <Button
                 variant="ghost"

@@ -104,6 +104,11 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  // Draw edge to edge on iPhones and let the page place itself with
+  // `env(safe-area-inset-*)`. Without this Safari reports every inset as 0, so
+  // the padding the bottom sheets and the pill already asked for came out as
+  // nothing and their buttons sat in the curved corner, on the home bar.
+  viewportFit: "cover",
   // Colors the status bar / browser UI around the page. Media-query based, so
   // it follows the OS setting (close enough to lib/theme.ts's "system"
   // default; a manual in-app override won't be reflected here).

@@ -127,7 +127,7 @@ function OutboxDetails({
       title="Saved on this device"
       subtitle="Submissions the club doesn't have yet"
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 max-sm:gap-3 max-sm:[&>button]:flex-1">
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
