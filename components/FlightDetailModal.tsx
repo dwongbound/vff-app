@@ -342,7 +342,7 @@ export default function FlightDetailModal({
                   setSaveError(null);
                 }}
               >
-                Cancel
+                Close
               </Button>
             )}
             {canEdit && onSaved && (

@@ -174,7 +174,7 @@ export default function ExportFinancesModal({
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            Close
           </Button>
           <Button onClick={exportFile} disabled={busy}>
             {busy ? <LoadingDots size="sm" /> : "Download .xlsx"}

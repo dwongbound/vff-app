@@ -189,7 +189,7 @@ export default function FlightEntryModal({
           </span>
           <div className="flex gap-2 max-sm:gap-3 max-sm:[&>button]:flex-1">
             <Button variant="secondary" onClick={onClose} disabled={busy}>
-              Cancel
+              Close
             </Button>
             <Button onClick={save} disabled={!ready}>
               {busy ? <LoadingDots size="sm" /> : "Add to log"}

@@ -24,7 +24,7 @@ export default function ConfirmModal({
   subtitle,
   children,
   confirmLabel,
-  cancelLabel = "Cancel",
+  cancelLabel = "Close",
   tone = "primary",
   busy = false,
   error,
