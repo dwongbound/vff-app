@@ -16,6 +16,11 @@
 // Delete pushed left with `mr-auto`) is left alone. A footer that wraps its
 // buttons in its own element lays them out itself.
 //
+// A DESTRUCTIVE button (`data-destructive`, see Button) is always drawn a size
+// smaller than the actions beside it, on every screen: it never stretches, it
+// is shorter, and its label is a step down. Whatever is easiest to hit should
+// be the thing that can't lose anybody's work.
+//
 // It MOVES in and out rather than appearing: the sheet rises from the bottom
 // edge it is docked to, the desktop card fades up from 96%, and the backdrop
 // fades under both (keyframes and curves are `.modal-*` in globals.css). To
@@ -126,14 +131,35 @@ export default function Modal({
               </p>
             )}
           </div>
-          {/* 44px to tap, pulled back by its own margin so the header looks
-              exactly as it did with the old 24px box. */}
+          {/* 44px to tap, pulled back by its own margin so it lines up with the
+              title. What's DRAWN is a 32px disc with an 18px cross on it: the
+              old bare ✕ glyph was 13px of grey on white and easy to miss. The
+              cross is an SVG rather than a character so it sits on the disc's
+              true centre whatever the font's metrics. */}
           <button
             onClick={onClose}
             aria-label="Close"
-            className="-mr-2.5 -mt-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="group -mr-1.5 -mt-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
           >
-            ✕
+            <span
+              data-close-disc
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600
+                transition-colors duration-150 group-hover:bg-gray-200 group-hover:text-gray-900
+                dark:bg-gray-700 dark:text-gray-300 dark:group-hover:bg-gray-600 dark:group-hover:text-white"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </span>
           </button>
         </div>
 
@@ -152,8 +178,12 @@ export default function Modal({
             className="flex items-center justify-end gap-2 border-t border-gray-200 px-5 pt-3
               pb-[calc(0.75rem+env(safe-area-inset-bottom))] dark:border-gray-700 sm:px-6
               sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]
-              max-sm:gap-3 max-sm:[&_button]:min-h-11 max-sm:[&_button]:text-base
-              max-sm:[&>*:not(.mr-auto)]:flex-1"
+              [&_button[data-destructive]]:px-3 [&_button[data-destructive]]:py-1
+              [&_button[data-destructive]]:text-xs
+              max-sm:gap-3 max-sm:[&_button:not([data-destructive])]:min-h-11
+              max-sm:[&_button:not([data-destructive])]:text-base
+              max-sm:[&_button[data-destructive]]:min-h-9 max-sm:[&_button[data-destructive]]:text-sm
+              max-sm:[&>*:not(.mr-auto):not([data-destructive])]:flex-1"
           >
             {view.footer}
           </div>

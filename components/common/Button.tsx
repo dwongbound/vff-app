@@ -35,6 +35,11 @@ const SIZE_CLASSES: Record<Size, string> = {
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
+  /** Marks a button that destroys something (Delete, Remove, Reset). Implied
+   *  by `variant="danger"`; pass it for a quiet ghost Delete too. A modal
+   *  footer draws these a size SMALLER than the actions beside them, so the
+   *  safe choice is always the bigger target. */
+  destructive?: boolean;
 }
 
 // Press feedback: a button gives a little under the finger (97%) the moment it
@@ -45,10 +50,12 @@ export default function Button({
   variant = "primary",
   size = "md",
   className = "",
+  destructive,
   ...props
 }: ButtonProps) {
   return (
     <button
+      data-destructive={destructive || variant === "danger" || undefined}
       className={`inline-flex items-center justify-center gap-1.5 rounded-lg font-medium
         transition-[color,background-color,border-color,scale] duration-150 ease-out
         enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70
