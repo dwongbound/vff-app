@@ -797,8 +797,13 @@ export default function Navbar() {
           openSheet !== null ? "z-50" : "z-30"
         }`}
       >
+        {/* A GRID of equal columns, not a flex row: a group tab is a wrapper
+            div around its button while a plain tab is the link itself, and
+            flex-1 hands the link's own padding on top of an equal share — the
+            first three tabs came out 8px narrower than the rest and every
+            icon sat off the bar's rhythm. */}
         <div
-          className={`mx-auto flex items-stretch rounded-full border border-gray-200/60 bg-white/50 px-1.5 py-1.5 shadow-lg backdrop-blur-xl transition-[max-width] duration-300 ease-in-out dark:border-gray-700/60 dark:bg-gray-800/50 ${
+          className={`mx-auto grid auto-cols-fr grid-flow-col items-stretch rounded-full border border-gray-200/60 bg-white/50 px-1.5 py-1.5 shadow-lg backdrop-blur-xl transition-[max-width] duration-300 ease-in-out dark:border-gray-700/60 dark:bg-gray-800/50 ${
             // Scroll down → also pull the pill in horizontally (centered), so it
             // reads as a compact icons-only bar rather than a full-width one.
             bottomBarCompact ? "max-w-xs" : "max-w-md"
