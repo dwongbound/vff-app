@@ -21,6 +21,7 @@ import { usePathname } from "next/navigation";
 import Navbar from "./Navbar";
 import SwipePager from "./SwipePager";
 import OutboxStrip from "./OutboxStrip";
+import PullToRefresh from "./PullToRefresh";
 import { SwipeProvider } from "./SwipeProvider";
 import { APP_SCROLL_ID } from "@/lib/appScroll";
 
@@ -51,6 +52,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {!chromeless && <OutboxStrip />}
           <SwipePager>{children}</SwipePager>
         </main>
+        {!chromeless && <PullToRefresh />}
       </div>
     </SwipeProvider>
   );

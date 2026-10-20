@@ -246,7 +246,7 @@ function CodeList({
               onClick={() => setAdding(false)}
               disabled={busy}
             >
-              Cancel
+              Close
             </Button>
           </div>
         </div>

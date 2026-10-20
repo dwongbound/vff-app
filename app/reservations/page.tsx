@@ -15,6 +15,7 @@ import ReservationCalendar from "@/components/ReservationCalendar";
 import ReservationList from "@/components/ReservationList";
 import ReservationModal from "@/components/ReservationModal";
 import { useAircraft } from "@/components/AircraftProvider";
+import { usePullToRefresh } from "@/components/PullToRefresh";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray } from "@/lib/api";
@@ -74,6 +75,7 @@ export default function ReservationsPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+  usePullToRefresh(refresh);
 
   // An instructor-only account reads this page and nothing more: no "New", no
   // "+", and every booking opens in the read-only view the modal already has

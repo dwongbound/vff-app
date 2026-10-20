@@ -32,6 +32,7 @@ import MaintenanceGauges from "@/components/status/MaintenanceGauges";
 import Meter from "@/components/status/Meter";
 import UtilisationChart from "@/components/status/UtilisationChart";
 import { useAircraft } from "@/components/AircraftProvider";
+import { usePullToRefresh } from "@/components/PullToRefresh";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray } from "@/lib/api";
@@ -65,7 +66,7 @@ const OIL_MINIMUM_QTS = 4;
 const OIL_SCALE_QTS = 8;
 
 export default function StatusPage() {
-  const { selected, loading: fleetLoading } = useAircraft();
+  const { selected, loading: fleetLoading, refreshAircraft } = useAircraft();
   const { me } = useMe();
   const aircraftId = selected?.id ?? null;
 
@@ -104,6 +105,9 @@ export default function StatusPage() {
   useEffect(() => {
     load();
   }, [load]);
+  // The maintenance sheet and the dispatch banners ride on the airplane itself
+  // (GET /api/aircraft), so a pull fetches that as well as this page's rows.
+  usePullToRefresh(() => Promise.all([load(), refreshAircraft()]));
 
   // The last walkaround that actually recorded a number. A checkout where the
   // pilot skipped the fuel box tells us nothing, so fall further back rather

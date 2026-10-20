@@ -253,7 +253,7 @@ export default function AddMoneyModal({
         mode === "recurring" ? undefined : (
           <>
             <Button variant="secondary" onClick={onClose} disabled={busy}>
-              Cancel
+              Close
             </Button>
             <Button onClick={submit} disabled={busy}>
               {busy ? <LoadingDots size="sm" /> : submitLabel}

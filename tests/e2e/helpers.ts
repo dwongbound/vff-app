@@ -243,6 +243,34 @@ export async function swipeLeft(page: Page, distance = 260): Promise<void> {
 }
 
 /**
+ * Pull the page down from near the top, the way a thumb asks for a refresh —
+ * driven with the same `touches`-carrying plain events as `swipeLeft`, for the
+ * same WebKit reason.
+ */
+export async function pullDown(page: Page, distance = 160): Promise<void> {
+  await page.evaluate(async (travel) => {
+    const x = Math.round(window.innerWidth / 2);
+    const startY = 180;
+    const target = document.elementFromPoint(x, startY) ?? document.body;
+    const fire = (type: string, y: number) => {
+      const touch = { identifier: 1, target, clientX: x, clientY: y };
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", {
+        value: type === "touchend" ? [] : [touch],
+      });
+      Object.defineProperty(event, "changedTouches", { value: [touch] });
+      target.dispatchEvent(event);
+    };
+    fire("touchstart", startY);
+    for (let step = 1; step <= 10; step++) {
+      fire("touchmove", startY + (travel * step) / 10);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    fire("touchend", startY + travel);
+  }, distance);
+}
+
+/**
  * Read a form's "Tach start" box once it has SETTLED.
  *
  * The start box follows the best reading the app knows — your open flight,
@@ -354,7 +382,7 @@ export async function expectFormsFitTouchScreen(page: Page) {
   await page.getByRole("button", { name: /^New( reservation)?$/ }).filter({ visible: true }).first().click();
   await expect(page.getByRole("dialog").getByLabel("Start", { exact: true })).toBeVisible();
   await check("booking sheet");
-  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Close dialog" }).click();
 
   await page.goto("/log");
   await main.getByRole("button", { name: /Add flight/ }).filter({ visible: true }).first().click();

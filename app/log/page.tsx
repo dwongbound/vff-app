@@ -26,6 +26,7 @@ import FlightEntryModal from "@/components/FlightEntryModal";
 import { RulesModal } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
+import { usePullToRefresh } from "@/components/PullToRefresh";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, fetchJsonObject, sendJson } from "@/lib/api";
 import {
@@ -104,6 +105,7 @@ function FlightLog() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+  usePullToRefresh(refresh);
 
   const all = flights ?? [];
 

@@ -9,6 +9,7 @@ import {
   expectFormsFitTouchScreen,
   expectStatusPagesReadable,
   openPostflightSection,
+  pullDown,
   signIn,
   swipeLeft,
 } from "./helpers";
@@ -314,7 +315,7 @@ test("Finances on a phone is a list, not a table, and nothing scrolls sideways",
   await main.getByRole("button", { name: "Add money", exact: true }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("group", { name: "What kind of money" })).toBeVisible();
-  await sheet.getByRole("button", { name: "Close" }).click();
+  await sheet.getByRole("button", { name: "Close dialog" }).click();
   await expect(sheet).toBeHidden();
 });
 
@@ -591,7 +592,7 @@ test("the + button's plus sits on the centre of its disc", async ({ page }) => {
   expect(Math.abs(disc.y - plus.y)).toBeLessThanOrEqual(0.5);
 });
 
-test("a modal's ✕ is easy to see, and its Delete is smaller than its main action", async ({
+test("a modal's ✕ is easy to see, and its Delete is as tall as Edit but narrower", async ({
   page,
 }) => {
   await page.goto("/log");
@@ -610,7 +611,7 @@ test("a modal's ✕ is easy to see, and its Delete is smaller than its main acti
   // tap area.
   // Measured in one go: the sheet is still rising for a moment after it
   // opens, and two separate reads would see it at two heights.
-  const close = modal.getByRole("button", { name: "Close" });
+  const close = modal.getByRole("button", { name: "Close dialog" });
   const { tap, disc, cross } = await close.evaluate((el) => {
     const r = (e: Element) => {
       const b = e.getBoundingClientRect();
@@ -629,12 +630,116 @@ test("a modal's ✕ is easy to see, and its Delete is smaller than its main acti
   expect(Math.abs(centre(disc).x - centre(cross).x)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(centre(disc).y - centre(cross).y)).toBeLessThanOrEqual(0.5);
 
-  // Delete is shorter and narrower than Edit, and its label a step smaller:
-  // the easiest target in the footer is never the one that destroys a record.
+  // Delete is a full-height tap target with the same size label as Edit, but
+  // it hugs its label: the widest target in the footer is never the one that
+  // destroys a record.
   const delBox = (await del.boundingBox())!;
   const editBox = (await edit.boundingBox())!;
-  expect(delBox.height).toBeLessThan(editBox.height);
+  expect(Math.round(delBox.height)).toBe(Math.round(editBox.height));
+  expect(delBox.height).toBeGreaterThanOrEqual(44);
   expect(delBox.width).toBeLessThan(editBox.width);
   const fontSize = (el: Element) => parseFloat(getComputedStyle(el).fontSize);
-  expect(await del.evaluate(fontSize)).toBeLessThan(await edit.evaluate(fontSize));
+  expect(await del.evaluate(fontSize)).toBe(await edit.evaluate(fontSize));
 });
+
+test("a sheet drags by its handle: up to grow, down to shrink back, further to close", async ({
+  page,
+}) => {
+  const viewport = page.viewportSize()!;
+  await page.getByRole("button", { name: "New reservation" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  // Let the sheet finish rising before measuring it.
+  await page.waitForTimeout(500);
+  const opened = (await dialog.boundingBox())!;
+
+  const grip = dialog.locator("[data-sheet-grip]");
+  const drag = async (dy: number, from = grip, atX?: (b: { x: number; width: number }) => number) => {
+    const box = (await from.boundingBox())!;
+    const x = atX ? atX(box) : box.x + box.width / 2;
+    const y = box.y + 8;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + dy, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(450); // the settle
+  };
+
+  // Up: nearly the whole screen, still docked to the bottom edge.
+  await drag(-160);
+  const grown = (await dialog.boundingBox())!;
+  // A drag on the grip selects nothing: with a mouse, WebKit turns the next
+  // press on selected text into a native drag that steals the pointer.
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+  expect(Math.abs(grown.height - viewport.height * 0.92)).toBeLessThanOrEqual(3);
+  expect(Math.round(grown.y + grown.height)).toBe(viewport.height);
+
+  // Down a little: back to the height it opened at, still open.
+  await drag(90);
+  const back = (await dialog.boundingBox())!;
+  expect(Math.abs(back.height - opened.height)).toBeLessThanOrEqual(3);
+
+  // Down far enough: gone.
+  await drag(260);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Dragging the BODY is a scroll, never a close. On a fresh sheet, and last:
+  // a mouse drag over the body selects its text in WebKit, which a finger
+  // never would, and that selection mustn't bleed into the grip drags above.
+  // From the padding rather than a field: pressing a date field opens
+  // WebKit's own picker.
+  await page.getByRole("button", { name: "New reservation" }).click();
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(500);
+  const body = grip.locator("xpath=following-sibling::div[1]");
+  await drag(260, body, (b) => b.x + 6);
+  await expect(dialog).toBeVisible();
+});
+
+test("pulling down from the top of a page fetches it again", async ({ page }) => {
+  await page.goto("/reservations");
+  await expect(page.getByRole("button", { name: "New reservation" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  const refetches: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/reservations")) refetches.push(r.url());
+  });
+
+  // A short pull does nothing.
+  await pullDown(page, 50);
+  await page.waitForTimeout(400);
+  expect(refetches).toHaveLength(0);
+
+  // A full one fetches the bookings again, with the arrow turned into a
+  // spinner while it does, and the arrow gone again after.
+  const refetched = page.waitForRequest(/\/api\/reservations/);
+  await pullDown(page, 160);
+  await refetched;
+  const indicator = page.locator("[data-pull-refresh]");
+  await expect(indicator).toHaveCSS("opacity", "0");
+
+  // Scrolled down the page, the same pull is just a scroll.
+  refetches.length = 0;
+  await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, 200));
+  const scrolled = await page.locator("#app-scroll").evaluate((el) => el.scrollTop);
+  if (scrolled > 0) {
+    await pullDown(page, 160);
+    await page.waitForTimeout(400);
+    expect(refetches).toHaveLength(0);
+  }
+});
+
+for (const [path, api] of [
+  ["/status", /\/api\/aircraft/],
+  ["/status/squawks", /\/api\/squawks/],
+  ["/log", /\/api\/flights/],
+] as const) {
+  test(`${path} refreshes on a pull too`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page.getByRole("main")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    const refetched = page.waitForRequest(api);
+    await pullDown(page, 160);
+    await refetched;
+  });
+}

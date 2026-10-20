@@ -627,7 +627,7 @@ test("the trash can deletes a hand-entered line after confirming", async ({ page
 
   // Cancelling the dialog changes nothing.
   await row.getByRole("button", { name: "Delete" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
   await expect(row).toBeVisible();
 
   await row.getByRole("button", { name: "Delete" }).click();
@@ -870,7 +870,7 @@ test("money boxes carry a $ and fill in the cents; each person's share is bold",
   const preview = modal.getByRole("status");
   await expect(preview).toHaveText("$590.00 split 3 ways: 2 × $196.67 and 1 × $196.66.");
   await expect(preview.locator("strong")).toHaveText(["$196.67", "$196.66"]);
-  await modal.getByRole("button", { name: "Cancel" }).click();
+  await modal.getByRole("button", { name: "Close", exact: true }).click();
 });
 
 test("a club line has to be asked for by name", async ({ page }) => {
@@ -1067,7 +1067,7 @@ test("the Finance Officer's export narrows to chosen people and kinds", async ({
   await modal.getByRole("button", { name: "Clear all" }).click();
   await modal.getByRole("button", { name: "Download .xlsx" }).click();
   await expect(modal.getByText("Pick at least one line item.")).toBeVisible();
-  await modal.getByRole("button", { name: "Cancel" }).click();
+  await modal.getByRole("button", { name: "Close", exact: true }).click();
 });
 
 test("an all-time export reads every month, not just the ones scrolled to", async ({

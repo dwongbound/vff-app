@@ -839,7 +839,13 @@ horizontal pull fades in an edge arrow and only a FULL pull, released, changes
 tab, so a vertical scroll that drifts laterally does nothing — rules in
 `lib/swipe.ts`. `touchcancel` never commits. `.app-scroll` is
 `overflow-x: hidden` for the same reason, and touches starting in an
-`overflow-x-auto` box are left to it), `LoadingProvider` (one shared splash), `AuthGate`,
+`overflow-x-auto` box are left to it), `PullToRefresh` + `usePullToRefresh(refetch)` (pull down from
+the TOP of a page to fetch it again — the swipe's sibling: the page never moves,
+a circled arrow fades in and turns over once armed, only a full pull released
+counts; rules in `lib/pullRefresh.ts`, reusing `touchIntent` so a touch is never
+both. Reservations, Plane Status, Squawks and the log opt in. `lib/haptics.ts`
+taps on release: Vibration API on Android, a hidden switch checkbox on iOS 18+,
+nothing elsewhere), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
 sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
 (phone), `ReservationModal`, `FlightDetailModal`, `FlightEntryModal` (add a flight to
@@ -1459,6 +1465,18 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   per-component nudge (`-mt-px`, `translate-y`) — that's this, and it's global.
   Swapping the sans face means recomputing the pair: ascent =
   (asc + desc + capHeight) / 2, descent = the remainder.
+- **A phone sheet drags by its GRIP only** (the handle + title row,
+  `data-sheet-grip`; `useSheetDrag`, rules in `lib/sheetDrag.ts`): down closes,
+  up grows it to 92dvh, down again restores it. The body is never a grip — it
+  scrolls. A drag-close sets `data-dragged`, which stands the exit animation
+  down so the sheet leaves from under the finger. The grip must stay
+  UNSELECTABLE (`select-none` + `preventDefault` on its press): with a mouse,
+  WebKit turns a press on selected text into a native drag-and-drop that
+  steals the pointer, so the drag after one that selected the title never hears
+  its release — the iPhone e2e leg is the only place that shows it. The header ✕ is named
+  "Close dialog" because footers now say "Close" (never "Cancel", which reads as
+  cancelling the booking itself) — specs match the footer one with
+  `exact: true`.
 - **A closing `Modal` stays mounted for 250ms** (`EXIT_MS`) so it can animate
   out, showing the content it had while open. For that window it is
   `aria-hidden` and `pointer-events-none`, so `getByRole("dialog")` and clicks

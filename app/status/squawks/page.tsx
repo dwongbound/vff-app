@@ -21,6 +21,7 @@ import Textarea from "@/components/common/Textarea";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
+import { usePullToRefresh } from "@/components/PullToRefresh";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
@@ -39,7 +40,7 @@ import type { ApiSquawk } from "@/lib/types";
 import { MD_UP, useMediaQuery } from "@/components/useMediaQuery";
 
 export default function SquawksPage() {
-  const { selected, loading: fleetLoading } = useAircraft();
+  const { selected, loading: fleetLoading, refreshAircraft } = useAircraft();
   const { me } = useMe();
   const outbox = useOutbox();
   const aircraftId = selected?.id ?? null;
@@ -82,6 +83,8 @@ export default function SquawksPage() {
   }, [load]);
   // A squawk queued with no signal just reached the club.
   useOutboxSent(load);
+  // The airplane too: the banner's counts and the grounded state ride on it.
+  usePullToRefresh(() => Promise.all([load(), refreshAircraft()]));
 
   // Jump to the linked row, ONCE, after the first load that has rows in it.
   //
@@ -429,11 +432,11 @@ function OfficerNote({
         />
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
+            Close
+          </Button>
           <Button size="sm" onClick={() => save(draft)} disabled={busy}>
             {busy ? <LoadingDots size="sm" /> : "Save note"}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
-            Cancel
           </Button>
           {note && (
             <Button size="sm" variant="ghost" className="ml-auto" onClick={() => save(null)} disabled={busy}>

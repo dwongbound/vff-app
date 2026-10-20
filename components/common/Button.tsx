@@ -37,8 +37,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: Size;
   /** Marks a button that destroys something (Delete, Remove, Reset). Implied
    *  by `variant="danger"`; pass it for a quiet ghost Delete too. A modal
-   *  footer draws these a size SMALLER than the actions beside them, so the
-   *  safe choice is always the bigger target. */
+   *  footer keeps these at their label's width while the actions beside them
+   *  share the rest of the row, so the safe choice is the bigger target. */
   destructive?: boolean;
 }
 

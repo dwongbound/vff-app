@@ -278,6 +278,12 @@ html.dark .scrollbar-visible::-webkit-scrollbar-thumb {
   /* Keep in step with EXIT_MS in Modal.tsx. */
   animation: sheet-out 250ms var(--ease-drawer) forwards;
 }
+/* A sheet dragged down and let go is already on its way out (useSheetDrag
+   slides it from under the finger), so its exit animation — which starts from
+   the top — stands down rather than snapping it back up first. */
+.modal-panel[data-closing][data-dragged] {
+  animation: none;
+}
 @media (min-width: 40rem) {
   .modal-panel {
     animation: card-in 200ms var(--ease-out) backwards;
