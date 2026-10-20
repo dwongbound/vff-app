@@ -27,6 +27,28 @@ test("phones get the bottom tab bar, not the desktop strip", async ({ page }) =>
   ).toBeHidden();
 });
 
+test("the pill sits 24px off the bottom, and the page scrolls clear of it", async ({
+  page,
+}) => {
+  // The pill is the visible <nav> holding the Reserve tab (the rail's copy is
+  // hidden at this width).
+  const pill = page.locator("nav:visible", { has: page.getByRole("link", { name: "Reserve" }) });
+  const viewport = page.viewportSize()!;
+  const box = (await pill.boundingBox())!;
+  // Members know it at this height. It once picked up the home bar's inset on
+  // top and rose ~34px on a real iPhone; the emulator reports no inset, so
+  // what this pins is the 24px itself.
+  expect(Math.round(viewport.height - (box.y + box.height))).toBe(24);
+
+  // Scrolled to the very end, the last thing on the page still ends above the
+  // pill rather than under it.
+  const main = page.getByRole("main");
+  await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  const last = main.locator(":scope > *").last();
+  const lastBox = (await last.boundingBox())!;
+  expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(box.y);
+});
+
 test("the schedule is a list, and the + button opens the booking sheet", async ({
   page,
 }) => {
