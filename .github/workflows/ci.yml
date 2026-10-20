@@ -8,27 +8,24 @@ on:
   # EVERY branch, not just main: a feature branch that only gets tested once a
   # PR is opened is a branch you've already built on top of. `publish` is the
   # job that stays main-only, and it guards itself (see its `if:`).
+  #
+  # Push ONLY — no `pull_request` trigger. With both, opening a PR right after
+  # pushing started a second run for the same commit, and the concurrency
+  # group below cancelled the first one, which GitHub then drew on the PR as a
+  # red "cancelled" X beside the green run. The push run already reports its
+  # checks on the PR's head commit, so the PR loses nothing. The one thing it
+  # gives up is CI on a PR from a FORK (a fork's branch fires no push here);
+  # this repo takes no fork PRs, and if it ever does, a maintainer can run the
+  # suite on that branch with workflow_dispatch.
   push:
-  # Kept alongside `push` for the one case pushes can't cover: a PR from a
-  # fork, whose branch lives in someone else's repo and never fires a push
-  # event here.
-  pull_request:
   # Lets you re-run the suite from the Actions tab without pushing anything.
   workflow_dispatch:
 
 # A second push to the same branch cancels the run already in flight; the old
-# result would be thrown away anyway.
-#
-# This is also what stops a PR'd branch running the suite TWICE, and the two
-# halves have to be spelled the SAME WAY for that to work. On a pull_request
-# event `head_ref` is the bare source branch ("add-widget"); on a push,
-# `ref_name` is the bare branch too ("add-widget") where `ref` would be the
-# fully-qualified "refs/heads/add-widget". Pairing `head_ref` with `ref` — as
-# this did — produces "ci-add-widget" for the PR and "ci-refs/heads/add-widget"
-# for the push: two different groups, so neither cancels the other and every
-# PR ran the whole suite twice, in parallel, for the same commit.
+# result would be thrown away anyway. `ref_name` is the bare branch name
+# ("add-widget"); a workflow_dispatch run joins the same group as the pushes.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.ref_name }}
   cancel-in-progress: true
 
 env:
