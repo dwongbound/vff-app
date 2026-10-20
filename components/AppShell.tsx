@@ -43,9 +43,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         className={`app-scroll ${chromeless ? "" : "md:pl-60"}`}
       >
         {/* Extra bottom padding below `md` so content can scroll clear of the
-            floating bottom nav bar (see Navbar.tsx), which itself sits above
-            the iPhone's home bar — hence the safe-area term. */}
-        <main className="mx-auto max-w-5xl px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 md:pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+            floating bottom nav bar (see Navbar.tsx). */}
+        <main className="mx-auto max-w-5xl px-4 pb-28 pt-6 md:pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
           {/* What's on this device and not yet with the club, and whether the
               page is live. Above the pager so it doesn't fade with a swipe,
               and renders nothing at all in the ordinary case. */}
