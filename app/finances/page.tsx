@@ -599,7 +599,7 @@ export default function FinancesPage() {
       {toast && (
         <div
           role="alert"
-          className="fixed inset-x-4 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-gray-100 dark:text-gray-900 md:bottom-6"
+          className="fixed inset-x-4 bottom-24 z-40 mx-auto max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-gray-100 dark:text-gray-900 md:bottom-6"
         >
           {toast}
         </div>

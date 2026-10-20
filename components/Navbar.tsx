@@ -788,9 +788,12 @@ export default function Navbar() {
       )}
 
       {/* Above the backdrop while a sheet is open, so the sheet and the other
-          tabs stay tappable. */}
+          tabs stay tappable. A flat bottom-6 with no safe-area term: until the
+          viewport went viewport-fit=cover that term was always 0, and this is
+          the height members are used to — adding the home bar's 34px on top
+          lifted the pill noticeably. */}
       <nav
-        className={`fixed inset-x-4 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] md:hidden ${
+        className={`fixed inset-x-4 bottom-6 md:hidden ${
           openSheet !== null ? "z-50" : "z-30"
         }`}
       >
