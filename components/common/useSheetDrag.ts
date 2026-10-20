@@ -15,6 +15,7 @@
 import { PointerEvent as ReactPointerEvent, RefObject, useCallback, useRef, useState } from "react";
 import {
   EXPANDED_RATIO,
+  FLICK_MIN_PX,
   backdropFade,
   dragOffset,
   sheetRelease,
@@ -25,6 +26,23 @@ const SETTLE_MS = 300;
 const SETTLE = `transform ${SETTLE_MS}ms var(--ease-drawer), height ${SETTLE_MS}ms var(--ease-drawer)`;
 /** Below `sm` — the sheet layout. */
 const PHONE_QUERY = "(max-width: 639.98px)";
+
+/**
+ * A drag is not a tap. WebKit follows a mouse drag with a `click` on whatever
+ * is under the pointer at release, and once a sheet has closed that is the
+ * PAGE — a booking, a day on the calendar — so the drag that closed one sheet
+ * would open another. Eat the clicks that land in the moment after a drag
+ * (Chromium sends its own to the grip first, so "the next click" isn't
+ * enough).
+ */
+function swallowNextClick() {
+  const eat = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  window.addEventListener("click", eat, { capture: true });
+  setTimeout(() => window.removeEventListener("click", eat, { capture: true }), 100);
+}
 
 interface Drag {
   pointerId: number;
@@ -121,6 +139,8 @@ export function useSheetDrag({
       const outcome = cancelled
         ? "stay"
         : sheetRelease({ dy, velocity: d.velocity, height: d.height, expanded, canExpand });
+
+      if (Math.abs(dy) >= FLICK_MIN_PX) swallowNextClick();
 
       el.style.transition = SETTLE;
       const shade = backdrop.current;
