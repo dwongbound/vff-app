@@ -683,7 +683,26 @@ test("a sheet drags by its handle: up to grow, down to shrink back, further to c
   expect(Math.abs(back.height - opened.height)).toBeLessThanOrEqual(3);
 
   // Down far enough: gone.
+  page.on("console", (m) => { if (m.text().startsWith("DBG")) console.log(m.text()); });
+  await page.evaluate(() => {
+    const d = (t: EventTarget | null) => {
+      const e = t as HTMLElement | null;
+      if (!e || !e.tagName) return String(t);
+      return `${e.tagName}${e.getAttribute("role") ? "[" + e.getAttribute("role") + "]" : ""}${e.hasAttribute("data-sheet-grip") ? "[grip]" : ""}.${(e.className && typeof e.className === "string" ? e.className : "").slice(0, 40)}`;
+    };
+    for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel", "mousedown", "mouseup", "click", "dragstart", "lostpointercapture", "gotpointercapture"]) {
+      window.addEventListener(t, (ev) => {
+        const pe = ev as PointerEvent;
+        if (t === "pointermove" && Math.round(pe.clientY) % 50 > 25) return;
+        console.log(`DBG ${t} y=${Math.round(pe.clientY)} btn=${pe.button} prim=${pe.isPrimary} type=${pe.pointerType} ts=${Math.round(ev.timeStamp)} tgt=${d(ev.target)}`);
+      }, true);
+    }
+  });
+  const gb = (await grip.boundingBox())!;
+  console.log("DBG grip", JSON.stringify(gb), JSON.stringify((await dialog.boundingBox())));
   await drag(260);
+  await page.waitForTimeout(300);
+  console.log("DBG after", await page.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].map((e) => `${(e as HTMLElement).outerHTML.slice(0, 300)} | style=${(e as HTMLElement).getAttribute("style")}`).join(" ;; ")));
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Dragging the BODY is a scroll, never a close. On a fresh sheet, and last:
