@@ -441,7 +441,7 @@ export default function GuidedTour() {
           <div
             aria-hidden="true"
             data-tour-spotlight={placement.key}
-            className="pointer-events-none absolute rounded-xl ring-2 ring-indigo-400 transition-[top,left,width,height] duration-300 ease-in-out"
+            className="pointer-events-none absolute rounded-xl ring-2 ring-indigo-400 transition-[top,left,width,height] duration-200 ease-in-out"
             style={{
               top: placement.hole.top,
               left: placement.hole.left,
