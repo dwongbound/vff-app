@@ -59,6 +59,12 @@
   }
   body {
     overflow-x: clip;
+    /* The viewport is `viewport-fit: cover` (app/layout.tsx), so on an iPhone
+       turned sideways the page now reaches under the notch. The top bar and
+       the content column are rows of this flex column, so padding it keeps
+       both clear; the `fixed` rail offsets itself by the same inset. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   /* No double-tap-to-zoom on phones and tablets.

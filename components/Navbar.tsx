@@ -598,7 +598,7 @@ export default function Navbar() {
           and go. Matched by `md:pl-60` on the content column in AppShell so no
           page ever runs underneath it. */}
       <aside
-        className="fixed bottom-0 left-0 z-30 hidden w-60 flex-col border-r border-gray-200 bg-white md:flex dark:border-gray-700 dark:bg-gray-800"
+        className="fixed bottom-0 left-[env(safe-area-inset-left)] z-30 hidden w-60 flex-col border-r border-gray-200 bg-white md:flex dark:border-gray-700 dark:bg-gray-800"
         style={{ top: "var(--app-header-h)" }}
       >
         <nav className="flex-1 overflow-y-auto px-3 pb-3 pt-4">
@@ -703,7 +703,7 @@ export default function Navbar() {
         {/* `1fr auto 1fr` is what actually centres the airplane: equal side
             columns mean the middle one is centred in the window no matter how
             long the club's name or how many controls are on the right. */}
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-gray-200 bg-white px-4 py-2.5 dark:border-gray-700 dark:bg-gray-800">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-gray-200 bg-white px-4 pb-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] dark:border-gray-700 dark:bg-gray-800">
           <Link
             href="/status"
             onClick={() => handleTabClick("/status")}

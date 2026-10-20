@@ -199,7 +199,7 @@ export default function LoadingProvider({
           // /login has neither piece of chrome — Navbar returns null there —
           // so it gets the whole window, the same exception AppShell makes.
           className={`fixed bottom-0 right-0 transition-opacity duration-300 ${
-            wholeWindow ? "left-0 top-0 z-50" : "left-0 z-20 md:left-60"
+            wholeWindow ? "left-0 top-0 z-50" : "left-0 z-20 md:left-[calc(15rem+env(safe-area-inset-left))]"
           } ${visible ? "opacity-100" : "opacity-0 pointer-events-none"}`}
           style={wholeWindow ? undefined : { top: "var(--app-header-h)" }}
         >
