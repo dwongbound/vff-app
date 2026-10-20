@@ -30,7 +30,14 @@ export interface GoogleEvent {
   start?: GoogleEventTime;
   end?: GoogleEventTime;
   creator?: { email?: string };
+  attendees?: GoogleAttendee[];
   extendedProperties?: { private?: Record<string, string> };
+}
+
+/** A guest on an event. Google keeps more fields; these are the ones we touch. */
+export interface GoogleAttendee {
+  email: string;
+  responseStatus?: string;
 }
 
 export interface GoogleEventTime {
@@ -264,4 +271,32 @@ export function appEventProps(b: {
   if (b.userId) props[PROP.userId] = b.userId;
   if (b.generatedTitle) props[PROP.summary] = b.generatedTitle;
   return props;
+}
+
+/**
+ * The guest list a booking's event should have: the member who booked it and,
+ * for a lesson, their CFI. `drop` is who the app put there before and no longer
+ * wants (the CFI a lesson used to be with). Anyone else on the event — a
+ * passenger somebody added in Google — is left exactly as it was, with their
+ * RSVP, since sending a guest list REPLACES the event's.
+ *
+ * null = nothing to change, so the caller can leave `attendees` out of a PATCH
+ * and Google sends nobody a fresh invite.
+ */
+export function bookingAttendees(
+  current: GoogleAttendee[] | undefined,
+  want: (string | null | undefined)[],
+  drop: (string | null | undefined)[] = []
+): GoogleAttendee[] | null {
+  const key = (e: string) => e.trim().toLowerCase();
+  const wanted = new Set(want.filter((e): e is string => !!e?.trim()).map(key));
+  // A person who is still wanted stays, even if they were also the old CFI.
+  const dropped = new Set(
+    drop.filter((e): e is string => !!e?.trim()).map(key).filter((e) => !wanted.has(e))
+  );
+  const kept = (current ?? []).filter((a) => !dropped.has(key(a.email)));
+  const have = new Set(kept.map((a) => key(a.email)));
+  const added = [...wanted].filter((e) => !have.has(e)).map((email) => ({ email }));
+  if (added.length === 0 && kept.length === (current ?? []).length) return null;
+  return [...kept, ...added];
 }

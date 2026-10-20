@@ -759,7 +759,12 @@ owns the only splash in the app.
   `eventToBooking` (the app's private `extendedProperties` FIRST, then the
   creator's email and a title guess — `guessPurpose` is deliberately timid),
   `isCancelledTitle`/`cancelledTitle`, all-day dates read as CLUB midnights
-  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing.
+  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing, and
+  `bookingAttendees` — the member and their CFI are INVITED to every booking
+  the app writes (`sendUpdates=all`), and since a PATCH's guest list replaces
+  the event's, it edits only the app's part and keeps anyone added in Google.
+  The club account is the organiser of every event, so a member needs no
+  access to the airplane's calendar to book.
   ✅tested
 - `googleCalendar.ts` — OAuth + Calendar REST by hand with fetch, same reasoning
   as `storage/s3.ts`. Reuses the sign-in OAuth client through its OWN consent

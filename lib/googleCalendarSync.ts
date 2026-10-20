@@ -26,6 +26,7 @@ import { openBox } from "./secretBox";
 import {
   appEventProps,
   appEventTitle,
+  bookingAttendees,
   cancelledTitle,
   eventTimes,
   eventToBooking,
@@ -143,6 +144,13 @@ async function nameOf(userId: string | null): Promise<string | null> {
   return user?.name ?? null;
 }
 
+/** A member's email — what Google invites them by. */
+async function emailOf(userId: string | null): Promise<string | null> {
+  if (!userId) return null;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  return user?.email ?? null;
+}
+
 export type SyncResult = { ok: true } | { ok: false; error: string };
 
 /**
@@ -243,14 +251,27 @@ export async function insertCalendarBooking(
   }
 ): Promise<GoogleEvent> {
   const title = appEventTitle({ ...b, instructorName: await nameOf(b.instructorId) });
-  return insertEvent<GoogleEvent>(link.refreshToken, link.calendarId, {
-    summary: title,
-    description: b.notes ?? "",
-    ...eventTimes({ ...b, allDay: false }),
-    extendedProperties: {
-      private: appEventProps({ ...b, generatedTitle: title }),
+  // The member and their CFI are invited, so the booking lands in their own
+  // calendars. The club account stays the organiser, which is what lets any
+  // member book without needing access to the airplane's calendar themselves.
+  const attendees = bookingAttendees(
+    [],
+    [await emailOf(b.userId), await emailOf(b.instructorId)]
+  );
+  return insertEvent<GoogleEvent>(
+    link.refreshToken,
+    link.calendarId,
+    {
+      summary: title,
+      description: b.notes ?? "",
+      ...eventTimes({ ...b, allDay: false }),
+      ...(attendees ? { attendees } : {}),
+      extendedProperties: {
+        private: appEventProps({ ...b, generatedTitle: title }),
+      },
     },
-  });
+    "all"
+  );
 }
 
 /**
@@ -267,6 +288,8 @@ export async function patchCalendarBooking(
     memberName: string | null;
     purpose: Purpose;
     instructorId: string | null;
+    /** The CFI the booking had before this edit, uninvited if it changed. */
+    previousInstructorId: string | null;
     appTitled: boolean;
     times?: { startsAt: Date; endsAt: Date; allDay: boolean };
     notes?: string | null;
@@ -280,14 +303,34 @@ export async function patchCalendarBooking(
       instructorName: await nameOf(b.instructorId),
     });
   }
-  return patchEvent<GoogleEvent>(link.refreshToken, link.calendarId, googleEventId, {
-    ...(title ? { summary: title } : {}),
-    ...(b.times ? eventTimes(b.times) : {}),
-    ...(b.notes !== undefined ? { description: b.notes ?? "" } : {}),
-    extendedProperties: {
-      private: appEventProps({ ...b, generatedTitle: title }),
+  // Sending a guest list replaces the event's, so read what's there now and
+  // change only our part of it. This also invites the member to a booking made
+  // before the app sent invites, the first time it's edited.
+  const current = await getEvent<GoogleEvent>(link.refreshToken, link.calendarId, googleEventId);
+  const previous = b.previousInstructorId !== b.instructorId ? b.previousInstructorId : null;
+  const attendees = bookingAttendees(
+    current.attendees,
+    [await emailOf(b.userId), await emailOf(b.instructorId)],
+    [await emailOf(previous)]
+  );
+  // Guests hear about the changes that matter to them — a new time, or being
+  // added or taken off — and not about a reworded note.
+  const notify = attendees !== null || b.times !== undefined;
+  return patchEvent<GoogleEvent>(
+    link.refreshToken,
+    link.calendarId,
+    googleEventId,
+    {
+      ...(title ? { summary: title } : {}),
+      ...(b.times ? eventTimes(b.times) : {}),
+      ...(b.notes !== undefined ? { description: b.notes ?? "" } : {}),
+      ...(attendees ? { attendees } : {}),
+      extendedProperties: {
+        private: appEventProps({ ...b, generatedTitle: title }),
+      },
     },
-  });
+    notify ? "all" : "none"
+  );
 }
 
 /**
@@ -308,7 +351,13 @@ export async function cancelCalendarBooking(
     throw e;
   }
   if (event.status === "cancelled") return "gone";
-  return patchEvent<GoogleEvent>(link.refreshToken, link.calendarId, googleEventId, {
-    summary: cancelledTitle(event.summary),
-  });
+  // "all", so the invited member and CFI see it's off rather than finding out
+  // at the airplane.
+  return patchEvent<GoogleEvent>(
+    link.refreshToken,
+    link.calendarId,
+    googleEventId,
+    { summary: cancelledTitle(event.summary) },
+    "all"
+  );
 }
