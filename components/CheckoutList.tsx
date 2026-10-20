@@ -395,7 +395,7 @@ export default function CheckoutList({
                   }`}
                 >
                   <span
-                    className={`block h-full rounded-full transition-all duration-300 ${
+                    className={`block h-full rounded-full transition-[width,background-color] duration-300 ease-out ${
                       sectionComplete ? "bg-green-500" : "bg-indigo-600"
                     }`}
                     style={{ width: `${fill}%` }}
@@ -499,12 +499,15 @@ export default function CheckoutList({
                             // answers for you should not look tappable, and a
                             // keyboard shouldn't land on it either.
                             disabled={Boolean(fact)}
-                            className={`flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left ${
+                            className={`group flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left ${
                               fact ? "cursor-default" : ""
                             }`}
                           >
+                            {/* The box gives under the finger as it lands —
+                                the most-tapped control in the app, so the
+                                feedback is on press, small and quick. */}
                             <span
-                              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-colors ${
+                              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-[color,background-color,border-color,scale] duration-150 ease-out group-enabled:group-active:scale-90 ${
                                 on
                                   ? "border-green-500 bg-green-500 text-white"
                                   : blocked

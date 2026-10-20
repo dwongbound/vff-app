@@ -1454,6 +1454,14 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   per-component nudge (`-mt-px`, `translate-y`) — that's this, and it's global.
   Swapping the sans face means recomputing the pair: ascent =
   (asc + desc + capHeight) / 2, descent = the remainder.
+- **A closing `Modal` stays mounted for 250ms** (`EXIT_MS`) so it can animate
+  out, showing the content it had while open. For that window it is
+  `aria-hidden` and `pointer-events-none`, so `getByRole("dialog")` and clicks
+  already behave as though it's gone; only a locator by raw text or CSS can
+  still find it. Motion curves are `@theme` tokens in globals.css (`ease-out`
+  is the STRONG curve app-wide, plus `ease-drawer`); Tailwind 4 scales with the
+  `scale` property, so a transition list that names `transform` won't animate
+  `active:scale-*`.
 - `Button` sets `inline-flex`; adding a `hidden sm:inline-flex` class to it is
   a stylesheet-order coin flip. Hide with a wrapper `<div className="hidden
   sm:block">`.
