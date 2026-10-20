@@ -675,14 +675,19 @@ test("a sheet drags by its handle: up to grow, down to shrink back, further to c
   const back = (await dialog.boundingBox())!;
   expect(Math.abs(back.height - opened.height)).toBeLessThanOrEqual(3);
 
-  // Dragging the BODY is a scroll, never a close. From its padding rather
-  // than a field: pressing a date field opens WebKit's own picker, which
-  // would swallow the rest of the test's pointer.
-  const body = grip.locator("xpath=following-sibling::div[1]");
-  await drag(260, body, (b) => b.x + 6);
-  await expect(dialog).toBeVisible();
-
   // Down far enough: gone.
   await drag(260);
   await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Dragging the BODY is a scroll, never a close. On a fresh sheet, and last:
+  // a mouse drag over the body selects its text in WebKit, which a finger
+  // never would, and that selection mustn't bleed into the grip drags above.
+  // From the padding rather than a field: pressing a date field opens
+  // WebKit's own picker.
+  await page.getByRole("button", { name: "New reservation" }).click();
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(500);
+  const body = grip.locator("xpath=following-sibling::div[1]");
+  await drag(260, body, (b) => b.x + 6);
+  await expect(dialog).toBeVisible();
 });
