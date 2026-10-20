@@ -1469,7 +1469,11 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   `data-sheet-grip`; `useSheetDrag`, rules in `lib/sheetDrag.ts`): down closes,
   up grows it to 92dvh, down again restores it. The body is never a grip — it
   scrolls. A drag-close sets `data-dragged`, which stands the exit animation
-  down so the sheet leaves from under the finger. The header ✕ is named
+  down so the sheet leaves from under the finger. The grip must stay
+  UNSELECTABLE (`select-none` + `preventDefault` on its press): with a mouse,
+  WebKit turns a press on selected text into a native drag-and-drop that
+  steals the pointer, so the drag after one that selected the title never hears
+  its release — the iPhone e2e leg is the only place that shows it. The header ✕ is named
   "Close dialog" because footers now say "Close" (never "Cancel", which reads as
   cancelling the booking itself) — specs match the footer one with
   `exact: true`.
