@@ -653,9 +653,9 @@ test("a sheet drags by its handle: up to grow, down to shrink back, further to c
   const opened = (await dialog.boundingBox())!;
 
   const grip = dialog.locator("[data-sheet-grip]");
-  const drag = async (dy: number, from = grip) => {
+  const drag = async (dy: number, from = grip, atX?: (b: { x: number; width: number }) => number) => {
     const box = (await from.boundingBox())!;
-    const x = box.x + box.width / 2;
+    const x = atX ? atX(box) : box.x + box.width / 2;
     const y = box.y + 8;
     await page.mouse.move(x, y);
     await page.mouse.down();
@@ -675,8 +675,11 @@ test("a sheet drags by its handle: up to grow, down to shrink back, further to c
   const back = (await dialog.boundingBox())!;
   expect(Math.abs(back.height - opened.height)).toBeLessThanOrEqual(3);
 
-  // Dragging the BODY is a scroll, never a close.
-  await drag(260, dialog.getByLabel("Start", { exact: true }));
+  // Dragging the BODY is a scroll, never a close. From its padding rather
+  // than a field: pressing a date field opens WebKit's own picker, which
+  // would swallow the rest of the test's pointer.
+  const body = grip.locator("xpath=following-sibling::div[1]");
+  await drag(260, body, (b) => b.x + 6);
   await expect(dialog).toBeVisible();
 
   // Down far enough: gone.
