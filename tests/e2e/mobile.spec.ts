@@ -9,6 +9,7 @@ import {
   expectFormsFitTouchScreen,
   expectStatusPagesReadable,
   openPostflightSection,
+  pullDown,
   signIn,
   swipeLeft,
 } from "./helpers";
@@ -694,3 +695,51 @@ test("a sheet drags by its handle: up to grow, down to shrink back, further to c
   await drag(260, body, (b) => b.x + 6);
   await expect(dialog).toBeVisible();
 });
+
+test("pulling down from the top of a page fetches it again", async ({ page }) => {
+  await page.goto("/reservations");
+  await expect(page.getByRole("button", { name: "New reservation" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  const refetches: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/reservations")) refetches.push(r.url());
+  });
+
+  // A short pull does nothing.
+  await pullDown(page, 50);
+  await page.waitForTimeout(400);
+  expect(refetches).toHaveLength(0);
+
+  // A full one fetches the bookings again, with the arrow turned into a
+  // spinner while it does, and the arrow gone again after.
+  const refetched = page.waitForRequest(/\/api\/reservations/);
+  await pullDown(page, 160);
+  await refetched;
+  const indicator = page.locator("[data-pull-refresh]");
+  await expect(indicator).toHaveCSS("opacity", "0");
+
+  // Scrolled down the page, the same pull is just a scroll.
+  refetches.length = 0;
+  await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, 200));
+  const scrolled = await page.locator("#app-scroll").evaluate((el) => el.scrollTop);
+  if (scrolled > 0) {
+    await pullDown(page, 160);
+    await page.waitForTimeout(400);
+    expect(refetches).toHaveLength(0);
+  }
+});
+
+for (const [path, api] of [
+  ["/status", /\/api\/aircraft/],
+  ["/status/squawks", /\/api\/squawks/],
+  ["/log", /\/api\/flights/],
+] as const) {
+  test(`${path} refreshes on a pull too`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page.getByRole("main")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    const refetched = page.waitForRequest(api);
+    await pullDown(page, 160);
+    await refetched;
+  });
+}
