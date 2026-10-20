@@ -94,7 +94,7 @@ export default function Meter({
           aria-label={`${label}: ${value} ${unit}`}
         >
           <div
-            className={`h-full rounded-full transition-all duration-500 ${FILL[tone]}`}
+            className={`h-full rounded-full transition-[width] duration-500 ease-out ${FILL[tone]}`}
             style={{ width: `${pct}%` }}
           />
         </div>
