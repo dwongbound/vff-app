@@ -16,10 +16,10 @@
 // Delete pushed left with `mr-auto`) is left alone. A footer that wraps its
 // buttons in its own element lays them out itself.
 //
-// A DESTRUCTIVE button (`data-destructive`, see Button) is always drawn a size
-// smaller than the actions beside it, on every screen: it never stretches, it
-// is shorter, and its label is a step down. Whatever is easiest to hit should
-// be the thing that can't lose anybody's work.
+// A DESTRUCTIVE button (`data-destructive`, see Button) is the same height as
+// its neighbours — a full tap target, never a fiddly one — but it never
+// stretches: it hugs its label while the others share the rest of the row, so
+// the widest target is always the one that can't lose anybody's work.
 //
 // It MOVES in and out rather than appearing: the sheet rises from the bottom
 // edge it is docked to, the desktop card fades up from 96%, and the backdrop
@@ -29,7 +29,13 @@
 // the same breath as closing it, and an exit that drew an empty sheet would be
 // worse than none. While closing it is `aria-hidden` and lets clicks through,
 // so to everything but the eye it is already gone.
+//
+// As a sheet it can be DRAGGED by its grip — the handle and the title row: down
+// to close, up to grow to nearly the whole screen, and back down again. Only the
+// grip: the body is for scrolling, and stays the one thing that scrolls however
+// tall the sheet is (`useSheetDrag`, rules in lib/sheetDrag.ts).
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { useSheetDrag } from "./useSheetDrag";
 
 /** The longest exit (the phone sheet), in step with `.modal-panel[data-closing]`. */
 const EXIT_MS = 250;
@@ -80,8 +86,15 @@ export default function Modal({
   }, [open]);
 
   // Mounted from the moment it opens until its exit has played.
+  const panel = useRef<HTMLDivElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
+  const sheet = useSheetDrag({ panel, backdrop, canExpand: size !== "full", onClose });
+
   const [rendered, setRendered] = useState(open);
-  if (open && !rendered) setRendered(true);
+  if (open && !rendered) {
+    setRendered(true);
+    sheet.reset();
+  }
   const closing = rendered && !open;
 
   useEffect(() => {
@@ -106,6 +119,7 @@ export default function Modal({
     >
       {/* backdrop */}
       <div
+        ref={backdrop}
         className="modal-backdrop absolute inset-0 bg-black/50"
         data-closing={closing || undefined}
         onClick={onClose}
@@ -113,12 +127,16 @@ export default function Modal({
       />
       {/* panel */}
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         data-closing={closing || undefined}
         className={`modal-panel relative flex w-full flex-col overflow-hidden rounded-t-2xl bg-white
           shadow-xl dark:bg-gray-800 sm:rounded-xl ${SIZE_CLASSES[size]}`}
       >
+        {/* The grip: the handle and the title row. `touch-none` below `sm` so
+            the browser hands the drag to us rather than scrolling the page. */}
+        <div data-sheet-grip className="shrink-0 max-sm:touch-none" {...sheet.gripProps}>
         {/* Grab handle — a phone-sheet affordance; hidden on desktop. */}
         <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-gray-300 dark:bg-gray-600 sm:hidden" />
 
@@ -138,7 +156,7 @@ export default function Modal({
               true centre whatever the font's metrics. */}
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Close dialog"
             className="group -mr-1.5 -mt-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
           >
             <span
@@ -162,11 +180,13 @@ export default function Modal({
             </span>
           </button>
         </div>
+        </div>
 
         {/* min-h-0 lets this flex child actually shrink so it (not the panel)
-            scrolls. */}
+            scrolls; overscroll-contain keeps a scroll that hits its end from
+            carrying on into the page behind. */}
         <div
-          className={`min-h-0 flex-1 overflow-y-auto px-5 sm:px-6 sm:pb-6 ${
+          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 sm:px-6 sm:pb-6 ${
             view.footer ? "pb-5" : "pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
           }`}
         >
@@ -178,11 +198,7 @@ export default function Modal({
             className="flex items-center justify-end gap-2 border-t border-gray-200 px-5 pt-3
               pb-[calc(0.75rem+env(safe-area-inset-bottom))] dark:border-gray-700 sm:px-6
               sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]
-              [&_button[data-destructive]]:px-3 [&_button[data-destructive]]:py-1
-              [&_button[data-destructive]]:text-xs
-              max-sm:gap-3 max-sm:[&_button:not([data-destructive])]:min-h-11
-              max-sm:[&_button:not([data-destructive])]:text-base
-              max-sm:[&_button[data-destructive]]:min-h-9 max-sm:[&_button[data-destructive]]:text-sm
+              max-sm:gap-3 max-sm:[&_button]:min-h-11 max-sm:[&_button]:text-base
               max-sm:[&>*:not(.mr-auto):not([data-destructive])]:flex-1"
           >
             {view.footer}

@@ -409,12 +409,12 @@ function AddAircraftCard({
         </p>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex justify-end gap-2 max-sm:gap-3 max-sm:[&>button]:min-h-11 max-sm:[&>button]:flex-1">
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          Close
+        </Button>
         <Button onClick={add} disabled={busy}>
           {busy ? <LoadingDots size="sm" /> : "Add"}
-        </Button>
-        <Button variant="secondary" onClick={onCancel} disabled={busy}>
-          Cancel
         </Button>
       </div>
     </Card>

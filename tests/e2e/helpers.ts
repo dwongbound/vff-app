@@ -354,7 +354,7 @@ export async function expectFormsFitTouchScreen(page: Page) {
   await page.getByRole("button", { name: /^New( reservation)?$/ }).filter({ visible: true }).first().click();
   await expect(page.getByRole("dialog").getByLabel("Start", { exact: true })).toBeVisible();
   await check("booking sheet");
-  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Close dialog" }).click();
 
   await page.goto("/log");
   await main.getByRole("button", { name: /Add flight/ }).filter({ visible: true }).first().click();

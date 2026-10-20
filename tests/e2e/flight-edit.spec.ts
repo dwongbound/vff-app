@@ -76,7 +76,7 @@ test("cancelling an edit changes nothing", async ({ page }) => {
   const modal = page.getByRole("dialog");
   await modal.getByRole("button", { name: "Edit" }).click();
   await modal.getByLabel("Landings", { exact: true }).fill("9");
-  await modal.getByRole("button", { name: "Cancel" }).click();
+  await modal.getByRole("button", { name: "Close", exact: true }).click();
 
   // Straight back to the record, and the entry was never touched.
   await expect(modal.getByRole("button", { name: "Edit" })).toBeVisible();

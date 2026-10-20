@@ -43,7 +43,7 @@ test("booking the airplane, then cancelling it", async ({ page }) => {
   await page.getByRole("button", { name: /You/ }).first().click();
   const dialog = page.getByRole("dialog");
   // The ✕ is labelled "Close" for screen readers; it must be the only one.
-  await expect(dialog.getByRole("button", { name: "Close" })).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "Close dialog" })).toHaveCount(1);
 
   // The .ics keeps the tail number in capitals.
   const [download] = await Promise.all([

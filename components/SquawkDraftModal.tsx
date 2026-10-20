@@ -60,7 +60,7 @@ export default function SquawkDraftModal({
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancel
+            Close
           </Button>
           <Button onClick={add}>Add</Button>
         </>

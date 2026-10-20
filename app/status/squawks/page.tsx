@@ -429,11 +429,11 @@ function OfficerNote({
         />
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
+            Close
+          </Button>
           <Button size="sm" onClick={() => save(draft)} disabled={busy}>
             {busy ? <LoadingDots size="sm" /> : "Save note"}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
-            Cancel
           </Button>
           {note && (
             <Button size="sm" variant="ghost" className="ml-auto" onClick={() => save(null)} disabled={busy}>
