@@ -3,6 +3,7 @@ import {
   PROP,
   appEventProps,
   appEventTitle,
+  bookingAttendees,
   cancelledTitle,
   eventInstant,
   eventTimes,
@@ -288,5 +289,60 @@ describe("writing events", () => {
       title: null,
       status: "CONFIRMED",
     });
+  });
+});
+
+describe("bookingAttendees", () => {
+  it("invites the member and the CFI on a new booking", () => {
+    expect(bookingAttendees([], ["sam@club.test", "priya@club.test"])).toEqual([
+      { email: "sam@club.test" },
+      { email: "priya@club.test" },
+    ]);
+  });
+
+  it("skips a missing CFI and a booking with nobody to invite", () => {
+    expect(bookingAttendees([], ["sam@club.test", null])).toEqual([{ email: "sam@club.test" }]);
+    expect(bookingAttendees([], [null, undefined])).toBeNull();
+  });
+
+  it("changes nothing when everyone is already there, whatever the case", () => {
+    expect(
+      bookingAttendees(
+        [{ email: "Sam@Club.test", responseStatus: "accepted" }, { email: "priya@club.test" }],
+        ["sam@club.test", "priya@club.test"]
+      )
+    ).toBeNull();
+  });
+
+  it("swaps the old CFI for the new one and keeps everyone's RSVP", () => {
+    expect(
+      bookingAttendees(
+        [
+          { email: "sam@club.test", responseStatus: "accepted" },
+          { email: "priya@club.test", responseStatus: "accepted" },
+        ],
+        ["sam@club.test", "jo@club.test"],
+        ["priya@club.test"]
+      )
+    ).toEqual([
+      { email: "sam@club.test", responseStatus: "accepted" },
+      { email: "jo@club.test" },
+    ]);
+  });
+
+  it("leaves a guest someone added in Google alone", () => {
+    expect(
+      bookingAttendees(
+        [{ email: "passenger@gmail.com" }, { email: "priya@club.test" }],
+        ["sam@club.test", null],
+        ["priya@club.test"]
+      )
+    ).toEqual([{ email: "passenger@gmail.com" }, { email: "sam@club.test" }]);
+  });
+
+  it("never drops someone who is still wanted", () => {
+    expect(
+      bookingAttendees([{ email: "sam@club.test" }], ["sam@club.test"], ["sam@club.test"])
+    ).toBeNull();
   });
 });

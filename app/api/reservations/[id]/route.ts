@@ -182,6 +182,7 @@ export async function PATCH(
         memberName: existing.user?.name ?? null,
         purpose: nextPurpose,
         instructorId: instructor.instructorId,
+        previousInstructorId: existing.instructorId,
         appTitled: existing.title === null,
         times: timesChanged ? { startsAt, endsAt, allDay: false } : undefined,
         notes: notes !== existing.notes ? notes : undefined,

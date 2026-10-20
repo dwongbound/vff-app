@@ -335,6 +335,7 @@ export default function ReservationModal({
           {reservation && (
             <Button
               variant={confirmingCancel ? "danger" : "ghost"}
+              destructive
               onClick={() =>
                 confirmingCancel ? cancelBooking() : setConfirmingCancel(true)
               }

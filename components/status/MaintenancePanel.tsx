@@ -621,6 +621,7 @@ function MaintenanceItemModal({
           {item && !confirmingDelete && (
             <Button
               variant="ghost"
+              destructive
               className="mr-auto"
               disabled={busy}
               onClick={() => setConfirmingDelete(true)}
@@ -630,7 +631,7 @@ function MaintenanceItemModal({
           )}
           {item && confirmingDelete && (
             <div className="mr-auto flex gap-2">
-              <Button variant="secondary" size="sm" disabled={busy} onClick={() => remove(false)}>
+              <Button variant="secondary" size="sm" destructive disabled={busy} onClick={() => remove(false)}>
                 Retire
               </Button>
               <Button variant="danger" size="sm" disabled={busy} onClick={() => remove(true)}>

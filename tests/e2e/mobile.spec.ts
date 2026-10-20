@@ -27,6 +27,28 @@ test("phones get the bottom tab bar, not the desktop strip", async ({ page }) =>
   ).toBeHidden();
 });
 
+test("the pill sits 24px off the bottom, and the page scrolls clear of it", async ({
+  page,
+}) => {
+  // The pill is the visible <nav> holding the Reserve tab (the rail's copy is
+  // hidden at this width).
+  const pill = page.locator("nav:visible", { has: page.getByRole("link", { name: "Reserve" }) });
+  const viewport = page.viewportSize()!;
+  const box = (await pill.boundingBox())!;
+  // Members know it at this height. It once picked up the home bar's inset on
+  // top and rose ~34px on a real iPhone; the emulator reports no inset, so
+  // what this pins is the 24px itself.
+  expect(Math.round(viewport.height - (box.y + box.height))).toBe(24);
+
+  // Scrolled to the very end, the last thing on the page still ends above the
+  // pill rather than under it.
+  const main = page.getByRole("main");
+  await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  const last = main.locator(":scope > *").last();
+  const lastBox = (await last.boundingBox())!;
+  expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(box.y);
+});
+
 test("the schedule is a list, and the + button opens the booking sheet", async ({
   page,
 }) => {
@@ -541,4 +563,78 @@ test("Quick Log's File button runs the full width on a phone", async ({ page }) 
 test("Plane Status is readable at this width", async ({ page }) => {
   test.setTimeout(180_000);
   await expectStatusPagesReadable(page, "iphone");
+});
+
+// Centre of a box, for the "is this icon actually centred" checks below.
+function centre(box: { x: number; y: number; width: number; height: number }) {
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+test("every tab on the pill is the same width", async ({ page }) => {
+  // A group tab (Checkouts, Tools) is a wrapper around its button while a
+  // plain tab is the link itself; laid out as flex-1 they came out 8px apart.
+  const pill = page.locator("nav:visible", { has: page.getByRole("link", { name: "Reserve" }) });
+  const tabs = pill.locator(":scope > div > *");
+  const widths = await tabs.evaluateAll((els) =>
+    els.map((el) => Math.round(el.getBoundingClientRect().width))
+  );
+  expect(widths.length).toBeGreaterThan(3);
+  expect(new Set(widths).size).toBe(1);
+});
+
+test("the + button's plus sits on the centre of its disc", async ({ page }) => {
+  const fab = page.getByRole("button", { name: "New reservation" });
+  await expect(fab).toBeVisible();
+  const disc = centre((await fab.boundingBox())!);
+  const plus = centre((await fab.locator("svg").boundingBox())!);
+  expect(Math.abs(disc.x - plus.x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(disc.y - plus.y)).toBeLessThanOrEqual(0.5);
+});
+
+test("a modal's ✕ is easy to see, and its Delete is smaller than its main action", async ({
+  page,
+}) => {
+  await page.goto("/log");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Flight log" })).toBeVisible({
+    timeout: 60_000,
+  });
+  await main.getByRole("button").filter({ hasText: "KTOA" }).first().click();
+  const modal = page.getByRole("dialog");
+  const del = modal.getByRole("button", { name: "Delete" });
+  const edit = modal.getByRole("button", { name: "Edit" });
+  await expect(del).toBeVisible();
+  await expect(edit).toBeVisible();
+
+  // The ✕: a 32px disc with an 18px cross dead on its centre, inside a 44px
+  // tap area.
+  // Measured in one go: the sheet is still rising for a moment after it
+  // opens, and two separate reads would see it at two heights.
+  const close = modal.getByRole("button", { name: "Close" });
+  const { tap, disc, cross } = await close.evaluate((el) => {
+    const r = (e: Element) => {
+      const b = e.getBoundingClientRect();
+      return { x: b.x, y: b.y, width: b.width, height: b.height };
+    };
+    return {
+      tap: r(el),
+      disc: r(el.querySelector("[data-close-disc]")!),
+      cross: r(el.querySelector("svg")!),
+    };
+  });
+  expect(tap.width).toBeGreaterThanOrEqual(44);
+  expect(tap.height).toBeGreaterThanOrEqual(44);
+  expect(disc.width).toBeGreaterThanOrEqual(32);
+  expect(cross.width).toBeGreaterThanOrEqual(18);
+  expect(Math.abs(centre(disc).x - centre(cross).x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(centre(disc).y - centre(cross).y)).toBeLessThanOrEqual(0.5);
+
+  // Delete is shorter and narrower than Edit, and its label a step smaller:
+  // the easiest target in the footer is never the one that destroys a record.
+  const delBox = (await del.boundingBox())!;
+  const editBox = (await edit.boundingBox())!;
+  expect(delBox.height).toBeLessThan(editBox.height);
+  expect(delBox.width).toBeLessThan(editBox.width);
+  const fontSize = (el: Element) => parseFloat(getComputedStyle(el).fontSize);
+  expect(await del.evaluate(fontSize)).toBeLessThan(await edit.evaluate(fontSize));
 });
