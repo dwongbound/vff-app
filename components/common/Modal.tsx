@@ -136,7 +136,7 @@ export default function Modal({
       >
         {/* The grip: the handle and the title row. `touch-none` below `sm` so
             the browser hands the drag to us rather than scrolling the page. */}
-        <div data-sheet-grip className="shrink-0 max-sm:touch-none" {...sheet.gripProps}>
+        <div data-sheet-grip className="shrink-0 max-sm:touch-none max-sm:select-none" {...sheet.gripProps}>
         {/* Grab handle — a phone-sheet affordance; hidden on desktop. */}
         <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-gray-300 dark:bg-gray-600 sm:hidden" />
 
