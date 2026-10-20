@@ -247,7 +247,7 @@ test("a pilot writes up their own flight, and it survives a reload", async ({
   await expect(dialog).toBeVisible({ timeout: 60_000 });
 
   await dialog.getByRole("button", { name: "Edit" }).click();
-  const log = dialog.getByLabel("Log");
+  const log = dialog.getByLabel("Log", { exact: true });
   await log.fill("Steep turns and stalls.\n\n- Left turn was better\n- Watch the ball");
   await dialog.getByRole("button", { name: "Save" }).click();
 
