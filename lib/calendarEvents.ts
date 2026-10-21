@@ -212,29 +212,34 @@ export function eventToBooking(
   };
 }
 
-/** Short purpose words for a calendar title — "Training (with CFI)" is a form label. */
+/**
+ * The flight type as a calendar title says it, inside the brackets — the
+ * form's labels already carry brackets of their own ("Training (Solo)").
+ */
 const TITLE_PURPOSE: Record<Purpose, string> = {
-  LOCAL: "Local flight",
+  LOCAL: "Local",
   CROSS_COUNTRY: "Cross-country",
-  TRAINING: "Lesson",
-  TRAINING_SOLO: "Solo",
+  TRAINING: "Training w CFI",
+  TRAINING_SOLO: "Training solo",
   CHECKRIDE: "Checkride",
   MAINTENANCE: "Maintenance",
 };
 
 /**
- * The title the app gives an event it writes, in the club's own style
- * ("Dylan Flight w Matt"): who, then what, then with whom. Maintenance is the
- * club's block, not a member's flight, so it's just "Maintenance".
+ * The title the app gives an event it writes, in the club's format:
+ * "Dylan - N8318B (Training w CFI)" — the member's FIRST name, the airplane,
+ * then the flight type. Maintenance is the club's block rather than anyone's
+ * flight, so it names no member: "N8318B (Maintenance)".
  */
 export function appEventTitle(b: {
   memberName: string;
+  tailNumber: string;
   purpose: Purpose;
-  instructorName?: string | null;
 }): string {
-  if (b.purpose === "MAINTENANCE") return "Maintenance";
-  const base = `${b.memberName} — ${TITLE_PURPOSE[b.purpose]}`;
-  return b.instructorName ? `${base} w/ ${b.instructorName}` : base;
+  const what = `${b.tailNumber} (${TITLE_PURPOSE[b.purpose]})`;
+  if (b.purpose === "MAINTENANCE") return what;
+  const first = b.memberName.trim().split(/\s+/)[0];
+  return first ? `${first} - ${what}` : what;
 }
 
 /** Event start/end for a booking, all-day ones as club-local DATES. */
