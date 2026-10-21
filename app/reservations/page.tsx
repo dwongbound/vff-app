@@ -23,6 +23,7 @@ import { MAX_ADVANCE_DAYS } from "@/lib/constants";
 import { addDays, formatDay, formatTimeRange, relativeDay } from "@/lib/dates";
 import { upcoming } from "@/lib/reservations";
 import type { ApiReservation } from "@/lib/types";
+import Floating from "@/components/common/Floating";
 
 type Filter = "all" | "mine";
 
@@ -220,25 +221,29 @@ export default function ReservationsPage() {
           The plus is drawn, not typed: a "+" glyph sits on the font's math
           axis, which is above the middle of its line box, and no nudge puts
           it on the disc's centre at every size. */}
+      {/* In <body>, not here: see Floating — <main> moves during a
+          pull-to-refresh, and a fixed child would move with it. */}
       {canBook && (
-        <button
-          onClick={() => openNew()}
-          aria-label="New reservation"
-          className="fixed right-5 bottom-26 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg transition active:scale-95 sm:hidden"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="26"
-            height="26"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            aria-hidden
+        <Floating>
+          <button
+            onClick={() => openNew()}
+            aria-label="New reservation"
+            className="fixed right-5 bottom-26 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg transition active:scale-95 sm:hidden"
           >
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
+            <svg
+              viewBox="0 0 24 24"
+              width="26"
+              height="26"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        </Floating>
       )}
 
       <ReservationModal
