@@ -792,7 +792,10 @@ owns the only splash in the app.
   `eventToBooking` (the app's private `extendedProperties` FIRST, then the
   creator's email and a title guess — `guessPurpose` is deliberately timid),
   `isCancelledTitle`/`cancelledTitle`, all-day dates read as CLUB midnights
-  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing, and
+  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing — a
+  title is the club's format, "Dylan - N8318B (Training w CFI)": FIRST name,
+  tail number (carried on `CalendarLink`), flight type; maintenance is just
+  "N8318B (Maintenance)", and `guessPurpose` reads every one back — and
   `bookingAttendees` — the member and their CFI are INVITED to every booking
   the app writes (`sendUpdates=all`), and since a PATCH's guest list replaces
   the event's, it edits only the app's part and keeps anyone added in Google.

@@ -49,6 +49,8 @@ const SYNC_INTERVAL_MS = 60_000;
 export interface CalendarLink {
   refreshToken: string;
   calendarId: string;
+  /** The airplane's tail number, which every title the app writes carries. */
+  tailNumber: string;
 }
 
 /** The secret the refresh token is sealed under (lib/secretBox.ts). */
@@ -82,9 +84,16 @@ export async function clubRefreshToken(): Promise<string> {
  * quietly falling back to app-only would let the two schedules drift apart.
  */
 export async function calendarLinkFor(aircraftId: string): Promise<CalendarLink | null> {
-  const cal = await prisma.aircraftCalendar.findUnique({ where: { aircraftId } });
+  const cal = await prisma.aircraftCalendar.findUnique({
+    where: { aircraftId },
+    include: { aircraft: { select: { tailNumber: true } } },
+  });
   if (!cal) return null;
-  return { refreshToken: await clubRefreshToken(), calendarId: cal.calendarId };
+  return {
+    refreshToken: await clubRefreshToken(),
+    calendarId: cal.calendarId,
+    tailNumber: cal.aircraft.tailNumber,
+  };
 }
 
 /**
@@ -135,13 +144,6 @@ async function applyEvents(aircraftId: string, events: GoogleEvent[], people: Pe
     );
   }
   if (writes.length > 0) await prisma.$transaction(writes);
-}
-
-/** A member's name for an event title, or null for nobody. */
-async function nameOf(userId: string | null): Promise<string | null> {
-  if (!userId) return null;
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-  return user?.name ?? null;
 }
 
 /** A member's email — what Google invites them by. */
@@ -250,7 +252,7 @@ export async function insertCalendarBooking(
     notes: string | null;
   }
 ): Promise<GoogleEvent> {
-  const title = appEventTitle({ ...b, instructorName: await nameOf(b.instructorId) });
+  const title = appEventTitle({ ...b, tailNumber: link.tailNumber });
   // The member and their CFI are invited, so the booking lands in their own
   // calendars. The club account stays the organiser, which is what lets any
   // member book without needing access to the airplane's calendar themselves.
@@ -300,7 +302,7 @@ export async function patchCalendarBooking(
     title = appEventTitle({
       memberName: b.memberName,
       purpose: b.purpose,
-      instructorName: await nameOf(b.instructorId),
+      tailNumber: link.tailNumber,
     });
   }
   // Sending a guest list replaces the event's, so read what's there now and
