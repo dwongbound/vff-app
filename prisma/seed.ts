@@ -235,6 +235,8 @@ interface SeedFlight {
   route?: string;
   /** Flown with a CFI, and (when signed) endorsed by them. */
   withInstructor?: boolean;
+  /** The log's type chip. Defaults to a lesson when a CFI was on board. */
+  purpose?: "LOCAL" | "CROSS_COUNTRY" | "TRAINING" | "TRAINING_SOLO" | "CHECKRIDE";
   /**
    * WHICH CFI, by roster email. Defaults to the club's visiting instructor —
    * she teaches most of the lessons — but the club has two, and a log where
@@ -494,6 +496,7 @@ const RECENT_FLIGHTS: (SeedFlight & { daysAgo: number })[] = [
     // same field on a there-and-back, which makes them read as one airport
     // twice; this is the column that says where it actually went.
     route: "KBFI → KTIW → KPWT → KBFI",
+    purpose: "CROSS_COUNTRY",
     fuelGal: 22.4,
     fuelCents: 16_464,
     turnoff: "all",
@@ -524,6 +527,7 @@ const RECENT_FLIGHTS: (SeedFlight & { daysAgo: number })[] = [
     tachEnd: 1507.05,
     landings: 4,
     nightLandings: 3,
+    purpose: "LOCAL",
     // A quart went in after the flight, which is the servicing half of the
     // post-flight form (Servicing rows are the no-flight case; this is the
     // common one, and until now no seeded flight used the column).
@@ -1099,6 +1103,7 @@ async function main() {
         route: entry.route ?? null,
         withInstructor: entry.withInstructor ?? false,
         instructorId: cfi?.id ?? null,
+        purpose: entry.purpose ?? (entry.withInstructor ? "TRAINING" : null),
         // A signature names a version of the entry, so the seeded ones are
         // dated with the flight rather than with the reseed.
         signedById: entry.signed ? (cfi?.id ?? null) : null,
@@ -1246,6 +1251,7 @@ async function main() {
         landings: 8,
         withInstructor: true,
         instructorId: instructor.id,
+        purpose: "TRAINING",
         departure: "KBFI",
         arrival: "KBFI",
         notes: "Eight in the pattern. Crosswind picked up on the last two.",

@@ -48,6 +48,7 @@ import {
   type OpenSession,
 } from "@/lib/flightSessions";
 import { normalizeLogEntry } from "@/lib/markdown";
+import { purposeFromBody, type Purpose } from "@/lib/constants";
 import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
 
 
@@ -268,6 +269,7 @@ export async function POST(req: Request) {
   // lesson and shouldn't have to say so twice — and otherwise taken from the
   // body, which is how a lesson that was never booked in the app gets one.
   let bookedInstructorId: string | null = null;
+  let bookedPurpose: Purpose | null = null;
   if (body.reservationId) {
     const reservation = await prisma.reservation.findUnique({
       where: { id: String(body.reservationId) },
@@ -302,6 +304,7 @@ export async function POST(req: Request) {
     // Only a TRAINING booking carries an instructor at all (the reservation
     // routes enforce that), so this is already null for every other purpose.
     bookedInstructorId = reservation.instructorId;
+    bookedPurpose = reservation.purpose;
   }
 
   const instructor = await resolveInstructor(
@@ -310,6 +313,19 @@ export async function POST(req: Request) {
   if (resolutionFailed(instructor)) {
     return NextResponse.json({ error: instructor.error }, { status: 400 });
   }
+
+  // The flight's type. Said on the form wins; otherwise the booking's, then
+  // whatever the session already had, then "a named CFI means a lesson".
+  const purposeIn = purposeFromBody(body);
+  if (purposeIn === "invalid") {
+    return NextResponse.json({ error: "Unknown flight type." }, { status: 400 });
+  }
+  const purpose =
+    purposeIn !== undefined
+      ? purposeIn
+      : (bookedPurpose ??
+        open?.purpose ??
+        (instructor.instructorId != null ? ("TRAINING" as const) : null));
 
   const flownOn = body.flownOn ? new Date(String(body.flownOn)) : new Date();
   if (Number.isNaN(flownOn.getTime())) {
@@ -359,6 +375,7 @@ export async function POST(req: Request) {
     // flight filed against a lesson booking is `withInstructor` whether or
     // not the form's box was ticked: the club knows who was on board.
     instructorId: instructor.instructorId,
+    purpose,
     departure: body.departure ? String(body.departure).trim().toUpperCase() : null,
     arrival: body.arrival ? String(body.arrival).trim().toUpperCase() : null,
     route: body.route ? String(body.route).trim() : null,

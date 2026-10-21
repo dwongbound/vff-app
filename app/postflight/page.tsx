@@ -62,6 +62,8 @@ import type {
   ApiMember,
   ApiReservation,
 } from "@/lib/types";
+import { FlightTypeSelect } from "@/components/FlightType";
+import { isPurpose, type Purpose } from "@/lib/constants";
 
 /**
  * Where the form's own sections sit in the page's ONE numbered run.
@@ -144,6 +146,7 @@ export default function PostflightPage() {
   // lesson already names one and the server copies it across — see
   // `bookedInstructor` below, which is why this picker hides in that case.
   const [instructorId, setInstructorId] = useState("");
+  const [purpose, setPurpose] = useState<Purpose | "">("");
   const [instructors, setInstructors] = useState<ApiMember[] | null>(null);
   /** Today's signed-off preflight walk, if there is one — the start meters. */
   const [todaysPreflight, setTodaysPreflight] = useState<ApiCheckout | null>(null);
@@ -351,6 +354,7 @@ export default function PostflightPage() {
       nightLandings,
       withInstructor,
       instructorId,
+      purpose,
       departure,
       arrival,
       route,
@@ -382,6 +386,7 @@ export default function PostflightPage() {
       nightLandings,
       withInstructor,
       instructorId,
+      purpose,
       departure,
       arrival,
       route,
@@ -413,6 +418,7 @@ export default function PostflightPage() {
       if (stored.nightLandings) setNightLandings(stored.nightLandings);
       setWithInstructor(stored.withInstructor);
       setInstructorId(stored.instructorId);
+      setPurpose(isPurpose(stored.purpose) ? stored.purpose : "");
       setDeparture(stored.departure);
       setArrival(stored.arrival);
       setRoute(stored.route);
@@ -458,6 +464,7 @@ export default function PostflightPage() {
     setNightLandings("0");
     setWithInstructor(false);
     setInstructorId("");
+    setPurpose("");
     setDeparture("");
     setArrival("");
     setRoute("");
@@ -562,6 +569,8 @@ export default function PostflightPage() {
       // hasn't already answered it (the server resolves that one itself).
       instructorId:
         withInstructor && !bookedInstructor && instructorId ? instructorId : null,
+      // Not set = the booking's type, or the open session's, on the server.
+      ...(purpose ? { purpose } : {}),
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
@@ -638,6 +647,7 @@ export default function PostflightPage() {
     setNightLandings("0");
     setWithInstructor(false);
     setInstructorId("");
+    setPurpose("");
     setDeparture("");
     setArrival("");
     setRoute("");
@@ -893,6 +903,8 @@ export default function PostflightPage() {
             ))}
           </Select>
         )}
+
+        <FlightTypeSelect value={purpose} onChange={setPurpose} />
 
         <div className="grid grid-cols-2 gap-3">
           <DateTimeField

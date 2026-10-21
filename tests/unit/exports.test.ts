@@ -23,6 +23,7 @@ function flight(over: Partial<ApiFlightSummary> = {}): ApiFlightSummary {
     aircraft: { id: "a1", tailNumber: "N8318B" },
     pilot: user("Marat"),
     reservationId: null,
+    purpose: null,
     flownOn: new Date(2026, 6, 31).toISOString(),
     filedAt: new Date(2026, 6, 31).toISOString(),
     startedAt: null,

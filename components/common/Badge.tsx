@@ -17,14 +17,17 @@ const TONE_CLASSES: Record<BadgeTone, string> = {
 
 export default function Badge({
   tone = "gray",
+  className = "",
   children,
 }: {
   tone?: BadgeTone;
+  /** Layout only (e.g. letting a badge shrink in a tight row) — never colour. */
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]} ${className}`}
     >
       {children}
     </span>
