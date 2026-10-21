@@ -769,6 +769,39 @@ for (const [path, api] of [
   });
 }
 
+test("every Finances view refreshes on a pull, keeping its own scope", async ({ page }) => {
+  await page.goto("/finances");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
+    timeout: 60_000,
+  });
+  for (const [view, clubWide] of [
+    ["Me", false],
+    ["Club (by person)", true],
+    ["Club (by month)", true],
+  ] as const) {
+    await main.getByRole("button", { name: view, exact: true }).click();
+    await page.waitForLoadState("networkidle");
+    // A pull only counts from the very top of the page.
+    await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, 0));
+    // The pull re-reads THIS view: the club's books on a club view, your own
+    // statement on Me — never the newest-month default of some other view.
+    const refetched = page.waitForRequest(
+      (r) =>
+        r.url().includes("/api/finances/ledger") &&
+        !r.url().includes("before=") &&
+        r.url().includes("all=1") === clubWide
+    );
+    await pullDown(page, 160);
+    await refetched;
+    await expect(main).not.toHaveAttribute("aria-busy", { timeout: 5_000 });
+    await expect(main.getByRole("button", { name: view, exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  }
+});
+
 // The squawk card on a phone: the header is what opens the details, and the
 // officer's two tools (status and note) are one row of 44px targets rather
 // than two small text links run together on one line.

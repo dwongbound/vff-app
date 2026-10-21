@@ -868,7 +868,7 @@ finger (`contentOffset`) and uncovers a fixed circled arrow that fades in and
 turns over once armed, parking at `REVEAL_PX` while it fetches, with the
 transform taken back off at rest, only a full pull released
 counts; rules in `lib/pullRefresh.ts`, reusing `touchIntent` so a touch is never
-both. Reservations, Plane Status, Squawks and the log opt in. Because `<main>` moves, anything pinned to the window from inside a page (the phone "+") renders through `common/Floating`, a portal into <body> — a fixed child of a transformed <main> rides along with it. While a page is loading (the overlay is up) or refreshing, `<main>` and every `Floating` are `inert` + `aria-busy` (`components/pageBusy.ts`, held by `LoadingProvider` and `PullToRefresh`); the chrome stays live. `lib/haptics.ts`
+both. Reservations, Plane Status, Squawks, the log and every Finances view opt in. Because `<main>` moves, anything pinned to the window from inside a page (the phone "+") renders through `common/Floating`, a portal into <body> — a fixed child of a transformed <main> rides along with it. While a page is loading (the overlay is up) or refreshing, `<main>` and every `Floating` are `inert` + `aria-busy` (`components/pageBusy.ts`, held by `LoadingProvider` and `PullToRefresh`); the chrome stays live. `lib/haptics.ts`
 taps on release: Vibration API on Android, a hidden switch checkbox on iOS 18+,
 nothing elsewhere), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
