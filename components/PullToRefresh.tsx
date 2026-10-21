@@ -13,6 +13,7 @@
 // all there ever is.
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAppScroller } from "@/lib/appScroll";
+import { holdPageBusy } from "./pageBusy";
 import { hapticTap } from "@/lib/haptics";
 import {
   REVEAL_PX,
@@ -143,6 +144,9 @@ export default function PullToRefresh() {
       hapticTap(); // inside the touchend, which is what iOS asks of it
       showSpinner(true);
       paint(REVEAL_PX, 1, true); // parked with the spinner showing
+      // Nothing on the page is tappable until the new data is in: a row
+      // opened now could be gone in the list that replaces it.
+      const release = holdPageBusy();
       const started = Date.now();
       try {
         await run();
@@ -151,6 +155,7 @@ export default function PullToRefresh() {
       }
       const left = MIN_SPIN_MS - (Date.now() - started);
       if (left > 0) await new Promise((r) => setTimeout(r, left));
+      release();
       settle();
     };
 

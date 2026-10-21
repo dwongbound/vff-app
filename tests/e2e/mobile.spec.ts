@@ -721,12 +721,25 @@ test("pulling down from the top of a page fetches it again", async ({ page }) =>
   // The page itself comes down with the finger, uncovering the arrow above
   // it — the native shape — and goes back to rest with no transform left on
   // it (a transformed <main> would trap every `fixed` popover inside it).
+  // The "+" is pinned to the window and must NOT ride along with the page
+  // (it used to, because a fixed child of a transformed <main> is fixed to
+  // <main>).
   const main = page.getByRole("main");
+  const fab = page.getByRole("button", { name: "New reservation" });
   const restY = (await main.boundingBox())!.y;
+  const fabAt = (await fab.boundingBox())!;
   const lift = await pullDown(page, 160, { release: false });
   await expect.poll(async () => (await main.boundingBox())!.y).toBeGreaterThan(restY + 40);
   await expect(indicator).not.toHaveCSS("opacity", "0");
+  expect(await fab.boundingBox()).toEqual(fabAt);
+  // While it fetches, the page (and the "+") can't be tapped…
   await lift();
+  await expect(main).toHaveAttribute("aria-busy", "true");
+  expect(await main.evaluate((el) => (el as HTMLElement).inert)).toBe(true);
+  expect(await fab.evaluate((el) => el.closest("[inert]") !== null)).toBe(true);
+  // …and both come back once it's done.
+  await expect(main).not.toHaveAttribute("aria-busy", { timeout: 5_000 });
+  expect(await fab.evaluate((el) => el.closest("[inert]") !== null)).toBe(false);
   await expect(main).toHaveCSS("transform", "none", { timeout: 5_000 });
   await expect.poll(async () => (await main.boundingBox())!.y).toBeCloseTo(restY, 0);
 
@@ -816,4 +829,25 @@ test("a squawk card unfolds from its header, with the note beside the status", a
   } finally {
     await page.request.patch(`/api/squawks/${id}`, { data: { status: "CLOSED" } });
   }
+});
+
+// While a page is still loading, it can't be tapped: the splash covers it to
+// the eye, and `inert` covers it to a finger, a keyboard and a screen reader.
+test("a page is disabled until it has loaded", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/api\/reservations/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/reservations");
+  const main = page.getByRole("main");
+  await expect(main).toHaveAttribute("aria-busy", "true");
+  expect(await main.evaluate((el) => (el as HTMLElement).inert)).toBe(true);
+
+  release();
+  await expect(page.getByRole("button", { name: "New reservation" })).toBeVisible();
+  await expect(main).not.toHaveAttribute("aria-busy", { timeout: 30_000 });
+  expect(await main.evaluate((el) => (el as HTMLElement).inert)).toBe(false);
+  await page.unroute(/\/api\/reservations/);
 });
