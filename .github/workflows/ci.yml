@@ -152,6 +152,7 @@ jobs:
           STORAGE_DRIVER=local
           STORAGE_LOCAL_DIR=storage/test-photos
           APP_TZ=America/Los_Angeles
+          EMAIL_DRIVER=log
           EOF
 
       - name: Install dependencies

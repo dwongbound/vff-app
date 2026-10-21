@@ -50,6 +50,7 @@ import SpreadsheetIcon from "@/components/common/SpreadsheetIcon";
 import Toggle from "@/components/common/Toggle";
 import AddMoneyModal from "@/components/finances/AddMoneyModal";
 import ExportFinancesModal from "@/components/finances/ExportFinancesModal";
+import SendInvoicesModal from "@/components/finances/SendInvoicesModal";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
@@ -170,6 +171,7 @@ export default function FinancesPage() {
   const [addFor, setAddFor] = useState<Period | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [invoicesOpen, setInvoicesOpen] = useState(false);
   // The line a delete has been asked for — the only confirmation on the page.
   const [deleting, setDeleting] = useState<ApiCharge | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -524,6 +526,7 @@ export default function FinancesPage() {
             outstandingCents={outstandingNow}
             selected={filter}
             onSelect={(id) => setMemberFilter((cur) => (cur === id ? null : id))}
+            onSendInvoices={canManage ? () => setInvoicesOpen(true) : undefined}
           />
 
           {(canManage || canClaim) && (
@@ -622,6 +625,8 @@ export default function FinancesPage() {
         />
       )}
 
+      {invoicesOpen && <SendInvoicesModal onClose={() => setInvoicesOpen(false)} />}
+
       {exportOpen && current && (
         <ExportFinancesModal club={current.club} onClose={() => setExportOpen(false)} />
       )}
@@ -705,6 +710,7 @@ function BalanceSummary({
   outstandingCents,
   selected = null,
   onSelect,
+  onSendInvoices,
 }: {
   club: boolean;
   members: { member: ApiUserSummary; outstandingCents: number }[];
@@ -713,6 +719,12 @@ function BalanceSummary({
   /** The member the list is narrowed to, if any — their chip reads as pressed. */
   selected?: string | null;
   onSelect?: (memberId: string) => void;
+  /**
+   * The Finance Officer's "Send invoices" — here, on the card that answers
+   * "who owes what", because emailing each of them their statement is the
+   * next thing that question leads to. Absent for a read-only club viewer.
+   */
+  onSendInvoices?: () => void;
 }) {
   if (!club) {
     let tone: "owe" | "owed" | "settled" = "settled";
@@ -820,7 +832,38 @@ function BalanceSummary({
           })}
         </ul>
       )}
+      {onSendInvoices && (
+        <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
+          <Button
+            variant="secondary"
+            onClick={onSendInvoices}
+            className="min-h-11 w-full sm:min-h-0 sm:w-auto"
+          >
+            <MailIcon />
+            Send invoices
+          </Button>
+        </div>
+      )}
     </Card>
+  );
+}
+
+/** An envelope — the mark on "Send invoices". */
+function MailIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-4 w-4 shrink-0"
+    >
+      <rect x="2.5" y="4.5" width="15" height="11" rx="2" />
+      <path d="m3.5 6 6.5 5 6.5-5" />
+    </svg>
   );
 }
 
