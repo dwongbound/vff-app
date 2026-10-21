@@ -225,14 +225,25 @@ describe("eventToBooking", () => {
 });
 
 describe("writing events", () => {
-  it("titles them in the club's style", () => {
-    expect(appEventTitle({ memberName: "Dylan Wong", purpose: "LOCAL" })).toBe(
-      "Dylan Wong — Local flight"
-    );
-    expect(
-      appEventTitle({ memberName: "Dylan Wong", purpose: "TRAINING", instructorName: "Matt Large" })
-    ).toBe("Dylan Wong — Lesson w/ Matt Large");
-    expect(appEventTitle({ memberName: "Dylan Wong", purpose: "MAINTENANCE" })).toBe("Maintenance");
+  it("titles them first name - tail (flight type)", () => {
+    const t = (memberName: string, purpose: Parameters<typeof appEventTitle>[0]["purpose"]) =>
+      appEventTitle({ memberName, tailNumber: "N8318B", purpose });
+    expect(t("Dylan Wong", "TRAINING")).toBe("Dylan - N8318B (Training w CFI)");
+    expect(t("Dylan Wong", "TRAINING_SOLO")).toBe("Dylan - N8318B (Training solo)");
+    expect(t("Dylan Wong", "LOCAL")).toBe("Dylan - N8318B (Local)");
+    expect(t("Dylan Wong", "CROSS_COUNTRY")).toBe("Dylan - N8318B (Cross-country)");
+    expect(t("Dylan Wong", "CHECKRIDE")).toBe("Dylan - N8318B (Checkride)");
+    // Only the FIRST name, however the profile spells the rest.
+    expect(t("  Mary Ann Lee ", "LOCAL")).toBe("Mary - N8318B (Local)");
+    // Maintenance is the club's block, not a member's flight.
+    expect(t("Dylan Wong", "MAINTENANCE")).toBe("N8318B (Maintenance)");
+  });
+
+  it("reads its own titles back as the right flight type", () => {
+    for (const purpose of ["LOCAL", "CROSS_COUNTRY", "TRAINING", "TRAINING_SOLO", "CHECKRIDE", "MAINTENANCE"] as const) {
+      const title = appEventTitle({ memberName: "Dylan Wong", tailNumber: "N8318B", purpose });
+      expect(guessPurpose(title)).toBe(purpose);
+    }
   });
 
   it("writes all-day bookings as club DATES and others as instants", () => {
@@ -262,7 +273,7 @@ describe("writing events", () => {
   });
 
   it("round-trips: what the app writes reads back as the same booking", () => {
-    const title = appEventTitle({ memberName: "Dylan Wong", purpose: "TRAINING", instructorName: "Matt" });
+    const title = appEventTitle({ memberName: "Dylan Wong", tailNumber: "N8318B", purpose: "TRAINING" });
     const startsAt = new Date("2026-10-16T15:00:00.000Z");
     const endsAt = new Date("2026-10-16T18:00:00.000Z");
     const event: GoogleEvent = {
