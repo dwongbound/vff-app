@@ -77,6 +77,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `instructorId` is the CFI a lesson is booked with — only ever set when
   `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
   rather than leaving a stale name on a booking that changed.
+  `TRAINING_SOLO` ("Training (Solo)", appended to the enum) is a student's
+  solo: training, but nobody beside you, so it takes no instructor.
 - **Flight** — tach/Hobbs in-out, landings, route, fuel/oil, `landingFeeCents`,
   `tiedDown`, `cabinClean`. `fuelPaidPersonally` is the club sheet's "Fuel
   Purchase Personal Card" column, the same one `Servicing` carries and for the
@@ -144,7 +146,15 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   continuing the old checklist's v3; RUNWAY at 3; TURNOFF at 4);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
-  `withInstructor` (selects the third column of the operating rules);
+  `withInstructor` (selects the third column of the operating rules) and
+  `purpose`, the flight's TYPE in the booking vocabulary (`ReservationPurpose`,
+  nullable — an entry nobody typed stays blank rather than "Local"). Copied off
+  the booking when filed against one, else the open session's, else TRAINING
+  when a CFI is named; every flight form sets it with `FlightTypeSelect` and the
+  log row shows it as a short `FlightTypeChip` (components/FlightType.tsx). On a
+  phone the row's status badges (signature, Needs tach end…) drop into the
+  wrapping subline beside the chip — one DOM copy via `useMediaQuery` — so the
+  name and route aren't squeezed; from `sm` up they stay on the right;
   **User** carries self-declared `totalTimeHours`.
 - **Flight**'s instructor endorsement — `instructorId` (who is to sign),
   `signedById`/`signedAt` (who did, and when), `editedAt` (when the entry's
@@ -991,7 +1001,8 @@ it at every state, the minimums and the reasoning are behind the disclosure / `R
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
 ConfirmModal DateTimeField Dropdown InfoTip Input Modal MoneyInput RichText
-Select Textarea Toggle LoadingDots LoadingScreen`. `MoneyInput` is a dollar
+Select Textarea Toggle LoadingDots LoadingScreen`. `Badge` takes an optional
+`className` for LAYOUT only (the type chip's truncation). `MoneyInput` is a dollar
 box: a fixed "$", digits and one decimal point only, and the cents filled in
 on blur ("590" → "590.00") — its value is the box's string, parsed with
 `parseDollars`; use it for every amount rather than a `type="number"`. `ConfirmModal` is the one "are

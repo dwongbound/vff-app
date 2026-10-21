@@ -173,6 +173,8 @@ export interface ApiFlightSummary {
   landings: number;
   nightLandings: number;
   withInstructor: boolean;
+  /** What kind of flight — the booking vocabulary, shown as a chip on the log. */
+  purpose: Purpose | null;
   departure: string | null;
   arrival: string | null;
   route: string | null;

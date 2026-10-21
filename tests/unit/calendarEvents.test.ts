@@ -65,6 +65,8 @@ describe("guessPurpose", () => {
     expect(guessPurpose("Checkride")).toBe("CHECKRIDE");
     expect(guessPurpose("Strut Maintanence")).toBe("MAINTENANCE");
     expect(guessPurpose("XC to Bakersfield")).toBe("CROSS_COUNTRY");
+    expect(guessPurpose("Sasha solo pattern work")).toBe("TRAINING_SOLO");
+    expect(guessPurpose("Solo training")).toBe("TRAINING_SOLO");
   });
 
   it("falls back to LOCAL rather than guessing hard", () => {

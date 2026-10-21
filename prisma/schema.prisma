@@ -85,6 +85,7 @@ enum ReservationPurpose {
   TRAINING // with a CFI
   CHECKRIDE
   MAINTENANCE // shop / annual — blocks the airplane, not a member flight
+  TRAINING_SOLO // a student's solo — training, but no CFI on board
 }
 
 // Club offices. Assigned by admins from the Members tab; what each one is
@@ -475,6 +476,12 @@ model Flight {
   // Flown with an approved instructor, which is the third column of the
   // operating rules — the club's personal minimums don't apply to that flight.
   withInstructor Boolean @default(false)
+
+  // What KIND of flight this was — the same vocabulary a booking uses, shown
+  // as a chip on the log. Copied from the booking when filed against one, set
+  // by hand otherwise; null on an entry nobody has typed (older rows, or a
+  // session a preflight walk opened before the form asked).
+  purpose ReservationPurpose?
 
   // WHICH instructor, and their signature on this log entry.
   //
