@@ -215,6 +215,8 @@ model User {
   charges                 Charge[]          @relation("ChargeMember")
   chargesRaised           Charge[]          @relation("ChargeAuthor")
   chargesMarkedPaid       Charge[]          @relation("ChargePaidBy")
+  invoicesReceived        InvoiceSend[]     @relation("InvoiceMember")
+  invoicesSent            InvoiceSend[]     @relation("InvoiceSentBy")
   chargesDeleted          Charge[]          @relation("ChargeDeleter")
   recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
   recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
@@ -1017,4 +1019,26 @@ model AircraftCalendar {
   updatedAt DateTime @updatedAt
 
   @@map("aircraft_calendars")
+}
+
+// One invoice emailed to one member by the Finance Officer (see
+// lib/invoices.ts and /api/finances/invoices). A record, not a source of
+// money: nothing here changes a balance. It exists so the send window can say
+// "sent Oct 3" beside a name, which is what stops a member getting the same
+// month's invoice twice because two officers each thought the other hadn't.
+model InvoiceSend {
+  id       String @id @default(cuid())
+  member   User   @relation("InvoiceMember", fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String
+  // "YYYY-MM", or "all" for the everything-unpaid letter.
+  scope       String
+  // What the invoice asked for when it went out, and where it went.
+  amountCents Int
+  sentTo      String
+  sentAt      DateTime @default(now())
+  sentBy      User?    @relation("InvoiceSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+  sentById    String?
+
+  @@index([memberId, scope])
+  @@map("invoice_sends")
 }

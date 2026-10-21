@@ -502,3 +502,30 @@ export interface ApiCalendarStatus {
     } | null;
   }[];
 }
+
+/** One member as the Finance Officer's "Send invoices" window sees them. */
+export interface ApiInvoiceRecipient {
+  member: ApiUserSummary;
+  /** Where it would go; null when the account has no usable address. */
+  address: string | null;
+  /** What the invoice asks for (negative = the club owes them). */
+  amountDueCents: number;
+  lineCount: number;
+  /** Why this member can't be sent one; null = sendable. */
+  skipReason: string | null;
+  /** When this scope's invoice last went to them, if it ever did. */
+  lastSentAt: string | null;
+}
+
+export interface ApiInvoicePreview {
+  scope: string;
+  /** Whether this server can send email at all, and if not, why. */
+  email: { configured: boolean; reason: string | null };
+  recipients: ApiInvoiceRecipient[];
+}
+
+export interface ApiInvoiceSendResult {
+  sent: { memberId: string; name: string; address: string }[];
+  skipped: { memberId: string; name: string; reason: string }[];
+  failed: { memberId: string; name: string; error: string }[];
+}
