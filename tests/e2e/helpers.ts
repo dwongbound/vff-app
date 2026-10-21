@@ -247,8 +247,20 @@ export async function swipeLeft(page: Page, distance = 260): Promise<void> {
  * driven with the same `touches`-carrying plain events as `swipeLeft`, for the
  * same WebKit reason.
  */
-export async function pullDown(page: Page, distance = 160): Promise<void> {
-  await page.evaluate(async (travel) => {
+export async function pullDown(
+  page: Page,
+  distance = 160,
+  { release = true }: { release?: boolean } = {}
+): Promise<() => Promise<void>> {
+  // `release: false` holds the finger down so a spec can look at the page
+  // mid-pull; the returned function lifts it.
+  const lift = (travel: number) =>
+    page.evaluate((travel) => {
+      const w = window as unknown as { __pullLift?: () => void };
+      w.__pullLift?.();
+      void travel;
+    }, travel);
+  await page.evaluate(async ({ travel, release }) => {
     const x = Math.round(window.innerWidth / 2);
     const startY = 180;
     const target = document.elementFromPoint(x, startY) ?? document.body;
@@ -266,8 +278,11 @@ export async function pullDown(page: Page, distance = 160): Promise<void> {
       fire("touchmove", startY + (travel * step) / 10);
       await new Promise((resolve) => requestAnimationFrame(resolve));
     }
-    fire("touchend", startY + travel);
-  }, distance);
+    const end = () => fire("touchend", startY + travel);
+    if (release) end();
+    else (window as unknown as { __pullLift?: () => void }).__pullLift = end;
+  }, { travel: distance, release });
+  return () => lift(distance);
 }
 
 /**
@@ -401,7 +416,7 @@ async function expectRowsNotSqueezed(rows: Locator, label: string) {
   expect(await rows.count(), `${label}: no rows to check`).toBeGreaterThan(0);
   for (const row of (await rows.all()).slice(0, 3)) {
     const rowWidth = (await row.boundingBox())!.width;
-    const text = (await row.locator("p").first().boundingBox())!.width;
+    const text = (await row.locator("p, [data-row-text]").first().boundingBox())!.width;
     expect(text, `${label}: a row's text is squeezed beside its controls`).toBeGreaterThan(
       rowWidth * 0.6
     );
@@ -432,12 +447,12 @@ export async function expectStatusPagesReadable(page: Page, device: string) {
   await expect(squawks.first()).toBeVisible({ timeout: 60_000 });
   expect(await widerThanTheScreen(page)).toEqual([]);
   await expectRowsNotSqueezed(squawks, "squawks");
-  // A squawk's details fold behind "Details" on a phone; from the iPad up
-  // they're just shown, with nothing to hide them.
+  // A squawk's details fold to two lines on a phone, opened by the card's
+  // own header; from the iPad up they're just shown, with nothing to fold.
   if (device === "iphone") {
-    await expect(squawks.getByRole("button", { name: "Details" }).first()).toBeVisible();
+    await expect(squawks.getByRole("button", { name: /show details$/ }).first()).toBeVisible();
   } else {
-    await expect(squawks.getByRole("button", { name: /^(Details|Hide)$/ })).toHaveCount(0);
+    await expect(squawks.getByRole("button", { name: /(show|hide) details$/ })).toHaveCount(0);
   }
   await page.screenshot({ path: `test-results/squawks-${device}.png` });
 

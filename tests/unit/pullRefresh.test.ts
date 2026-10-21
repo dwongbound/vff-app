@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   REFRESH_PX,
   arrowRotation,
-  indicatorOffset,
+  REVEAL_PX,
+  contentOffset,
   isPullDown,
   refreshProgress,
 } from "@/lib/pullRefresh";
@@ -32,13 +33,22 @@ describe("refreshProgress", () => {
   });
 });
 
-describe("indicatorOffset", () => {
-  it("follows at half speed, then resists", () => {
-    expect(indicatorOffset(40)).toBe(20);
-    const atArm = indicatorOffset(REFRESH_PX);
-    const far = indicatorOffset(REFRESH_PX + 300);
+describe("contentOffset", () => {
+  it("follows the finger, then resists", () => {
+    expect(contentOffset(0)).toBe(0);
+    expect(contentOffset(-30)).toBe(0);
+    expect(contentOffset(40)).toBe(30);
+    const atArm = contentOffset(REFRESH_PX);
+    const far = contentOffset(REFRESH_PX + 300);
     expect(far).toBeGreaterThan(atArm);
     expect(far - atArm).toBeLessThan(300 / 2);
+  });
+  it("has uncovered the whole indicator (44px + room) by the time it's armed", () => {
+    expect(contentOffset(REFRESH_PX)).toBe(REVEAL_PX);
+    expect(REVEAL_PX).toBeGreaterThanOrEqual(44 + 2 * 12);
+  });
+  it("never jumps at the arming point", () => {
+    expect(contentOffset(REFRESH_PX + 0.01) - contentOffset(REFRESH_PX)).toBeLessThan(1);
   });
 });
 
