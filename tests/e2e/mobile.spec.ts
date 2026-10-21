@@ -9,6 +9,7 @@ import {
   expectFormsFitTouchScreen,
   expectStatusPagesReadable,
   openPostflightSection,
+  pullDown,
   signIn,
   swipeLeft,
 } from "./helpers";
@@ -25,6 +26,28 @@ test("phones get the bottom tab bar, not the desktop strip", async ({ page }) =>
   await expect(
     page.getByRole("button", { name: "New", exact: true })
   ).toBeHidden();
+});
+
+test("the pill sits 24px off the bottom, and the page scrolls clear of it", async ({
+  page,
+}) => {
+  // The pill is the visible <nav> holding the Reserve tab (the rail's copy is
+  // hidden at this width).
+  const pill = page.locator("nav:visible", { has: page.getByRole("link", { name: "Reserve" }) });
+  const viewport = page.viewportSize()!;
+  const box = (await pill.boundingBox())!;
+  // Members know it at this height. It once picked up the home bar's inset on
+  // top and rose ~34px on a real iPhone; the emulator reports no inset, so
+  // what this pins is the 24px itself.
+  expect(Math.round(viewport.height - (box.y + box.height))).toBe(24);
+
+  // Scrolled to the very end, the last thing on the page still ends above the
+  // pill rather than under it.
+  const main = page.getByRole("main");
+  await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  const last = main.locator(":scope > *").last();
+  const lastBox = (await last.boundingBox())!;
+  expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(box.y);
 });
 
 test("the schedule is a list, and the + button opens the booking sheet", async ({
@@ -292,7 +315,7 @@ test("Finances on a phone is a list, not a table, and nothing scrolls sideways",
   await main.getByRole("button", { name: "Add money", exact: true }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("group", { name: "What kind of money" })).toBeVisible();
-  await sheet.getByRole("button", { name: "Close" }).click();
+  await sheet.getByRole("button", { name: "Close dialog" }).click();
   await expect(sheet).toBeHidden();
 });
 
@@ -541,4 +564,290 @@ test("Quick Log's File button runs the full width on a phone", async ({ page }) 
 test("Plane Status is readable at this width", async ({ page }) => {
   test.setTimeout(180_000);
   await expectStatusPagesReadable(page, "iphone");
+});
+
+// Centre of a box, for the "is this icon actually centred" checks below.
+function centre(box: { x: number; y: number; width: number; height: number }) {
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+test("every tab on the pill is the same width", async ({ page }) => {
+  // A group tab (Checkouts, Tools) is a wrapper around its button while a
+  // plain tab is the link itself; laid out as flex-1 they came out 8px apart.
+  const pill = page.locator("nav:visible", { has: page.getByRole("link", { name: "Reserve" }) });
+  const tabs = pill.locator(":scope > div > *");
+  const widths = await tabs.evaluateAll((els) =>
+    els.map((el) => Math.round(el.getBoundingClientRect().width))
+  );
+  expect(widths.length).toBeGreaterThan(3);
+  expect(new Set(widths).size).toBe(1);
+});
+
+test("the + button's plus sits on the centre of its disc", async ({ page }) => {
+  const fab = page.getByRole("button", { name: "New reservation" });
+  await expect(fab).toBeVisible();
+  const disc = centre((await fab.boundingBox())!);
+  const plus = centre((await fab.locator("svg").boundingBox())!);
+  expect(Math.abs(disc.x - plus.x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(disc.y - plus.y)).toBeLessThanOrEqual(0.5);
+});
+
+test("a modal's ✕ is easy to see, and its Delete is as tall as Edit but narrower", async ({
+  page,
+}) => {
+  await page.goto("/log");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Flight log" })).toBeVisible({
+    timeout: 60_000,
+  });
+  await main.getByRole("button").filter({ hasText: "KTOA" }).first().click();
+  const modal = page.getByRole("dialog");
+  const del = modal.getByRole("button", { name: "Delete" });
+  const edit = modal.getByRole("button", { name: "Edit" });
+  await expect(del).toBeVisible();
+  await expect(edit).toBeVisible();
+
+  // The ✕: a 32px disc with an 18px cross dead on its centre, inside a 44px
+  // tap area.
+  // Measured in one go: the sheet is still rising for a moment after it
+  // opens, and two separate reads would see it at two heights.
+  const close = modal.getByRole("button", { name: "Close dialog" });
+  const { tap, disc, cross } = await close.evaluate((el) => {
+    const r = (e: Element) => {
+      const b = e.getBoundingClientRect();
+      return { x: b.x, y: b.y, width: b.width, height: b.height };
+    };
+    return {
+      tap: r(el),
+      disc: r(el.querySelector("[data-close-disc]")!),
+      cross: r(el.querySelector("svg")!),
+    };
+  });
+  expect(tap.width).toBeGreaterThanOrEqual(44);
+  expect(tap.height).toBeGreaterThanOrEqual(44);
+  expect(disc.width).toBeGreaterThanOrEqual(32);
+  expect(cross.width).toBeGreaterThanOrEqual(18);
+  expect(Math.abs(centre(disc).x - centre(cross).x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(centre(disc).y - centre(cross).y)).toBeLessThanOrEqual(0.5);
+
+  // Delete is a full-height tap target with the same size label as Edit, but
+  // it hugs its label: the widest target in the footer is never the one that
+  // destroys a record.
+  const delBox = (await del.boundingBox())!;
+  const editBox = (await edit.boundingBox())!;
+  expect(Math.round(delBox.height)).toBe(Math.round(editBox.height));
+  expect(delBox.height).toBeGreaterThanOrEqual(44);
+  expect(delBox.width).toBeLessThan(editBox.width);
+  const fontSize = (el: Element) => parseFloat(getComputedStyle(el).fontSize);
+  expect(await del.evaluate(fontSize)).toBe(await edit.evaluate(fontSize));
+});
+
+test("a sheet drags by its handle: up to grow, down to shrink back, further to close", async ({
+  page,
+}) => {
+  const viewport = page.viewportSize()!;
+  await page.getByRole("button", { name: "New reservation" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  // Let the sheet finish rising before measuring it.
+  await page.waitForTimeout(500);
+  const opened = (await dialog.boundingBox())!;
+
+  const grip = dialog.locator("[data-sheet-grip]");
+  const drag = async (dy: number, from = grip, atX?: (b: { x: number; width: number }) => number) => {
+    const box = (await from.boundingBox())!;
+    const x = atX ? atX(box) : box.x + box.width / 2;
+    const y = box.y + 8;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + dy, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(450); // the settle
+  };
+
+  // Up: nearly the whole screen, still docked to the bottom edge.
+  await drag(-160);
+  const grown = (await dialog.boundingBox())!;
+  // A drag on the grip selects nothing: with a mouse, WebKit turns the next
+  // press on selected text into a native drag that steals the pointer.
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+  expect(Math.abs(grown.height - viewport.height * 0.92)).toBeLessThanOrEqual(3);
+  expect(Math.round(grown.y + grown.height)).toBe(viewport.height);
+
+  // Down a little: back to the height it opened at, still open.
+  await drag(90);
+  const back = (await dialog.boundingBox())!;
+  expect(Math.abs(back.height - opened.height)).toBeLessThanOrEqual(3);
+
+  // Down far enough: gone.
+  await drag(260);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Dragging the BODY is a scroll, never a close. On a fresh sheet, and last:
+  // a mouse drag over the body selects its text in WebKit, which a finger
+  // never would, and that selection mustn't bleed into the grip drags above.
+  // From the padding rather than a field: pressing a date field opens
+  // WebKit's own picker.
+  await page.getByRole("button", { name: "New reservation" }).click();
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(500);
+  const body = grip.locator("xpath=following-sibling::div[1]");
+  await drag(260, body, (b) => b.x + 6);
+  await expect(dialog).toBeVisible();
+});
+
+test("pulling down from the top of a page fetches it again", async ({ page }) => {
+  await page.goto("/reservations");
+  await expect(page.getByRole("button", { name: "New reservation" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  const refetches: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/reservations")) refetches.push(r.url());
+  });
+
+  // A short pull does nothing.
+  await pullDown(page, 50);
+  await page.waitForTimeout(400);
+  expect(refetches).toHaveLength(0);
+
+  // A full one fetches the bookings again, with the arrow turned into a
+  // spinner while it does, and the arrow gone again after.
+  const refetched = page.waitForRequest(/\/api\/reservations/);
+  await pullDown(page, 160);
+  await refetched;
+  const indicator = page.locator("[data-pull-refresh]");
+  await expect(indicator).toHaveCSS("opacity", "0");
+
+  // The page itself comes down with the finger, uncovering the arrow above
+  // it — the native shape — and goes back to rest with no transform left on
+  // it (a transformed <main> would trap every `fixed` popover inside it).
+  // The "+" is pinned to the window and must NOT ride along with the page
+  // (it used to, because a fixed child of a transformed <main> is fixed to
+  // <main>).
+  const main = page.getByRole("main");
+  const fab = page.getByRole("button", { name: "New reservation" });
+  const restY = (await main.boundingBox())!.y;
+  const fabAt = (await fab.boundingBox())!;
+  const lift = await pullDown(page, 160, { release: false });
+  await expect.poll(async () => (await main.boundingBox())!.y).toBeGreaterThan(restY + 40);
+  await expect(indicator).not.toHaveCSS("opacity", "0");
+  expect(await fab.boundingBox()).toEqual(fabAt);
+  // While it fetches, the page (and the "+") can't be tapped…
+  await lift();
+  await expect(main).toHaveAttribute("aria-busy", "true");
+  expect(await main.evaluate((el) => (el as HTMLElement).inert)).toBe(true);
+  expect(await fab.evaluate((el) => el.closest("[inert]") !== null)).toBe(true);
+  // …and both come back once it's done.
+  await expect(main).not.toHaveAttribute("aria-busy", { timeout: 5_000 });
+  expect(await fab.evaluate((el) => el.closest("[inert]") !== null)).toBe(false);
+  await expect(main).toHaveCSS("transform", "none", { timeout: 5_000 });
+  await expect.poll(async () => (await main.boundingBox())!.y).toBeCloseTo(restY, 0);
+
+  // Scrolled down the page, the same pull is just a scroll.
+  refetches.length = 0;
+  await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, 200));
+  const scrolled = await page.locator("#app-scroll").evaluate((el) => el.scrollTop);
+  if (scrolled > 0) {
+    await pullDown(page, 160);
+    await page.waitForTimeout(400);
+    expect(refetches).toHaveLength(0);
+  }
+});
+
+for (const [path, api] of [
+  ["/status", /\/api\/aircraft/],
+  ["/status/squawks", /\/api\/squawks/],
+  ["/log", /\/api\/flights/],
+] as const) {
+  test(`${path} refreshes on a pull too`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page.getByRole("main")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    const refetched = page.waitForRequest(api);
+    await pullDown(page, 160);
+    await refetched;
+  });
+}
+
+// The squawk card on a phone: the header is what opens the details, and the
+// officer's two tools (status and note) are one row of 44px targets rather
+// than two small text links run together on one line.
+test("a squawk card unfolds from its header, with the note beside the status", async ({
+  page,
+}) => {
+  const aircraft = await (await page.request.get("/api/aircraft")).json();
+  const title = `E2E phone card ${Date.now()}`;
+  const description = Array.from({ length: 8 }, (_, i) => `Line ${i + 1} of what was seen.`).join(" ");
+  const made = await page.request.post("/api/squawks", {
+    data: { aircraftId: aircraft[0].id, title, description },
+  });
+  expect(made.ok()).toBe(true);
+  const { id } = await made.json();
+
+  try {
+    await page.goto("/status/squawks");
+    const row = page.getByRole("main").locator(`#squawk-${id}`);
+    await expect(row).toBeVisible({ timeout: 60_000 });
+
+    // Folded to two lines, then the whole thing from a tap on the header.
+    const header = row.getByRole("button", { name: new RegExp(`^${title} — show details$`) });
+    const text = row.getByTestId("squawk-description");
+    const folded = (await text.boundingBox())!.height;
+    await header.click();
+    await expect(row.getByRole("button", { name: /hide details$/ })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+    expect((await text.boundingBox())!.height).toBeGreaterThan(folded);
+
+    // Status and note side by side, both full touch height.
+    const status = row.getByRole("button", { name: /^Status/ });
+    const pencil = row.getByRole("button", { name: "Add a Safety Officer's note" });
+    const s = (await status.boundingBox())!;
+    const p = (await pencil.boundingBox())!;
+    expect(s.height).toBeGreaterThanOrEqual(44);
+    expect(p.height).toBeGreaterThanOrEqual(44);
+    expect(p.width).toBeGreaterThanOrEqual(44);
+    expect(Math.abs(s.y - p.y)).toBeLessThan(2);
+    expect(p.x).toBeGreaterThan(s.x + s.width);
+
+    // The pencil opens the editor; its row is full width, confirm on the right.
+    await pencil.click();
+    await expect(row.getByRole("textbox", { name: "Safety Officer's note" })).toBeFocused();
+    const close = (await row.getByRole("button", { name: "Close", exact: true }).boundingBox())!;
+    const save = (await row.getByRole("button", { name: "Save note" }).boundingBox())!;
+    expect(close.height).toBeGreaterThanOrEqual(44);
+    expect(save.height).toBeGreaterThanOrEqual(44);
+    expect(save.x).toBeGreaterThan(close.x);
+    await row.getByRole("textbox", { name: "Safety Officer's note" }).fill("Looked at it, fine for local.");
+    await row.getByRole("button", { name: "Save note" }).click();
+    // Saved once the editor closes; its own text would otherwise satisfy
+    // the getByText below before the request has landed.
+    await expect(row.getByRole("textbox", { name: "Safety Officer's note" })).toHaveCount(0);
+    await expect(row.getByText("Looked at it, fine for local.")).toBeVisible();
+    await expect(row.getByRole("button", { name: "Edit the Safety Officer's note" })).toBeVisible();
+  } finally {
+    await page.request.patch(`/api/squawks/${id}`, { data: { status: "CLOSED" } });
+  }
+});
+
+// While a page is still loading, it can't be tapped: the splash covers it to
+// the eye, and `inert` covers it to a finger, a keyboard and a screen reader.
+test("a page is disabled until it has loaded", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/api\/reservations/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/reservations");
+  const main = page.getByRole("main");
+  await expect(main).toHaveAttribute("aria-busy", "true");
+  expect(await main.evaluate((el) => (el as HTMLElement).inert)).toBe(true);
+
+  release();
+  await expect(page.getByRole("button", { name: "New reservation" })).toBeVisible();
+  await expect(main).not.toHaveAttribute("aria-busy", { timeout: 30_000 });
+  expect(await main.evaluate((el) => (el as HTMLElement).inert)).toBe(false);
+  await page.unroute(/\/api\/reservations/);
 });

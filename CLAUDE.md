@@ -284,8 +284,10 @@ tab gets them. The squawk cards and maintenance rows lay out by the CARD's
 width (`@container` / `@xl:` container queries), not the screen's: the
 control (status picker, Mark done) goes under the text until the card is
 wide, which on an iPad — narrower column, because of the rail — it isn't.
-A squawk's description is simply shown from `md` up and folds behind
-Details/Hide only on a phone (`useMediaQuery`). Sub-tabs rather than rail entries: the rail lists places you go
+A squawk's description is simply shown from `md` up; on a phone it's clamped
+to two lines and the card's HEADER (title + chevron) is the button that opens
+it (`useMediaQuery`). The officer's note is a 44px pencil beside the status
+picker, not a text link — two small links on one line read as one word. Sub-tabs rather than rail entries: the rail lists places you go
 during a flying day, and Navbar's `isActive` uses `startsWith`, so
 `/status/squawks` keeps the Status entry lit for free. `preflight` and `runway` are the two before-the-
 flight checkouts — separate pages with separate sign-offs, because they're
@@ -759,7 +761,12 @@ owns the only splash in the app.
   `eventToBooking` (the app's private `extendedProperties` FIRST, then the
   creator's email and a title guess — `guessPurpose` is deliberately timid),
   `isCancelledTitle`/`cancelledTitle`, all-day dates read as CLUB midnights
-  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing.
+  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing, and
+  `bookingAttendees` — the member and their CFI are INVITED to every booking
+  the app writes (`sendUpdates=all`), and since a PATCH's guest list replaces
+  the event's, it edits only the app's part and keeps anyone added in Google.
+  The club account is the organiser of every event, so a member needs no
+  access to the airplane's calendar to book.
   ✅tested
 - `googleCalendar.ts` — OAuth + Calendar REST by hand with fetch, same reasoning
   as `storage/s3.ts`. Reuses the sign-in OAuth client through its OWN consent
@@ -834,7 +841,15 @@ horizontal pull fades in an edge arrow and only a FULL pull, released, changes
 tab, so a vertical scroll that drifts laterally does nothing — rules in
 `lib/swipe.ts`. `touchcancel` never commits. `.app-scroll` is
 `overflow-x: hidden` for the same reason, and touches starting in an
-`overflow-x-auto` box are left to it), `LoadingProvider` (one shared splash), `AuthGate`,
+`overflow-x-auto` box are left to it), `PullToRefresh` + `usePullToRefresh(refetch)` (pull down from
+the TOP of a page to fetch it again — the native shape: `<main>` follows the
+finger (`contentOffset`) and uncovers a fixed circled arrow that fades in and
+turns over once armed, parking at `REVEAL_PX` while it fetches, with the
+transform taken back off at rest, only a full pull released
+counts; rules in `lib/pullRefresh.ts`, reusing `touchIntent` so a touch is never
+both. Reservations, Plane Status, Squawks and the log opt in. Because `<main>` moves, anything pinned to the window from inside a page (the phone "+") renders through `common/Floating`, a portal into <body> — a fixed child of a transformed <main> rides along with it. While a page is loading (the overlay is up) or refreshing, `<main>` and every `Floating` are `inert` + `aria-busy` (`components/pageBusy.ts`, held by `LoadingProvider` and `PullToRefresh`); the chrome stays live. `lib/haptics.ts`
+taps on release: Vibration API on Android, a hidden switch checkbox on iOS 18+,
+nothing elsewhere), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
 sign-in), `ReservationCalendar` (desktop month grid), `ReservationList`
 (phone), `ReservationModal`, `FlightDetailModal`, `FlightEntryModal` (add a flight to
@@ -1454,6 +1469,26 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   per-component nudge (`-mt-px`, `translate-y`) — that's this, and it's global.
   Swapping the sans face means recomputing the pair: ascent =
   (asc + desc + capHeight) / 2, descent = the remainder.
+- **A phone sheet drags by its GRIP only** (the handle + title row,
+  `data-sheet-grip`; `useSheetDrag`, rules in `lib/sheetDrag.ts`): down closes,
+  up grows it to 92dvh, down again restores it. The body is never a grip — it
+  scrolls. A drag-close sets `data-dragged`, which stands the exit animation
+  down so the sheet leaves from under the finger. The grip must stay
+  UNSELECTABLE (`select-none` + `preventDefault` on its press): with a mouse,
+  WebKit turns a press on selected text into a native drag-and-drop that
+  steals the pointer, so the drag after one that selected the title never hears
+  its release — the iPhone e2e leg is the only place that shows it. The header ✕ is named
+  "Close dialog" because footers now say "Close" (never "Cancel", which reads as
+  cancelling the booking itself) — specs match the footer one with
+  `exact: true`.
+- **A closing `Modal` stays mounted for 250ms** (`EXIT_MS`) so it can animate
+  out, showing the content it had while open. For that window it is
+  `aria-hidden` and `pointer-events-none`, so `getByRole("dialog")` and clicks
+  already behave as though it's gone; only a locator by raw text or CSS can
+  still find it. Motion curves are `@theme` tokens in globals.css (`ease-out`
+  is the STRONG curve app-wide, plus `ease-drawer`); Tailwind 4 scales with the
+  `scale` property, so a transition list that names `transform` won't animate
+  `active:scale-*`.
 - `Button` sets `inline-flex`; adding a `hidden sm:inline-flex` class to it is
   a stylesheet-order coin flip. Hide with a wrapper `<div className="hidden
   sm:block">`.

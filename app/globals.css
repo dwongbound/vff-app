@@ -4,6 +4,19 @@
 @config "../tailwind.config.ts";
 @import "tailwindcss";
 
+/* Motion curves. The built-in `ease-out`/`ease-in-out` are too gentle to read
+   as deliberate, so the app's are stronger, and every `ease-out` class picks
+   them up. `drawer` is the iOS sheet curve: fast off the mark, long settle.
+   `static` so the variables exist for the hand-written rules below even where
+   no utility uses them. Rules of thumb they serve: things ENTERING or LEAVING
+   use ease-out, things moving ON screen use ease-in-out, and UI motion stays
+   under 300ms (a sheet may take a little longer, being a bigger thing). */
+@theme static {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 @layer base {
   /* Tailwind v4 dropped the default `cursor: pointer` on buttons (it now uses
      the browser default). Restore the hand cursor on interactive elements. */
@@ -25,6 +38,20 @@
   }
   html.dark {
     color-scheme: dark;
+  }
+
+  /* Touch: a long press on a CONTROL doesn't select its label or pop the
+     copy/share callout, which no native control does. Controls only — text
+     people read stays selectable. (Tailwind's preflight already removes the
+     grey tap-highlight flash, which is why every control needs its own
+     press state — see Button.) */
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 
   /* The app shell scrolls its CONTENT, not the document.
@@ -211,7 +238,73 @@ html.dark .scrollbar-visible::-webkit-scrollbar-thumb {
 /* Respect "reduce motion": the splash animations are decorative, and the swipe
    pager's transitions are already short. Keep them from moving at all for
    anyone who asked the OS not to animate. */
+/* Modal (components/common/Modal.tsx). On a phone it's a sheet docked to the
+   bottom edge, so it rises from that edge and sinks back into it — a little
+   quicker out than in, since leaving is the system answering, not something
+   to watch. From `sm` up it's a centred card, which fades up from 96%: never
+   from nothing, and from its centre, which for a modal is right. The backdrop
+   fades under both. Fill is `backwards` on the way in, so nothing is left
+   holding a transform once the entry ends (a transform would make the panel
+   the containing block for every `fixed` popover inside it), and `forwards`
+   on the way out, so it stays gone until React unmounts it. */
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+}
+@keyframes modal-fade-out {
+  to { opacity: 0; }
+}
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+}
+@keyframes sheet-out {
+  to { transform: translateY(100%); }
+}
+@keyframes card-in {
+  from { opacity: 0; transform: scale(0.96); }
+}
+@keyframes card-out {
+  to { opacity: 0; transform: scale(0.96); }
+}
+.modal-backdrop {
+  animation: modal-fade-in 250ms var(--ease-out) backwards;
+}
+.modal-backdrop[data-closing] {
+  animation: modal-fade-out 200ms var(--ease-out) forwards;
+}
+.modal-panel {
+  animation: sheet-in 400ms var(--ease-drawer) backwards;
+}
+.modal-panel[data-closing] {
+  /* Keep in step with EXIT_MS in Modal.tsx. */
+  animation: sheet-out 250ms var(--ease-drawer) forwards;
+}
+/* A sheet dragged down and let go is already on its way out (useSheetDrag
+   slides it from under the finger), so its exit animation — which starts from
+   the top — stands down rather than snapping it back up first. */
+.modal-panel[data-closing][data-dragged] {
+  animation: none;
+}
+@media (min-width: 40rem) {
+  .modal-panel {
+    animation: card-in 200ms var(--ease-out) backwards;
+  }
+  .modal-panel[data-closing] {
+    animation: card-out 150ms var(--ease-out) forwards;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* Fewer, gentler — not none: the modal still fades, it just doesn't travel. */
+  .modal-panel {
+    animation: modal-fade-in 200ms ease backwards;
+  }
+  .modal-panel[data-closing] {
+    animation: modal-fade-out 150ms ease forwards;
+  }
+  .animate-fade-in-up {
+    animation-name: modal-fade-in !important;
+  }
+
   .animate-fly,
   .animate-drift,
   .animate-prop,

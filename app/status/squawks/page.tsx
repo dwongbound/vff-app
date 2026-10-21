@@ -21,6 +21,7 @@ import Textarea from "@/components/common/Textarea";
 import SquawkDraftModal, { type SquawkDraft } from "@/components/SquawkDraftModal";
 import { useOutbox, useOutboxSent } from "@/components/OutboxProvider";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
+import { usePullToRefresh } from "@/components/PullToRefresh";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
@@ -39,7 +40,7 @@ import type { ApiSquawk } from "@/lib/types";
 import { MD_UP, useMediaQuery } from "@/components/useMediaQuery";
 
 export default function SquawksPage() {
-  const { selected, loading: fleetLoading } = useAircraft();
+  const { selected, loading: fleetLoading, refreshAircraft } = useAircraft();
   const { me } = useMe();
   const outbox = useOutbox();
   const aircraftId = selected?.id ?? null;
@@ -82,6 +83,8 @@ export default function SquawksPage() {
   }, [load]);
   // A squawk queued with no signal just reached the club.
   useOutboxSent(load);
+  // The airplane too: the banner's counts and the grounded state ride on it.
+  usePullToRefresh(() => Promise.all([load(), refreshAircraft()]));
 
   // Jump to the linked row, ONCE, after the first load that has rows in it.
   //
@@ -277,60 +280,138 @@ function SquawkRow({
   onChanged: () => void;
 }) {
   // From the iPad up a squawk's details are simply part of the card — there's
-  // room to read them without asking. Only a phone folds them behind
-  // Details/Hide, where the list itself is the point.
+  // room to read them without asking. A phone shows the first two lines and
+  // the card's own header opens the rest: the thing you tap to read more is
+  // the thing you're reading, not a small link somewhere under it. Two small
+  // text links on one line ("Details", "Add a note") were two 15px targets
+  // that read as one word.
   const wide = useMediaQuery(MD_UP, true);
   const [open, setOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
+  const foldable = Boolean(squawk.description) && !wide;
+
+  const heading = (
+    <>
+      <span className="flex items-start gap-2">
+        {/* One status per card. An officer's is the picker beside (or, on a
+            narrow card, under) the title, in the status's own colour; a
+            member's is a badge in the same place. */}
+        <span className="min-w-0 flex-1 font-medium">{squawk.title}</span>
+        {foldable && (
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`mt-0.5 h-5 w-5 shrink-0 text-gray-400 transition-transform duration-200 ease-out ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        )}
+      </span>
+      <span className="block text-xs text-gray-500 dark:text-gray-400">
+        Noted {formatDay(new Date(squawk.createdAt))} by {squawk.reportedBy.name}
+      </span>
+      {squawk.description && (
+        <span
+          data-testid="squawk-description"
+          className={`mt-1 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300 ${
+            foldable && !open ? "line-clamp-2" : "block"
+          }`}
+        >
+          {squawk.description}
+        </span>
+      )}
+    </>
+  );
 
   return (
     <li id={`squawk-${squawk.id}`} className="scroll-mt-24">
       {/* A CONTAINER, so the row lays out by the card's width: on a phone
-          the status picker goes UNDER the title, full width, rather than
-          beside it squeezing the title into a column a few words wide. */}
+          the controls go UNDER the title, full width, rather than beside it
+          squeezing the title into a column a few words wide. */}
       <Card
-        className={`@container space-y-2 transition ${
+        className={`@container space-y-3 transition ${
           linked ? "ring-2 ring-indigo-400 dark:ring-indigo-500" : ""
         }`}
       >
-        <div className="flex flex-col gap-2 @xl:flex-row @xl:items-start @xl:justify-between">
-          <div className="min-w-0 flex-1">
-            {/* One status per card. An officer's is the picker beside (or,
-                on a narrow card, under) the title, in the status's own colour;
-                a member's is a badge in the same place. A second badge above
-                the title said the same thing twice. */}
-            <p className="font-medium">{squawk.title}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Noted {formatDay(new Date(squawk.createdAt))} by{" "}
-              {squawk.reportedBy.name}
-            </p>
-          </div>
+        <div className="flex flex-col gap-3 @xl:flex-row @xl:items-start @xl:justify-between">
+          {foldable ? (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              aria-label={`${squawk.title} — ${open ? "hide" : "show"} details`}
+              data-row-text
+              className="block min-w-0 flex-1 text-left"
+            >
+              {heading}
+            </button>
+          ) : (
+            <div data-row-text className="min-w-0 flex-1">
+              {heading}
+            </div>
+          )}
 
           {busy ? (
             <LoadingDots size="sm" />
           ) : canManage ? (
-            // The whole controlled vocabulary, in one place — the officer picks
-            // a status rather than pressing a verb, because the sheet's status
-            // list IS the workflow.
-            //
-            // Chips rather than a native <select>: these five values are a
-            // dispatch decision, and rendering "okay to fly" and "aircraft
-            // grounded" in identical grey makes the reader parse the sentence
-            // to find out which one is selected. Same tones the badge above
-            // uses, from lib/squawks.ts — one table, so the picker and the row
-            // can never disagree about what red means.
-            <ChipSelect
-              label="Status"
-              hideLabel
-              value={squawk.status}
-              onChange={onStatus}
-              className="w-full @xl:w-56"
-              options={SQUAWK_STATUSES.map((status) => ({
-                value: status,
-                label: SQUAWK_STATUS_LABELS[status],
-                tone: SQUAWK_STATUS_TONES[status],
-                hint: SQUAWK_STATUS_HINTS[status],
-              }))}
-            />
+            // The officer's two tools for a squawk sit together: the status
+            // (the dispatch decision) and the note (why). The note is an icon
+            // button rather than a text link so both are 44px targets on one
+            // row, and the picker keeps the width.
+            <div className="flex w-full items-stretch gap-2 @xl:w-auto">
+              {/* The whole controlled vocabulary, in one place, as coloured
+                  chips: "okay to fly" and "aircraft grounded" in identical
+                  grey make the reader parse the sentence. Same tones as the
+                  badge, from lib/squawks.ts. */}
+              <ChipSelect
+                label="Status"
+                hideLabel
+                value={squawk.status}
+                onChange={onStatus}
+                className="min-w-0 flex-1 @xl:w-56 @xl:flex-none"
+                options={SQUAWK_STATUSES.map((status) => ({
+                  value: status,
+                  label: SQUAWK_STATUS_LABELS[status],
+                  tone: SQUAWK_STATUS_TONES[status],
+                  hint: SQUAWK_STATUS_HINTS[status],
+                }))}
+              />
+              <button
+                type="button"
+                onClick={() => setEditingNote((v) => !v)}
+                aria-expanded={editingNote}
+                aria-label={squawk.note ? "Edit the Safety Officer's note" : "Add a Safety Officer's note"}
+                title={squawk.note ? "Edit note" : "Add a note"}
+                className={`flex min-h-11 w-11 shrink-0 items-center justify-center rounded-lg border
+                  transition-[background-color,scale] duration-150 ease-out active:scale-[0.97]
+                  ${
+                    editingNote
+                      ? "border-indigo-400 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-900/30 dark:text-indigo-300"
+                      : "border-gray-300 text-indigo-600 hover:bg-gray-50 dark:border-gray-600 dark:text-indigo-400 dark:hover:bg-gray-800"
+                  }`}
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+                </svg>
+              </button>
+            </div>
           ) : (
             // Read-only: the status where the picker would be, in full.
             <div className="flex shrink-0 items-center gap-1.5" data-testid="squawk-status">
@@ -344,22 +425,12 @@ function SquawkRow({
           )}
         </div>
 
-        {squawk.description && !wide && (
-          <button
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            {open ? "Hide" : "Details"}
-          </button>
-        )}
-        {squawk.description && (wide || open) && (
-          <p className="whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">
-            {squawk.description}
-          </p>
-        )}
-
-        <OfficerNote squawk={squawk} canManage={canManage} onSaved={onChanged} />
+        <OfficerNote
+          squawk={squawk}
+          editing={canManage && editingNote}
+          onDone={() => setEditingNote(false)}
+          onSaved={onChanged}
+        />
 
         {squawk.status === "CLOSED" && squawk.resolvedBy && (
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -374,33 +445,33 @@ function SquawkRow({
 }
 
 /**
- * The Safety Officer's note on a squawk. Everyone reads it; only someone with
- * `squawk:manage` sees Add note / Edit, and the route refuses anyone else.
- * Edited in place on the card — the note is a sentence or two about the
- * squawk in front of you, not a form of its own. Saving an empty box removes
- * it.
+ * The Safety Officer's note on a squawk. Everyone reads it; the pencil beside
+ * the status picker (only drawn for `squawk:manage`, and the route refuses
+ * anyone else) opens it for editing in place — the note is a sentence or two
+ * about the squawk in front of you, not a form of its own.
  */
 function OfficerNote({
   squawk,
-  canManage,
+  editing,
+  onDone,
   onSaved,
 }: {
   squawk: ApiSquawk;
-  canManage: boolean;
+  editing: boolean;
+  onDone: () => void;
   onSaved: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const note = squawk.note;
 
-  /** Open the editor on the current note (or an empty box). */
-  function startEditing() {
+  // Each time the editor opens, it opens on the note as it stands now.
+  useEffect(() => {
+    if (!editing) return;
     setDraft(note?.text ?? "");
     setError(null);
-    setEditing(true);
-  }
+  }, [editing, note?.text]);
 
   /** PATCH the note — `null` removes it — then reload the list. */
   async function save(text: string | null) {
@@ -412,7 +483,7 @@ function OfficerNote({
       setError(result.error ?? "Could not save the note.");
       return;
     }
-    setEditing(false);
+    onDone();
     onSaved();
   }
 
@@ -426,52 +497,72 @@ function OfficerNote({
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Parts on order, OK for local flights until then…"
           maxLength={MAX_SQUAWK_NOTE_CHARS}
+          autoFocus
         />
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => save(draft)} disabled={busy}>
+        {/* A phone row: full width, 44px, the confirm on the right. Remove is
+            destructive, so it takes the least room: an icon at the left edge,
+            the same 44px square as the pencil that opened the editor. Three
+            labelled buttons don't fit a phone's card without "Save note"
+            wrapping onto two lines. */}
+        <div className="flex gap-2 sm:justify-end">
+          {note && (
+            <button
+              type="button"
+              data-destructive
+              aria-label="Remove note"
+              title="Remove note"
+              onClick={() => save(null)}
+              disabled={busy}
+              className="flex min-h-11 w-11 shrink-0 items-center justify-center rounded-lg text-red-600
+                transition-[background-color,scale] duration-150 ease-out hover:bg-red-50
+                enabled:active:scale-[0.97] disabled:opacity-70 sm:mr-auto sm:min-h-9 sm:w-9
+                dark:text-red-400 dark:hover:bg-red-900/30"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 11v6M14 11v6" />
+              </svg>
+            </button>
+          )}
+          <Button
+            variant="secondary"
+            className="min-h-11 flex-1 whitespace-nowrap sm:min-h-0 sm:flex-none"
+            onClick={onDone}
+            disabled={busy}
+          >
+            Close
+          </Button>
+          <Button
+            className="min-h-11 flex-1 whitespace-nowrap sm:min-h-0 sm:flex-none"
+            onClick={() => save(draft.trim() ? draft : null)}
+            disabled={busy || (!note && !draft.trim())}
+          >
             {busy ? <LoadingDots size="sm" /> : "Save note"}
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
-            Cancel
-          </Button>
-          {note && (
-            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => save(null)} disabled={busy}>
-              Remove note
-            </Button>
-          )}
         </div>
       </div>
     );
   }
 
-  if (!note) {
-    if (!canManage) return null;
-    return (
-      <button
-        onClick={startEditing}
-        className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-      >
-        Add a note
-      </button>
-    );
-  }
+  if (!note) return null;
 
   return (
     <div className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900/40">
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          Safety Officer&rsquo;s note
-        </p>
-        {canManage && (
-          <button
-            onClick={startEditing}
-            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            Edit note
-          </button>
-        )}
-      </div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        Safety Officer&rsquo;s note
+      </p>
       <p className="mt-1 whitespace-pre-wrap text-sm">{note.text}</p>
       {(note.by || note.at) && (
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">

@@ -35,18 +35,30 @@ const SIZE_CLASSES: Record<Size, string> = {
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
+  /** Marks a button that destroys something (Delete, Remove, Reset). Implied
+   *  by `variant="danger"`; pass it for a quiet ghost Delete too. A modal
+   *  footer keeps these at their label's width while the actions beside them
+   *  share the rest of the row, so the safe choice is the bigger target. */
+  destructive?: boolean;
 }
 
+// Press feedback: a button gives a little under the finger (97%) the moment it
+// goes DOWN, not when the tap is released — releasing is when a click fires,
+// and feedback that waits for it reads as lag. Quick and ease-out, and not on
+// a disabled button, which shouldn't look like it took the press.
 export default function Button({
   variant = "primary",
   size = "md",
   className = "",
+  destructive,
   ...props
 }: ButtonProps) {
   return (
     <button
+      data-destructive={destructive || variant === "danger" || undefined}
       className={`inline-flex items-center justify-center gap-1.5 rounded-lg font-medium
-        transition-colors disabled:cursor-not-allowed disabled:opacity-70
+        transition-[color,background-color,border-color,scale] duration-150 ease-out
+        enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70
         ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
       {...props}
     />

@@ -56,7 +56,7 @@ export default function UtilisationChart({ months }: { months: MonthlyHours[] })
               <div key={m.label + i} className="group relative flex-1">
                 <div className="flex h-24 items-end">
                   <div
-                    className={`w-full rounded-t transition-all ${
+                    className={`w-full rounded-t transition-[height,background-color] duration-300 ease-out ${
                       m.hours === 0
                         ? "bg-gray-200 dark:bg-gray-700"
                         : isCurrent

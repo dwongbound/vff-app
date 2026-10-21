@@ -393,7 +393,7 @@ export default function GuidedTour() {
           {STEPS.map((_, i) => (
             <span
               key={i}
-              className={`h-1.5 rounded-full transition-all ${
+              className={`h-1.5 rounded-full transition-[width,background-color] duration-200 ease-out ${
                 i === index
                   ? "w-5 bg-indigo-600 dark:bg-indigo-400"
                   : "w-1.5 bg-gray-300 dark:bg-gray-600"
@@ -441,7 +441,7 @@ export default function GuidedTour() {
           <div
             aria-hidden="true"
             data-tour-spotlight={placement.key}
-            className="pointer-events-none absolute rounded-xl ring-2 ring-indigo-400 transition-all duration-200"
+            className="pointer-events-none absolute rounded-xl ring-2 ring-indigo-400 transition-[top,left,width,height] duration-200 ease-in-out"
             style={{
               top: placement.hole.top,
               left: placement.hole.left,

@@ -317,15 +317,17 @@ function RolesModal({
           })}
         </ul>
 
-        <div className="flex flex-col gap-2 sm:flex-row-reverse">
+        {/* One row, Close then Save: the confirming action on the right, as in
+            every modal footer. */}
+        <div className="flex justify-end gap-2 max-sm:gap-3 max-sm:[&>button]:min-h-11 max-sm:[&>button]:flex-1">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Close
+          </Button>
           <Button
             onClick={() => onSave({ positions: selected, clubMember })}
             disabled={busy}
           >
             {busy ? <LoadingDots size="sm" /> : "Save"}
-          </Button>
-          <Button variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
           </Button>
         </div>
       </div>

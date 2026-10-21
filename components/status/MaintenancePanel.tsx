@@ -468,7 +468,7 @@ function MarkDoneModal({
       footer={
         <>
           <Button variant="secondary" onClick={onCancel} disabled={busy}>
-            Cancel
+            Close
           </Button>
           <Button onClick={onConfirm} disabled={busy}>
             {busy ? <LoadingDots size="sm" /> : "Mark done"}
@@ -621,6 +621,7 @@ function MaintenanceItemModal({
           {item && !confirmingDelete && (
             <Button
               variant="ghost"
+              destructive
               className="mr-auto"
               disabled={busy}
               onClick={() => setConfirmingDelete(true)}
@@ -630,16 +631,16 @@ function MaintenanceItemModal({
           )}
           {item && confirmingDelete && (
             <div className="mr-auto flex gap-2">
-              <Button variant="secondary" size="sm" disabled={busy} onClick={() => remove(false)}>
+              <Button variant="secondary" destructive disabled={busy} onClick={() => remove(false)}>
                 Retire
               </Button>
-              <Button variant="danger" size="sm" disabled={busy} onClick={() => remove(true)}>
+              <Button variant="danger" disabled={busy} onClick={() => remove(true)}>
                 Delete
               </Button>
             </div>
           )}
           <Button variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            Close
           </Button>
           <Button onClick={save} disabled={busy || !label.trim()}>
             {busy ? <LoadingDots size="sm" /> : "Save"}

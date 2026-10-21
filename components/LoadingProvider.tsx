@@ -35,6 +35,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import LoadingScreen from "./common/LoadingScreen";
+import { holdPageBusy } from "./pageBusy";
 
 type Controls = {
   begin: () => void;
@@ -110,6 +111,14 @@ export default function LoadingProvider({
   if (visible && !rendered) setRendered(true);
 
   const begin = useCallback(() => setNavigating(true), []);
+
+  // The page under the overlay is disabled for as long as the overlay is up:
+  // the splash covers it to the eye, but not to a keyboard or a screen
+  // reader, and not during the fade-out.
+  useIsomorphicLayoutEffect(() => {
+    if (!visible) return;
+    return holdPageBusy();
+  }, [visible]);
 
   const report = useCallback((key: string, loading: boolean) => {
     setLoadingKeys((prev) => {

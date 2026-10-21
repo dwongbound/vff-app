@@ -105,7 +105,7 @@ export default function ChipSelect<T extends string>({
         // comes first, which is also what makes the control findable by name
         // regardless of what it's currently set to.
         aria-labelledby={`${labelId} ${valueId}`}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left transition-colors hover:border-gray-400 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:border-gray-500"
+        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left transition-[border-color,scale] duration-150 ease-out active:scale-[0.97] hover:border-gray-400 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:border-gray-500"
       >
         <span id={valueId}>
           <Badge tone={current.tone}>{current.label}</Badge>

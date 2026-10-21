@@ -21,12 +21,15 @@ import { usePathname } from "next/navigation";
 import Navbar from "./Navbar";
 import SwipePager from "./SwipePager";
 import OutboxStrip from "./OutboxStrip";
+import PullToRefresh from "./PullToRefresh";
 import { SwipeProvider } from "./SwipeProvider";
 import { APP_SCROLL_ID } from "@/lib/appScroll";
+import { usePageBusy } from "./pageBusy";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const chromeless = pathname === "/login";
+  const busy = usePageBusy();
 
   return (
     // SwipeProvider wraps the navbar (which registers the tab list) and the
@@ -43,15 +46,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         className={`app-scroll ${chromeless ? "" : "md:pl-60"}`}
       >
         {/* Extra bottom padding below `md` so content can scroll clear of the
-            floating bottom nav bar (see Navbar.tsx), which itself sits above
-            the iPhone's home bar — hence the safe-area term. */}
-        <main className="mx-auto max-w-5xl px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 md:pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+            floating bottom nav bar (see Navbar.tsx). */}
+        {/* Inert while the page is loading or being fetched again, so a tap
+            can't land on something about to be replaced (pageBusy.ts). */}
+        <main
+          inert={busy}
+          aria-busy={busy || undefined}
+          className="mx-auto max-w-5xl px-4 pb-28 pt-6 md:pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
           {/* What's on this device and not yet with the club, and whether the
               page is live. Above the pager so it doesn't fade with a swipe,
               and renders nothing at all in the ordinary case. */}
           {!chromeless && <OutboxStrip />}
           <SwipePager>{children}</SwipePager>
         </main>
+        {!chromeless && <PullToRefresh />}
       </div>
     </SwipeProvider>
   );

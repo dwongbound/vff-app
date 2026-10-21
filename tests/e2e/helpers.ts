@@ -243,6 +243,49 @@ export async function swipeLeft(page: Page, distance = 260): Promise<void> {
 }
 
 /**
+ * Pull the page down from near the top, the way a thumb asks for a refresh —
+ * driven with the same `touches`-carrying plain events as `swipeLeft`, for the
+ * same WebKit reason.
+ */
+export async function pullDown(
+  page: Page,
+  distance = 160,
+  { release = true }: { release?: boolean } = {}
+): Promise<() => Promise<void>> {
+  // `release: false` holds the finger down so a spec can look at the page
+  // mid-pull; the returned function lifts it.
+  const lift = (travel: number) =>
+    page.evaluate((travel) => {
+      const w = window as unknown as { __pullLift?: () => void };
+      w.__pullLift?.();
+      void travel;
+    }, travel);
+  await page.evaluate(async ({ travel, release }) => {
+    const x = Math.round(window.innerWidth / 2);
+    const startY = 180;
+    const target = document.elementFromPoint(x, startY) ?? document.body;
+    const fire = (type: string, y: number) => {
+      const touch = { identifier: 1, target, clientX: x, clientY: y };
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", {
+        value: type === "touchend" ? [] : [touch],
+      });
+      Object.defineProperty(event, "changedTouches", { value: [touch] });
+      target.dispatchEvent(event);
+    };
+    fire("touchstart", startY);
+    for (let step = 1; step <= 10; step++) {
+      fire("touchmove", startY + (travel * step) / 10);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const end = () => fire("touchend", startY + travel);
+    if (release) end();
+    else (window as unknown as { __pullLift?: () => void }).__pullLift = end;
+  }, { travel: distance, release });
+  return () => lift(distance);
+}
+
+/**
  * Read a form's "Tach start" box once it has SETTLED.
  *
  * The start box follows the best reading the app knows — your open flight,
@@ -354,7 +397,7 @@ export async function expectFormsFitTouchScreen(page: Page) {
   await page.getByRole("button", { name: /^New( reservation)?$/ }).filter({ visible: true }).first().click();
   await expect(page.getByRole("dialog").getByLabel("Start", { exact: true })).toBeVisible();
   await check("booking sheet");
-  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Close dialog" }).click();
 
   await page.goto("/log");
   await main.getByRole("button", { name: /Add flight/ }).filter({ visible: true }).first().click();
@@ -373,7 +416,7 @@ async function expectRowsNotSqueezed(rows: Locator, label: string) {
   expect(await rows.count(), `${label}: no rows to check`).toBeGreaterThan(0);
   for (const row of (await rows.all()).slice(0, 3)) {
     const rowWidth = (await row.boundingBox())!.width;
-    const text = (await row.locator("p").first().boundingBox())!.width;
+    const text = (await row.locator("p, [data-row-text]").first().boundingBox())!.width;
     expect(text, `${label}: a row's text is squeezed beside its controls`).toBeGreaterThan(
       rowWidth * 0.6
     );
@@ -404,12 +447,12 @@ export async function expectStatusPagesReadable(page: Page, device: string) {
   await expect(squawks.first()).toBeVisible({ timeout: 60_000 });
   expect(await widerThanTheScreen(page)).toEqual([]);
   await expectRowsNotSqueezed(squawks, "squawks");
-  // A squawk's details fold behind "Details" on a phone; from the iPad up
-  // they're just shown, with nothing to hide them.
+  // A squawk's details fold to two lines on a phone, opened by the card's
+  // own header; from the iPad up they're just shown, with nothing to fold.
   if (device === "iphone") {
-    await expect(squawks.getByRole("button", { name: "Details" }).first()).toBeVisible();
+    await expect(squawks.getByRole("button", { name: /show details$/ }).first()).toBeVisible();
   } else {
-    await expect(squawks.getByRole("button", { name: /^(Details|Hide)$/ })).toHaveCount(0);
+    await expect(squawks.getByRole("button", { name: /(show|hide) details$/ })).toHaveCount(0);
   }
   await page.screenshot({ path: `test-results/squawks-${device}.png` });
 

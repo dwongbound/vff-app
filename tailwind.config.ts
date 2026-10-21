@@ -132,8 +132,10 @@ const config: Config = {
         drift: "drift 4s linear infinite",
         "pulse-name": "pulse-name 1.8s ease-in-out infinite",
         radiate: "radiate 2s ease-out infinite",
-        "check-draw": "check-draw 0.4s ease-out forwards",
-        "fade-in-up": "fade-in-up 0.15s ease-out forwards",
+        // Ticked dozens of times a walk, so short: 250ms on the strong ease-out
+        // (globals.css). The tick itself lands instantly; this is the mark.
+        "check-draw": "check-draw 0.25s cubic-bezier(0.23, 1, 0.32, 1) forwards",
+        "fade-in-up": "fade-in-up 0.2s cubic-bezier(0.23, 1, 0.32, 1) backwards",
       },
     },
   },

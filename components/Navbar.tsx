@@ -788,14 +788,22 @@ export default function Navbar() {
       )}
 
       {/* Above the backdrop while a sheet is open, so the sheet and the other
-          tabs stay tappable. */}
+          tabs stay tappable. A flat bottom-6 with no safe-area term: until the
+          viewport went viewport-fit=cover that term was always 0, and this is
+          the height members are used to — adding the home bar's 34px on top
+          lifted the pill noticeably. */}
       <nav
-        className={`fixed inset-x-4 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] md:hidden ${
+        className={`fixed inset-x-4 bottom-6 md:hidden ${
           openSheet !== null ? "z-50" : "z-30"
         }`}
       >
+        {/* A GRID of equal columns, not a flex row: a group tab is a wrapper
+            div around its button while a plain tab is the link itself, and
+            flex-1 hands the link's own padding on top of an equal share — the
+            first three tabs came out 8px narrower than the rest and every
+            icon sat off the bar's rhythm. */}
         <div
-          className={`mx-auto flex items-stretch rounded-full border border-gray-200/60 bg-white/50 px-1.5 py-1.5 shadow-lg backdrop-blur-xl transition-all duration-300 ease-in-out dark:border-gray-700/60 dark:bg-gray-800/50 ${
+          className={`mx-auto grid auto-cols-fr grid-flow-col items-stretch rounded-full border border-gray-200/60 bg-white/50 px-1.5 py-1.5 shadow-lg backdrop-blur-xl transition-[max-width] duration-300 ease-in-out dark:border-gray-700/60 dark:bg-gray-800/50 ${
             // Scroll down → also pull the pill in horizontally (centered), so it
             // reads as a compact icons-only bar rather than a full-width one.
             bottomBarCompact ? "max-w-xs" : "max-w-md"
@@ -806,7 +814,7 @@ export default function Navbar() {
             const label = (
               // Labels collapse to nothing on scroll down, leaving icons only.
               <span
-                className={`overflow-hidden text-[10px] font-medium leading-tight transition-all duration-300 ease-in-out ${
+                className={`overflow-hidden text-[10px] font-medium leading-tight transition-[max-height,opacity] duration-300 ease-in-out ${
                   bottomBarCompact ? "max-h-0 opacity-0" : "max-h-4 opacity-100"
                 }`}
               >
@@ -1302,7 +1310,7 @@ function PillSheet({ children }: { children: ReactNode }) {
   return (
     <div
       ref={ref}
-      className="absolute bottom-full left-1/2 mb-2 w-48 max-w-[calc(100vw-1rem)] -translate-x-1/2 animate-fade-in-up rounded-xl border border-gray-200/60 bg-white/90 p-1 shadow-lg backdrop-blur-xl dark:border-gray-700/60 dark:bg-gray-800/90"
+      className="absolute bottom-full left-1/2 mb-2 w-48 max-w-[calc(100vw-1rem)] -translate-x-1/2 origin-bottom animate-fade-in-up rounded-xl border border-gray-200/60 bg-white/90 p-1 shadow-lg backdrop-blur-xl dark:border-gray-700/60 dark:bg-gray-800/90"
       role="menu"
     >
       {children}

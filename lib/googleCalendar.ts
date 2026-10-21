@@ -280,10 +280,23 @@ export function getEvent<E>(refreshToken: string, calendarId: string, eventId: s
   return call<E>(refreshToken, `/calendars/${enc(calendarId)}/events/${enc(eventId)}`);
 }
 
-export function insertEvent<E>(refreshToken: string, calendarId: string, body: unknown) {
+/**
+ * Who Google emails about a write: "all" invites/updates every guest, "none"
+ * changes the event silently. Without it Google emails nobody — guests on a
+ * non-Gmail address would never hear they were invited.
+ */
+export type SendUpdates = "all" | "none";
+
+export function insertEvent<E>(
+  refreshToken: string,
+  calendarId: string,
+  body: unknown,
+  sendUpdates: SendUpdates = "none"
+) {
   return call<E>(refreshToken, `/calendars/${enc(calendarId)}/events`, {
     method: "POST",
     body,
+    query: { sendUpdates },
   });
 }
 
@@ -291,10 +304,12 @@ export function patchEvent<E>(
   refreshToken: string,
   calendarId: string,
   eventId: string,
-  body: unknown
+  body: unknown,
+  sendUpdates: SendUpdates = "none"
 ) {
   return call<E>(refreshToken, `/calendars/${enc(calendarId)}/events/${enc(eventId)}`, {
     method: "PATCH",
     body,
+    query: { sendUpdates },
   });
 }
