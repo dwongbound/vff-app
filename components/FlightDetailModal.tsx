@@ -43,6 +43,8 @@ import { canEditLogEntry, isOpenSession } from "@/lib/flightSession";
 import { hasContent } from "@/lib/markdown";
 import RichTextEditor, { RichTextView } from "./common/RichText";
 import type { ApiFlight, ApiMember } from "@/lib/types";
+import { FlightTypeChip, FlightTypeSelect } from "@/components/FlightType";
+import type { Purpose } from "@/lib/constants";
 
 /** The editable half of a log entry, as the inputs hold it (strings). */
 interface EditForm {
@@ -65,6 +67,7 @@ interface EditForm {
   oilAddedQts: string;
   withInstructor: boolean;
   instructorId: string;
+  purpose: Purpose | "";
   notes: string;
   /** The pilot's write-up, as markdown. See lib/markdown.ts. */
   logEntry: string;
@@ -95,6 +98,7 @@ function formFor(flight: ApiFlight): EditForm {
     oilAddedQts: text(flight.oilAddedQts),
     withInstructor: flight.withInstructor,
     instructorId: flight.instructor?.id ?? "",
+    purpose: flight.purpose ?? "",
     notes: flight.notes ?? "",
     logEntry: flight.logEntry ?? "",
   };
@@ -244,6 +248,7 @@ export default function FlightDetailModal({
       // leave a CFI's name on a flight they weren't on.
       instructorId:
         form.withInstructor && form.instructorId ? form.instructorId : null,
+      purpose: form.purpose || null,
       notes: form.notes.trim() || null,
       // The write-up, but only from its author — the route refuses it from
       // anyone else, and sending it anyway would turn an admin's correction of
@@ -384,6 +389,11 @@ export default function FlightDetailModal({
               type="date"
               value={form.flownOn}
               onChange={(e) => set({ flownOn: e.target.value })}
+            />
+
+            <FlightTypeSelect
+              value={form.purpose}
+              onChange={(purpose) => set({ purpose })}
             />
 
             {/* Out and in. Recorded by the cards' own time fields when they
@@ -583,6 +593,12 @@ export default function FlightDetailModal({
                 hasn&apos;t been closed out — finish it on the post-flight form,
                 or fill in the end readings here and file it.
               </p>
+            )}
+
+            {flight.purpose && (
+              <div>
+                <FlightTypeChip purpose={flight.purpose} />
+              </div>
             )}
 
             {/* Meters, side by side the way they read on the panel. An unread

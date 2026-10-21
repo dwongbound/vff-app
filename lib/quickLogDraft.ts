@@ -28,6 +28,8 @@ export interface QuickLogForm {
   fuelCost: string;
   oilAdded: string;
   paidPersonally: boolean;
+  /** The flight type, as the select holds it ("" = not set). */
+  purpose?: string;
   /**
    * Which start boxes the member typed over. An untouched start box follows
    * the app's best reading; a typed one must come back as typed, not be
@@ -100,6 +102,8 @@ export function parseQuickLogDraft(
     if (typeof d[field] !== "string") return null;
   }
   if (typeof d.paidPersonally !== "boolean") return null;
+  // Optional: drafts saved before the type picker existed simply have none.
+  if (d.purpose !== undefined && typeof d.purpose !== "string") return null;
   const edited = d.edited as Record<string, unknown> | undefined;
   if (
     !edited ||

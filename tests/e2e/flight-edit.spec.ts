@@ -104,3 +104,56 @@ test("the estimated cost explains its own arithmetic", async ({ page }) => {
 
   await page.request.delete(`/api/flights/${flight.id}`);
 });
+
+test("a flight's type shows as a chip on the log, and can be corrected", async ({ page }) => {
+  const fleet = await page.request.get("/api/aircraft");
+  const [aircraft] = (await fleet.json()) as { id: string; lastTach: number }[];
+  const tachStart = aircraft.lastTach;
+
+  // An unknown type is refused, not quietly dropped.
+  const refused = await page.request.post("/api/flights", {
+    data: {
+      aircraftId: aircraft.id,
+      tachStart,
+      tachEnd: Number((tachStart + 0.5).toFixed(2)),
+      purpose: "JOYRIDE",
+    },
+  });
+  expect(refused.status()).toBe(400);
+
+  const res = await page.request.post("/api/flights", {
+    data: {
+      aircraftId: aircraft.id,
+      flownOn: new Date().toISOString(),
+      tachStart,
+      tachEnd: Number((tachStart + 0.5).toFixed(2)),
+      landings: 4,
+      departure: "KTOA",
+      arrival: "KCMA",
+      purpose: "TRAINING_SOLO",
+    },
+  });
+  expect(res.ok()).toBe(true);
+  const flight = (await res.json()) as { id: string; purpose: string };
+  expect(flight.purpose).toBe("TRAINING_SOLO");
+
+  await gotoTab(page, "/log", "Flight log");
+  const row = page.getByRole("main").getByRole("button").filter({ hasText: "KCMA" }).first();
+  // Short on the row ("Solo"), in full in the entry itself.
+  await expect(row.getByText("Solo", { exact: true })).toBeVisible();
+
+  await row.click();
+  const modal = page.getByRole("dialog");
+  await expect(modal.getByText("Training (Solo)", { exact: true })).toBeVisible();
+  await modal.getByRole("button", { name: "Edit" }).click();
+  const type = modal.getByLabel("Flight type");
+  await expect(type).toHaveValue("TRAINING_SOLO");
+  await type.selectOption("LOCAL");
+  await modal.getByRole("button", { name: "Save" }).click();
+  await expect(modal.getByText("Local flight", { exact: true })).toBeVisible({ timeout: 60_000 });
+
+  const after = await page.request.get(`/api/flights/${flight.id}`);
+  expect(((await after.json()) as { purpose: string }).purpose).toBe("LOCAL");
+
+  await page.request.delete(`/api/flights/${flight.id}`);
+});

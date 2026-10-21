@@ -143,3 +143,54 @@ test("a double booking is rejected with a useful message", async ({ page }) => {
 
   await expect(page.getByText(new RegExp(`already has ${TAIL_NUMBER}`))).toBeVisible();
 });
+
+test("Training (Solo) can be booked, with no instructor to pick", async ({ page }) => {
+  await page.getByRole("button", { name: "New", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  const purpose = dialog.getByLabel("Purpose");
+  await purpose.selectOption("TRAINING");
+  await expect(dialog.getByLabel("Instructor (optional)")).toBeVisible();
+  // A solo is training with nobody beside you, so there's no CFI to name.
+  await purpose.selectOption({ label: "Training (Solo)" });
+  await expect(dialog.getByLabel("Instructor (optional)")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Close dialog" }).click();
+});
+
+test("past bookings stay on the desktop calendar, a month back as well", async ({ page }) => {
+  const [aircraft] = await page.request.get("/api/aircraft").then((r) => r.json());
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 30);
+  const rows = (await page.request
+    .get(
+      `/api/reservations?aircraftId=${aircraft.id}&from=${from.toISOString()}&to=${now.toISOString()}`
+    )
+    .then((r) => r.json())) as { startsAt: string; endsAt: string }[];
+  // The seed's lesson three days ago is one of these.
+  const past = rows.find((r) => new Date(r.endsAt) < now);
+  expect(past).toBeTruthy();
+
+  // Step back to the month it was in (usually this one), and it's drawn there,
+  // dimmed as done but still a booking you can open.
+  const when = new Date(past!.startsAt);
+  const back =
+    (now.getFullYear() - when.getFullYear()) * 12 + (now.getMonth() - when.getMonth());
+  const main = page.getByRole("main");
+  for (let i = 0; i < back; i++) {
+    await main.getByRole("button", { name: "Previous month" }).click();
+  }
+  const dimmed = main.locator("button.opacity-50");
+  await expect(dimmed.first()).toBeVisible();
+  await dimmed.first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Close dialog" }).click();
+
+  // And a month further back asks the server for that month too.
+  const fetched = page.waitForRequest((r) => {
+    if (!r.url().includes("/api/reservations?")) return false;
+    const asked = new Date(new URL(r.url()).searchParams.get("from")!);
+    return asked < new Date(when.getFullYear(), when.getMonth(), 1);
+  });
+  await main.getByRole("button", { name: "Previous month" }).click();
+  await fetched;
+});

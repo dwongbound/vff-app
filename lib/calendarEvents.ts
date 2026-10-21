@@ -83,6 +83,7 @@ export function guessPurpose(title: string | null | undefined): Purpose {
   const t = (title ?? "").toLowerCase();
   if (/\bcheck\s?ride\b/.test(t)) return "CHECKRIDE";
   if (/\b(maint\w*|annual|oil change|mx)\b/.test(t)) return "MAINTENANCE";
+  if (/\bsolo\b/.test(t)) return "TRAINING_SOLO";
   if (/\b(lesson|training|instruction|checkout|dual)\b/.test(t)) return "TRAINING";
   if (/\b(cross[\s-]?country|xc)\b/.test(t)) return "CROSS_COUNTRY";
   return "LOCAL";
@@ -216,6 +217,7 @@ const TITLE_PURPOSE: Record<Purpose, string> = {
   LOCAL: "Local flight",
   CROSS_COUNTRY: "Cross-country",
   TRAINING: "Lesson",
+  TRAINING_SOLO: "Solo",
   CHECKRIDE: "Checkride",
   MAINTENANCE: "Maintenance",
 };

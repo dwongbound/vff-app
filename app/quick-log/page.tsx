@@ -82,6 +82,8 @@ import {
   validateMeters,
 } from "@/lib/hours";
 import type { ApiCheckout, ApiFlightSummary } from "@/lib/types";
+import { FlightTypeSelect } from "@/components/FlightType";
+import { isPurpose, type Purpose } from "@/lib/constants";
 
 export default function QuickLogPage() {
   const { selected, loading: fleetLoading } = useAircraft();
@@ -104,6 +106,7 @@ export default function QuickLogPage() {
   // quietly swallow money somebody is owed. Same default, and the same
   // reasoning, as Servicing's `paidPersonally`.
   const [paidPersonally, setPaidPersonally] = useState(true);
+  const [purpose, setPurpose] = useState<Purpose | "">("");
   // The fuel half is folded away until it's wanted: most flights put nothing
   // in, and three empty boxes on a page whose whole promise is "four numbers"
   // would undo the promise.
@@ -233,6 +236,7 @@ export default function QuickLogPage() {
     setFuelCost("");
     setOilAdded("");
     setPaidPersonally(true);
+    setPurpose("");
     setShowFuel(false);
     setEdited({ tachStart: false, hobbsStart: false });
   }
@@ -254,6 +258,7 @@ export default function QuickLogPage() {
       setFuelCost(draft.fuelCost);
       setOilAdded(draft.oilAdded);
       setPaidPersonally(draft.paidPersonally);
+      setPurpose(isPurpose(draft.purpose) ? draft.purpose : "");
       setEdited(draft.edited);
       setShowFuel(Boolean(draft.fuelAdded || draft.fuelCost || draft.oilAdded));
       setDraftSavedAt(draft.savedAt);
@@ -282,6 +287,7 @@ export default function QuickLogPage() {
       fuelCost,
       oilAdded,
       paidPersonally,
+      purpose,
       edited,
     };
     if (!quickLogHasProgress(form)) {
@@ -308,6 +314,7 @@ export default function QuickLogPage() {
     fuelCost,
     oilAdded,
     paidPersonally,
+    purpose,
     edited,
   ]);
 
@@ -486,6 +493,8 @@ export default function QuickLogPage() {
       // not raise a credit — the server is what enforces that, this is the
       // member's answer to it.
       fuelPaidPersonally: paidPersonally,
+      // Not set = let the server take the open session's type, if it has one.
+      ...(purpose ? { purpose } : {}),
       oilAddedQts: oilAdded === "" ? null : Number(oilAdded),
       // No turn-off answers, and that's the honest thing: those ticks mean "I
       // confirmed this at the airplane", and there is no way to answer them
@@ -541,6 +550,7 @@ export default function QuickLogPage() {
     setFuelCost("");
     setOilAdded("");
     setPaidPersonally(true);
+    setPurpose("");
     setShowFuel(false);
 
     // Queued means the club has nothing new yet, so there's nothing to re-ask —
@@ -704,6 +714,8 @@ export default function QuickLogPage() {
             onChange={(e) => setFlownOn(e.target.value)}
           />
         </div>
+
+        <FlightTypeSelect value={purpose} onChange={setPurpose} />
 
         {meterError ? (
           <p className="text-sm text-red-600 dark:text-red-400">{meterError}</p>

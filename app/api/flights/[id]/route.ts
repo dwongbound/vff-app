@@ -17,6 +17,7 @@
 //          only ever fills fields in makes a guess permanent.
 // DELETE — remove it, and the bytes of any photos attached.
 import { NextResponse } from "next/server";
+import { purposeFromBody } from "@/lib/constants";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { purgePhotosFor } from "@/lib/photos";
@@ -114,6 +115,7 @@ export async function PATCH(
       cabinClean: true,
       withInstructor: true,
       instructorId: true,
+      purpose: true,
     },
   });
   if (!existing) {
@@ -229,6 +231,12 @@ export async function PATCH(
     }
     data.flownOn = flownOn;
   }
+  // The flight's type: a correction like any other, and only when named.
+  const purpose = purposeFromBody(body);
+  if (purpose === "invalid") {
+    return NextResponse.json({ error: "Unknown flight type." }, { status: 400 });
+  }
+  if (purpose !== undefined) data.purpose = purpose;
   // Changing WHO is to sign this entry is a correction like any other, and is
   // available for the same reason the rest of this route is: a lesson filed
   // with the wrong instructor (or none) otherwise has no way back.

@@ -56,6 +56,8 @@ export interface PostflightForm {
   nightLandings: string;
   withInstructor: boolean;
   instructorId: string;
+  /** The flight type as the select holds it — "" = not set. */
+  purpose: string;
   departure: string;
   arrival: string;
   route: string;
@@ -201,6 +203,8 @@ export function parsePostflightDraft(
     nightLandings: str(row.nightLandings),
     withInstructor: bool(row.withInstructor),
     instructorId: str(row.instructorId),
+    // Absent on drafts saved before the type picker; str() reads that as "".
+    purpose: str(row.purpose),
     departure: str(row.departure),
     arrival: str(row.arrival),
     route: str(row.route),
@@ -290,6 +294,7 @@ export function postflightDraftHasProgress(form: PostflightForm): boolean {
   if (Object.values(form.turnoffAnswers).some(Boolean)) return true;
   if (form.withInstructor || form.instructorId !== "") return true;
   if (form.reservationId !== "") return true;
+  if (form.purpose !== "") return true;
   if (Object.values(form.edited).some(Boolean)) return true;
 
   const typed = [
