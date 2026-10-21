@@ -52,7 +52,9 @@ import AddMoneyModal from "@/components/finances/AddMoneyModal";
 import ExportFinancesModal from "@/components/finances/ExportFinancesModal";
 import SendInvoicesModal from "@/components/finances/SendInvoicesModal";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
+import Floating from "@/components/common/Floating";
 import { usePageLoading } from "@/components/LoadingProvider";
+import { usePullToRefresh } from "@/components/PullToRefresh";
 import { useMe } from "@/components/MeProvider";
 import { fetchJsonArray, fetchJsonObject, sendJson } from "@/lib/api";
 import { getAppScroller } from "@/lib/appScroll";
@@ -226,6 +228,11 @@ export default function FinancesPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Pull down to re-read whichever view is on screen — Me, by person or by
+  // month, narrowed to a member or not — keeping every month already loaded,
+  // so the list doesn't collapse back to the top under the thumb that pulled.
+  usePullToRefresh(() => reload(Math.max(PAGE_MONTHS, ledger?.months.length ?? 0)));
 
   const loadMore = useCallback(async () => {
     if (!ledger?.nextBefore || loadingMoreRef.current) return;
@@ -599,13 +606,16 @@ export default function FinancesPage() {
         />
       )}
 
+      {/* In <body>, not here: see Floating — <main> moves during a pull. */}
       {toast && (
-        <div
-          role="alert"
-          className="fixed inset-x-4 bottom-24 z-40 mx-auto max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-gray-100 dark:text-gray-900 md:bottom-6"
-        >
-          {toast}
-        </div>
+        <Floating>
+          <div
+            role="alert"
+            className="fixed inset-x-4 bottom-24 z-40 mx-auto max-w-sm rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-gray-100 dark:text-gray-900 md:bottom-6"
+          >
+            {toast}
+          </div>
+        </Floating>
       )}
 
       {addFor && me && (
