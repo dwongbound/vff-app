@@ -284,8 +284,10 @@ tab gets them. The squawk cards and maintenance rows lay out by the CARD's
 width (`@container` / `@xl:` container queries), not the screen's: the
 control (status picker, Mark done) goes under the text until the card is
 wide, which on an iPad — narrower column, because of the rail — it isn't.
-A squawk's description is simply shown from `md` up and folds behind
-Details/Hide only on a phone (`useMediaQuery`). Sub-tabs rather than rail entries: the rail lists places you go
+A squawk's description is simply shown from `md` up; on a phone it's clamped
+to two lines and the card's HEADER (title + chevron) is the button that opens
+it (`useMediaQuery`). The officer's note is a 44px pencil beside the status
+picker, not a text link — two small links on one line read as one word. Sub-tabs rather than rail entries: the rail lists places you go
 during a flying day, and Navbar's `isActive` uses `startsWith`, so
 `/status/squawks` keeps the Status entry lit for free. `preflight` and `runway` are the two before-the-
 flight checkouts — separate pages with separate sign-offs, because they're
@@ -840,8 +842,10 @@ tab, so a vertical scroll that drifts laterally does nothing — rules in
 `lib/swipe.ts`. `touchcancel` never commits. `.app-scroll` is
 `overflow-x: hidden` for the same reason, and touches starting in an
 `overflow-x-auto` box are left to it), `PullToRefresh` + `usePullToRefresh(refetch)` (pull down from
-the TOP of a page to fetch it again — the swipe's sibling: the page never moves,
-a circled arrow fades in and turns over once armed, only a full pull released
+the TOP of a page to fetch it again — the native shape: `<main>` follows the
+finger (`contentOffset`) and uncovers a fixed circled arrow that fades in and
+turns over once armed, parking at `REVEAL_PX` while it fetches, with the
+transform taken back off at rest, only a full pull released
 counts; rules in `lib/pullRefresh.ts`, reusing `touchIntent` so a touch is never
 both. Reservations, Plane Status, Squawks and the log opt in. `lib/haptics.ts`
 taps on release: Vibration API on Android, a hidden switch checkbox on iOS 18+,

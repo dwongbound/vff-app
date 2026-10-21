@@ -9,8 +9,14 @@
 
 /** Finger travel, in px, that arms a refresh. */
 export const REFRESH_PX = 96;
-/** The arrow's own travel down the screen is this fraction of the finger's… */
-export const FOLLOW = 0.5;
+/** The content follows the finger at this fraction of its travel… */
+export const FOLLOW = 0.75;
+/**
+ * …which, at the arming point, has uncovered this much: the 44px indicator
+ * plus the space above and below it. While the refetch runs the content is
+ * parked here, so the spinner stays in view.
+ */
+export const REVEAL_PX = REFRESH_PX * FOLLOW;
 
 /**
  * Whether a touch that has moved (mx, my) is a pull-to-refresh, given that it
@@ -31,16 +37,16 @@ export function refreshProgress(my: number): number {
 }
 
 /**
- * How far down the arrow is drawn for a finger `my` px down. It follows at
- * half speed up to the arming point and then resists (a square-root rubber
- * band), so a long pull still gives under the thumb without the arrow
- * wandering off down the page.
+ * How far the page CONTENT is drawn down for a finger `my` px down. It follows
+ * at `FOLLOW` speed up to the arming point — far enough by then to have
+ * uncovered the whole indicator, `REVEAL_PX` — and then resists (a
+ * square-root rubber band), so a long pull still gives under the thumb
+ * without the page sliding off the bottom of the screen.
  */
-export function indicatorOffset(my: number): number {
+export function contentOffset(my: number): number {
   if (my <= 0) return 0;
-  const armed = REFRESH_PX * FOLLOW;
   if (my <= REFRESH_PX) return my * FOLLOW;
-  return armed + Math.sqrt(my - REFRESH_PX) * 2;
+  return REVEAL_PX + Math.sqrt(my - REFRESH_PX) * 3;
 }
 
 /** The arrow's rotation in degrees: down at rest, turned up once armed. */

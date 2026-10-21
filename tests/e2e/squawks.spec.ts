@@ -288,8 +288,8 @@ test("a squawk's details are always shown on a wide screen", async ({ page }) =>
   await page.goto("/status/squawks");
   const main = page.getByRole("main");
   await expect(main.locator("li[id^=squawk-]").first()).toBeVisible({ timeout: 60_000 });
-  // No Details/Hide toggle at desktop width: the description is part of the card.
-  await expect(main.getByRole("button", { name: /^(Details|Hide)$/ })).toHaveCount(0);
+  // Nothing to unfold at desktop width: the description is part of the card.
+  await expect(main.getByRole("button", { name: /(show|hide) details$/ })).toHaveCount(0);
 });
 
 // The Safety Officer's note: everyone reads it, only the office writes it.
@@ -310,9 +310,12 @@ test("the Safety Officer's note is read by everyone and written only by the offi
     await page.goto("/status/squawks");
     const row = rowFor(page, title);
     await expect(row).toBeVisible({ timeout: 60_000 });
-    await row.getByRole("button", { name: "Add a note" }).click();
-    await row.getByLabel("Safety Officer's note").fill("Parts on order — fine for local flights.");
+    await row.getByRole("button", { name: "Add a Safety Officer's note" }).click();
+    await row.getByRole("textbox", { name: "Safety Officer's note" }).fill("Parts on order — fine for local flights.");
     await row.getByRole("button", { name: "Save note" }).click();
+    // Saved once the editor closes; its own text would otherwise satisfy
+    // the getByText below before the request has landed.
+    await expect(row.getByRole("textbox", { name: "Safety Officer's note" })).toHaveCount(0);
     await expect(row.getByText("Parts on order — fine for local flights.")).toBeVisible();
 
     // A plain member reads it, and gets no way to change it…
@@ -333,13 +336,16 @@ test("the Safety Officer's note is read by everyone and written only by the offi
     await signIn(page);
     await page.goto("/status/squawks");
     const officerRow = rowFor(page, title);
-    await officerRow.getByRole("button", { name: "Edit note" }).click({ timeout: 60_000 });
-    await officerRow.getByLabel("Safety Officer's note").fill("Fixed at the annual.");
+    await officerRow.getByRole("button", { name: "Edit the Safety Officer's note" }).click({ timeout: 60_000 });
+    await officerRow.getByRole("textbox", { name: "Safety Officer's note" }).fill("Fixed at the annual.");
     await officerRow.getByRole("button", { name: "Save note" }).click();
+    // Saved once the editor closes; its own text would otherwise satisfy
+    // the getByText below before the request has landed.
+    await expect(officerRow.getByRole("textbox", { name: "Safety Officer's note" })).toHaveCount(0);
     await expect(officerRow.getByText("Fixed at the annual.")).toBeVisible();
-    await officerRow.getByRole("button", { name: "Edit note" }).click();
+    await officerRow.getByRole("button", { name: "Edit the Safety Officer's note" }).click();
     await officerRow.getByRole("button", { name: "Remove note" }).click();
-    await expect(officerRow.getByRole("button", { name: "Add a note" })).toBeVisible();
+    await expect(officerRow.getByRole("button", { name: "Add a Safety Officer's note" })).toBeVisible();
     await expect(officerRow.getByText("Fixed at the annual.")).toHaveCount(0);
   } finally {
     // Close it, so later specs see the airplane as they expect.

@@ -1,11 +1,12 @@
 "use client";
 // Pull down from the top of a page to fetch it again — on any touch screen.
 //
-// Built to read as the tab swipe's sibling (SwipePager): the page itself never
-// moves, a plain circled arrow fades in as you pull, and only a FULL pull,
-// released, does anything. Here the arrow also slides down a little with the
-// finger and turns over once it's armed, then becomes a spinner until the
-// page's own refetch has landed. The rules are lib/pullRefresh.ts.
+// The native shape: the page's content follows the finger down (resisting
+// past the arming point) and uncovers a circled arrow parked under the top
+// bar, which turns over once letting go will refresh. Only a FULL pull,
+// released, does anything — the same rule as the tab swipe (SwipePager). The
+// content then holds just low enough to show the spinner until the page's own
+// refetch has landed, and springs back. The rules are lib/pullRefresh.ts.
 //
 // A page opts in with `usePullToRefresh(refetch)`; a page that doesn't simply
 // has no pull. One page is on screen at a time, so one registered handler is
@@ -14,9 +15,9 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAppScroller } from "@/lib/appScroll";
 import { hapticTap } from "@/lib/haptics";
 import {
-  REFRESH_PX,
+  REVEAL_PX,
   arrowRotation,
-  indicatorOffset,
+  contentOffset,
   isPullDown,
   refreshProgress,
 } from "@/lib/pullRefresh";
@@ -59,12 +60,22 @@ export default function PullToRefresh() {
     let mode: "none" | "deciding" | "pull" | "refreshing" = "none";
     let progress = 0;
 
+    /** The page content: what moves. Looked up per pull, since pages swap it. */
+    let content: HTMLElement | null = null;
+
     const paint = (offset: number, opacity: number, animate: boolean) => {
-      el.style.transition = animate
-        ? "opacity 200ms ease-out, transform 250ms var(--ease-drawer)"
-        : "none";
-      el.style.transform = `translateY(${offset}px)`;
+      const ease = "var(--ease-drawer)";
+      el.style.transition = animate ? "opacity 200ms ease-out, scale 200ms ease-out" : "none";
       el.style.opacity = String(opacity);
+      // Grows in from 80%, never from nothing: a thing that appears from a
+      // point reads as coming out of nowhere.
+      el.style.scale = String(0.8 + 0.2 * opacity);
+      if (!content) return;
+      content.style.transition = animate ? `transform 300ms ${ease}` : "none";
+      // At rest the transform comes OFF rather than sitting at 0: a
+      // transformed <main> would be the containing block for every `fixed`
+      // popover inside it.
+      content.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
     };
     const showSpinner = (on: boolean) => {
       arrow.style.display = on ? "none" : "";
@@ -80,6 +91,7 @@ export default function PullToRefresh() {
       if (document.querySelector('[role="dialog"]')) return;
       // Only from the very top: anywhere else, pulling down is scrolling up.
       if ((getAppScroller()?.scrollTop ?? 0) > 0) return;
+      content = getAppScroller()?.querySelector("main") ?? null;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       mode = "deciding";
@@ -102,13 +114,17 @@ export default function PullToRefresh() {
       // Ours now: no rubber-banding the page underneath the arrow.
       if (e.cancelable) e.preventDefault();
       progress = refreshProgress(my);
-      paint(indicatorOffset(my), progress, false);
+      paint(contentOffset(my), progress, false);
       arrow.style.transition = "transform 200ms var(--ease-out)";
       arrow.style.transform = `rotate(${arrowRotation(progress)}deg)`;
     };
 
     const settle = () => {
       paint(0, 0, true);
+      const settled = content;
+      setTimeout(() => {
+        if (settled && mode === "none") settled.style.transition = "";
+      }, 300);
       mode = "none";
       progress = 0;
     };
@@ -126,7 +142,7 @@ export default function PullToRefresh() {
       mode = "refreshing";
       hapticTap(); // inside the touchend, which is what iOS asks of it
       showSpinner(true);
-      paint(indicatorOffset(REFRESH_PX), 1, true); // parked where it armed
+      paint(REVEAL_PX, 1, true); // parked with the spinner showing
       const started = Date.now();
       try {
         await run();
