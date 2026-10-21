@@ -210,6 +210,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   idempotent — `(memberId, recurringChargeId, period)` and `(flightId, kind)` —
   and rely on Postgres treating NULLs as distinct, which leaves hand-entered
   lines free to repeat.
+- **InvoiceSend** — one invoice emailed to one member (`scope` = "YYYY-MM"
+  or "all", `amountCents`, `sentTo`, `sentBy`). A record only, never money:
+  it's what lets the Send invoices window say "Sent Oct 3" beside a name so a
+  month doesn't go out twice.
 
 ## Pages (`app/*/page.tsx`)
 
@@ -423,6 +427,15 @@ owns the only splash in the app.
   On the page, Paid/Unpay/Void/Restore and a month's Mark all paid happen ON
   THE SPOT, drawn first and put back if the server refuses; Delete is the only
   action behind a `ConfirmModal`).
+- `finances/invoices` (GET `?scope=YYYY-MM|all` = the preview, POST
+  `{ scope, memberIds? }` = send; both `finance:manage`, both built by
+  `prepareInvoices` in `lib/invoiceRun.ts` so the window shows exactly what
+  goes out). Materialises the month's dues first, skips members with nothing
+  in scope or no address (and says so), sends one Resend batch, records an
+  `InvoiceSend` per email that went. 503 with the reason when `emailStatus()`
+  says email isn't set up. The button lives on the club summary card
+  (`BalanceSummary`'s `onSendInvoices`), and the window confirms before it
+  sends.
 - `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
   refuses once it has billed anyone; deactivate instead). Both take a POSITIVE
   `amountDollars` plus a `payback` boolean and combine them server-side; PATCH
@@ -739,6 +752,14 @@ owns the only splash in the app.
   synchronous one in the browser, and the export has to build on the device).
   `buildXlsx` returns `Uint8Array<ArrayBuffer>` — the buffer parameter is
   spelled out because a bare `Uint8Array` isn't a `BlobPart`. ✅tested
+- `invoices.ts` — what an invoice SAYS: `invoiceLines` (a month's standing
+  lines, or every unpaid one for "all"), `invoiceFor` (subject, text, HTML —
+  null when there's nothing to send; a credit is worded, never "-$40 due";
+  every interpolated string escaped), `invoiceAddress`. ✅tested
+- `email.ts` — `emailStatus(env)` (the single "can this server send mail"
+  answer, like `storageStatus`) and `sendEmails` (Resend's batch API by hand,
+  or the `log` driver that dev and e2e run on — a test run must never mail a
+  member). Never throws; one result per message. ✅tested
 - `ledgerView.ts` — the Finances page's grouping and narrowing of WIRE lines
   (ApiCharge): `statementsFor` (club lines first, then by name),
   `exportPeriods`/`monthsSpanned`/`selectLines` for the export window. ✅tested
