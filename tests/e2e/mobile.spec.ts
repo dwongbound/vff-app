@@ -718,6 +718,18 @@ test("pulling down from the top of a page fetches it again", async ({ page }) =>
   const indicator = page.locator("[data-pull-refresh]");
   await expect(indicator).toHaveCSS("opacity", "0");
 
+  // The page itself comes down with the finger, uncovering the arrow above
+  // it — the native shape — and goes back to rest with no transform left on
+  // it (a transformed <main> would trap every `fixed` popover inside it).
+  const main = page.getByRole("main");
+  const restY = (await main.boundingBox())!.y;
+  const lift = await pullDown(page, 160, { release: false });
+  await expect.poll(async () => (await main.boundingBox())!.y).toBeGreaterThan(restY + 40);
+  await expect(indicator).not.toHaveCSS("opacity", "0");
+  await lift();
+  await expect(main).toHaveCSS("transform", "none", { timeout: 5_000 });
+  await expect.poll(async () => (await main.boundingBox())!.y).toBeCloseTo(restY, 0);
+
   // Scrolled down the page, the same pull is just a scroll.
   refetches.length = 0;
   await page.locator("#app-scroll").evaluate((el) => el.scrollTo(0, 200));
@@ -743,3 +755,65 @@ for (const [path, api] of [
     await refetched;
   });
 }
+
+// The squawk card on a phone: the header is what opens the details, and the
+// officer's two tools (status and note) are one row of 44px targets rather
+// than two small text links run together on one line.
+test("a squawk card unfolds from its header, with the note beside the status", async ({
+  page,
+}) => {
+  const aircraft = await (await page.request.get("/api/aircraft")).json();
+  const title = `E2E phone card ${Date.now()}`;
+  const description = Array.from({ length: 8 }, (_, i) => `Line ${i + 1} of what was seen.`).join(" ");
+  const made = await page.request.post("/api/squawks", {
+    data: { aircraftId: aircraft[0].id, title, description },
+  });
+  expect(made.ok()).toBe(true);
+  const { id } = await made.json();
+
+  try {
+    await page.goto("/status/squawks");
+    const row = page.getByRole("main").locator(`#squawk-${id}`);
+    await expect(row).toBeVisible({ timeout: 60_000 });
+
+    // Folded to two lines, then the whole thing from a tap on the header.
+    const header = row.getByRole("button", { name: new RegExp(`^${title} — show details$`) });
+    const text = row.getByTestId("squawk-description");
+    const folded = (await text.boundingBox())!.height;
+    await header.click();
+    await expect(row.getByRole("button", { name: /hide details$/ })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+    expect((await text.boundingBox())!.height).toBeGreaterThan(folded);
+
+    // Status and note side by side, both full touch height.
+    const status = row.getByRole("button", { name: /^Status/ });
+    const pencil = row.getByRole("button", { name: "Add a Safety Officer's note" });
+    const s = (await status.boundingBox())!;
+    const p = (await pencil.boundingBox())!;
+    expect(s.height).toBeGreaterThanOrEqual(44);
+    expect(p.height).toBeGreaterThanOrEqual(44);
+    expect(p.width).toBeGreaterThanOrEqual(44);
+    expect(Math.abs(s.y - p.y)).toBeLessThan(2);
+    expect(p.x).toBeGreaterThan(s.x + s.width);
+
+    // The pencil opens the editor; its row is full width, confirm on the right.
+    await pencil.click();
+    await expect(row.getByRole("textbox", { name: "Safety Officer's note" })).toBeFocused();
+    const close = (await row.getByRole("button", { name: "Close", exact: true }).boundingBox())!;
+    const save = (await row.getByRole("button", { name: "Save note" }).boundingBox())!;
+    expect(close.height).toBeGreaterThanOrEqual(44);
+    expect(save.height).toBeGreaterThanOrEqual(44);
+    expect(save.x).toBeGreaterThan(close.x);
+    await row.getByRole("textbox", { name: "Safety Officer's note" }).fill("Looked at it, fine for local.");
+    await row.getByRole("button", { name: "Save note" }).click();
+    // Saved once the editor closes; its own text would otherwise satisfy
+    // the getByText below before the request has landed.
+    await expect(row.getByRole("textbox", { name: "Safety Officer's note" })).toHaveCount(0);
+    await expect(row.getByText("Looked at it, fine for local.")).toBeVisible();
+    await expect(row.getByRole("button", { name: "Edit the Safety Officer's note" })).toBeVisible();
+  } finally {
+    await page.request.patch(`/api/squawks/${id}`, { data: { status: "CLOSED" } });
+  }
+});
