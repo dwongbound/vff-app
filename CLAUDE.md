@@ -794,7 +794,8 @@ owns the only splash in the app.
   `isCancelledTitle`/`cancelledTitle`, all-day dates read as CLUB midnights
   (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing — a
   title is the club's format, "Dylan - N8318B (Training w CFI)": FIRST name,
-  tail number (carried on `CalendarLink`), flight type; maintenance is just
+  tail number (carried on `CalendarLink`), flight type — a lesson with its
+  CFI named says "(Training w Matt)", by first name; maintenance is just
   "N8318B (Maintenance)", and `guessPurpose` reads every one back — and
   `bookingAttendees` — the member and their CFI are INVITED to every booking
   the app writes (`sendUpdates=all`), and since a PATCH's guest list replaces

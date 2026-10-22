@@ -146,6 +146,13 @@ async function applyEvents(aircraftId: string, events: GoogleEvent[], people: Pe
   if (writes.length > 0) await prisma.$transaction(writes);
 }
 
+/** A member's name for an event title, or null for nobody. */
+async function nameOf(userId: string | null): Promise<string | null> {
+  if (!userId) return null;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  return user?.name ?? null;
+}
+
 /** A member's email — what Google invites them by. */
 async function emailOf(userId: string | null): Promise<string | null> {
   if (!userId) return null;
@@ -252,7 +259,11 @@ export async function insertCalendarBooking(
     notes: string | null;
   }
 ): Promise<GoogleEvent> {
-  const title = appEventTitle({ ...b, tailNumber: link.tailNumber });
+  const title = appEventTitle({
+    ...b,
+    tailNumber: link.tailNumber,
+    instructorName: await nameOf(b.instructorId),
+  });
   // The member and their CFI are invited, so the booking lands in their own
   // calendars. The club account stays the organiser, which is what lets any
   // member book without needing access to the airplane's calendar themselves.
@@ -303,6 +314,7 @@ export async function patchCalendarBooking(
       memberName: b.memberName,
       purpose: b.purpose,
       tailNumber: link.tailNumber,
+      instructorName: await nameOf(b.instructorId),
     });
   }
   // Sending a guest list replaces the event's, so read what's there now and
