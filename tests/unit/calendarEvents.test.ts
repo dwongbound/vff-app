@@ -235,6 +235,24 @@ describe("writing events", () => {
     expect(t("Dylan Wong", "CHECKRIDE")).toBe("Dylan - N8318B (Checkride)");
     // Only the FIRST name, however the profile spells the rest.
     expect(t("  Mary Ann Lee ", "LOCAL")).toBe("Mary - N8318B (Local)");
+    // A lesson with its CFI named says who, by first name.
+    expect(
+      appEventTitle({
+        memberName: "Dylan Wong",
+        tailNumber: "N8318B",
+        purpose: "TRAINING",
+        instructorName: "Matt Large",
+      })
+    ).toBe("Dylan - N8318B (Training w Matt)");
+    // Only a lesson carries one: a stale name on another purpose is ignored.
+    expect(
+      appEventTitle({
+        memberName: "Dylan Wong",
+        tailNumber: "N8318B",
+        purpose: "LOCAL",
+        instructorName: "Matt Large",
+      })
+    ).toBe("Dylan - N8318B (Local)");
     // Maintenance is the club's block, not a member's flight.
     expect(t("Dylan Wong", "MAINTENANCE")).toBe("N8318B (Maintenance)");
   });
@@ -244,6 +262,11 @@ describe("writing events", () => {
       const title = appEventTitle({ memberName: "Dylan Wong", tailNumber: "N8318B", purpose });
       expect(guessPurpose(title)).toBe(purpose);
     }
+    expect(
+      guessPurpose(
+        appEventTitle({ memberName: "Dylan", tailNumber: "N8318B", purpose: "TRAINING", instructorName: "Matt" })
+      )
+    ).toBe("TRAINING");
   });
 
   it("writes all-day bookings as club DATES and others as instants", () => {

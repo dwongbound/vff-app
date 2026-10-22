@@ -228,18 +228,26 @@ const TITLE_PURPOSE: Record<Purpose, string> = {
 /**
  * The title the app gives an event it writes, in the club's format:
  * "Dylan - N8318B (Training w CFI)" — the member's FIRST name, the airplane,
- * then the flight type. Maintenance is the club's block rather than anyone's
- * flight, so it names no member: "N8318B (Maintenance)".
+ * then the flight type. A lesson with its CFI named says who instead:
+ * "Dylan - N8318B (Training w Matt)". Maintenance is the club's block rather
+ * than anyone's flight, so it names no member: "N8318B (Maintenance)".
  */
 export function appEventTitle(b: {
   memberName: string;
   tailNumber: string;
   purpose: Purpose;
+  instructorName?: string | null;
 }): string {
-  const what = `${b.tailNumber} (${TITLE_PURPOSE[b.purpose]})`;
+  const cfi = b.purpose === "TRAINING" ? firstName(b.instructorName ?? "") : "";
+  const type = cfi ? `Training w ${cfi}` : TITLE_PURPOSE[b.purpose];
+  const what = `${b.tailNumber} (${type})`;
   if (b.purpose === "MAINTENANCE") return what;
-  const first = b.memberName.trim().split(/\s+/)[0];
+  const first = firstName(b.memberName);
   return first ? `${first} - ${what}` : what;
+}
+
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0];
 }
 
 /** Event start/end for a booking, all-day ones as club-local DATES. */
