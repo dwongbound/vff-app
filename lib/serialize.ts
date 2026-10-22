@@ -382,6 +382,7 @@ interface FlightRow {
   landings: number;
   nightLandings: number;
   withInstructor: boolean;
+  purpose: Purpose | null;
   departure: string | null;
   arrival: string | null;
   route: string | null;
@@ -429,6 +430,7 @@ function serializeFlightFields(
     landings: f.landings,
     nightLandings: f.nightLandings,
     withInstructor: f.withInstructor,
+    purpose: f.purpose,
     departure: f.departure,
     arrival: f.arrival,
     route: f.route,

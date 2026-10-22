@@ -46,6 +46,7 @@ const EMPTY: PostflightForm = {
   landings: "1",
   nightLandings: "0",
   withInstructor: false,
+  purpose: "",
   instructorId: "",
   departure: "",
   arrival: "",
@@ -206,6 +207,7 @@ describe("postflightDraftHasProgress", () => {
   it("is true once a tick or a note is entered", () => {
     expect(postflightDraftHasProgress({ ...EMPTY, notes: "ran rough" })).toBe(true);
     expect(postflightDraftHasProgress({ ...EMPTY, route: "KTOA → KCMA" })).toBe(true);
+    expect(postflightDraftHasProgress({ ...EMPTY, purpose: "TRAINING_SOLO" })).toBe(true);
     expect(
       postflightDraftHasProgress({
         ...EMPTY,

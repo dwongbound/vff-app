@@ -26,6 +26,7 @@ export const PURPOSE_LABELS = {
   LOCAL: "Local flight",
   CROSS_COUNTRY: "Cross-country",
   TRAINING: "Training (with CFI)",
+  TRAINING_SOLO: "Training (Solo)",
   CHECKRIDE: "Checkride",
   MAINTENANCE: "Maintenance",
 } as const;
@@ -34,12 +35,30 @@ export type Purpose = keyof typeof PURPOSE_LABELS;
 
 export const PURPOSES = Object.keys(PURPOSE_LABELS) as Purpose[];
 
+export function isPurpose(value: unknown): value is Purpose {
+  return typeof value === "string" && Object.hasOwn(PURPOSE_LABELS, value);
+}
+
+/**
+ * A flight's type off a request body: a purpose, `null` to clear it (an empty
+ * box sends ""), `undefined` when the body doesn't mention it, or "invalid"
+ * for anything else — which the routes refuse rather than quietly drop.
+ */
+export function purposeFromBody(
+  body: Record<string, unknown>
+): Purpose | null | undefined | "invalid" {
+  if (!("purpose" in body) || body.purpose === undefined) return undefined;
+  if (body.purpose === null || body.purpose === "") return null;
+  return isPurpose(body.purpose) ? body.purpose : "invalid";
+}
+
 // Calendar chip / list accent per purpose. Maintenance reads amber so a shop
 // block is obviously not someone's flight.
 export const PURPOSE_TONES: Record<Purpose, BadgeTone> = {
   LOCAL: "indigo",
   CROSS_COUNTRY: "blue",
   TRAINING: "green",
+  TRAINING_SOLO: "green",
   CHECKRIDE: "gray",
   MAINTENANCE: "amber",
 };

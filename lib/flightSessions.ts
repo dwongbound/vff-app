@@ -10,6 +10,7 @@
 // invariant the checkout cleanup keeps, and for the same reason — the moment
 // there can be two, every sign-off has to pick one, and picking is a coin flip
 // nobody can see happening.
+import type { Purpose } from "./constants";
 import { prisma } from "./prisma";
 import {
   SESSION_WINDOW_HOURS,
@@ -36,6 +37,7 @@ export const SESSION_SELECT = {
   startedAt: true,
   endedAt: true,
   reservationId: true,
+  purpose: true,
   createdAt: true,
 } as const;
 
@@ -53,6 +55,7 @@ export interface OpenSession {
   startedAt: Date | null;
   endedAt: Date | null;
   reservationId: string | null;
+  purpose: Purpose | null;
   createdAt: Date;
 }
 

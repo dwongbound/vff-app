@@ -85,6 +85,7 @@ enum ReservationPurpose {
   TRAINING // with a CFI
   CHECKRIDE
   MAINTENANCE // shop / annual — blocks the airplane, not a member flight
+  TRAINING_SOLO // a student's solo — training, but no CFI on board
 }
 
 // Club offices. Assigned by admins from the Members tab; what each one is
@@ -215,6 +216,8 @@ model User {
   charges                 Charge[]          @relation("ChargeMember")
   chargesRaised           Charge[]          @relation("ChargeAuthor")
   chargesMarkedPaid       Charge[]          @relation("ChargePaidBy")
+  invoicesReceived        InvoiceSend[]     @relation("InvoiceMember")
+  invoicesSent            InvoiceSend[]     @relation("InvoiceSentBy")
   chargesDeleted          Charge[]          @relation("ChargeDeleter")
   recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
   recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
@@ -473,6 +476,12 @@ model Flight {
   // Flown with an approved instructor, which is the third column of the
   // operating rules — the club's personal minimums don't apply to that flight.
   withInstructor Boolean @default(false)
+
+  // What KIND of flight this was — the same vocabulary a booking uses, shown
+  // as a chip on the log. Copied from the booking when filed against one, set
+  // by hand otherwise; null on an entry nobody has typed (older rows, or a
+  // session a preflight walk opened before the form asked).
+  purpose ReservationPurpose?
 
   // WHICH instructor, and their signature on this log entry.
   //
@@ -1017,4 +1026,26 @@ model AircraftCalendar {
   updatedAt DateTime @updatedAt
 
   @@map("aircraft_calendars")
+}
+
+// One invoice emailed to one member by the Finance Officer (see
+// lib/invoices.ts and /api/finances/invoices). A record, not a source of
+// money: nothing here changes a balance. It exists so the send window can say
+// "sent Oct 3" beside a name, which is what stops a member getting the same
+// month's invoice twice because two officers each thought the other hadn't.
+model InvoiceSend {
+  id       String @id @default(cuid())
+  member   User   @relation("InvoiceMember", fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String
+  // "YYYY-MM", or "all" for the everything-unpaid letter.
+  scope       String
+  // What the invoice asked for when it went out, and where it went.
+  amountCents Int
+  sentTo      String
+  sentAt      DateTime @default(now())
+  sentBy      User?    @relation("InvoiceSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+  sentById    String?
+
+  @@index([memberId, scope])
+  @@map("invoice_sends")
 }

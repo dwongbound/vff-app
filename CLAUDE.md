@@ -77,6 +77,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   `instructorId` is the CFI a lesson is booked with — only ever set when
   `purpose` is TRAINING, and the API NULLS IT OUT for every other purpose
   rather than leaving a stale name on a booking that changed.
+  `TRAINING_SOLO` ("Training (Solo)", appended to the enum) is a student's
+  solo: training, but nobody beside you, so it takes no instructor.
 - **Flight** — tach/Hobbs in-out, landings, route, fuel/oil, `landingFeeCents`,
   `tiedDown`, `cabinClean`. `fuelPaidPersonally` is the club sheet's "Fuel
   Purchase Personal Card" column, the same one `Servicing` carries and for the
@@ -144,7 +146,15 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   continuing the old checklist's v3; RUNWAY at 3; TURNOFF at 4);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
-  `withInstructor` (selects the third column of the operating rules);
+  `withInstructor` (selects the third column of the operating rules) and
+  `purpose`, the flight's TYPE in the booking vocabulary (`ReservationPurpose`,
+  nullable — an entry nobody typed stays blank rather than "Local"). Copied off
+  the booking when filed against one, else the open session's, else TRAINING
+  when a CFI is named; every flight form sets it with `FlightTypeSelect` and the
+  log row shows it as a short `FlightTypeChip` (components/FlightType.tsx). On a
+  phone the row's status badges (signature, Needs tach end…) drop into the
+  wrapping subline beside the chip — one DOM copy via `useMediaQuery` — so the
+  name and route aren't squeezed; from `sm` up they stay on the right;
   **User** carries self-declared `totalTimeHours`.
 - **Flight**'s instructor endorsement — `instructorId` (who is to sign),
   `signedById`/`signedAt` (who did, and when), `editedAt` (when the entry's
@@ -210,6 +220,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   idempotent — `(memberId, recurringChargeId, period)` and `(flightId, kind)` —
   and rely on Postgres treating NULLs as distinct, which leaves hand-entered
   lines free to repeat.
+- **InvoiceSend** — one invoice emailed to one member (`scope` = "YYYY-MM"
+  or "all", `amountCents`, `sentTo`, `sentBy`). A record only, never money:
+  it's what lets the Send invoices window say "Sent Oct 3" beside a name so a
+  month doesn't go out twice.
 
 ## Pages (`app/*/page.tsx`)
 
@@ -423,6 +437,15 @@ owns the only splash in the app.
   On the page, Paid/Unpay/Void/Restore and a month's Mark all paid happen ON
   THE SPOT, drawn first and put back if the server refuses; Delete is the only
   action behind a `ConfirmModal`).
+- `finances/invoices` (GET `?scope=YYYY-MM|all` = the preview, POST
+  `{ scope, memberIds? }` = send; both `finance:manage`, both built by
+  `prepareInvoices` in `lib/invoiceRun.ts` so the window shows exactly what
+  goes out). Materialises the month's dues first, skips members with nothing
+  in scope or no address (and says so), sends one Resend batch, records an
+  `InvoiceSend` per email that went. 503 with the reason when `emailStatus()`
+  says email isn't set up. The button lives on the club summary card
+  (`BalanceSummary`'s `onSendInvoices`), and the window confirms before it
+  sends.
 - `finances/recurring` (GET/POST) · `finances/recurring/[id]` (PATCH, DELETE —
   refuses once it has billed anyone; deactivate instead). Both take a POSITIVE
   `amountDollars` plus a `payback` boolean and combine them server-side; PATCH
@@ -739,6 +762,14 @@ owns the only splash in the app.
   synchronous one in the browser, and the export has to build on the device).
   `buildXlsx` returns `Uint8Array<ArrayBuffer>` — the buffer parameter is
   spelled out because a bare `Uint8Array` isn't a `BlobPart`. ✅tested
+- `invoices.ts` — what an invoice SAYS: `invoiceLines` (a month's standing
+  lines, or every unpaid one for "all"), `invoiceFor` (subject, text, HTML —
+  null when there's nothing to send; a credit is worded, never "-$40 due";
+  every interpolated string escaped), `invoiceAddress`. ✅tested
+- `email.ts` — `emailStatus(env)` (the single "can this server send mail"
+  answer, like `storageStatus`) and `sendEmails` (Resend's batch API by hand,
+  or the `log` driver that dev and e2e run on — a test run must never mail a
+  member). Never throws; one result per message. ✅tested
 - `ledgerView.ts` — the Finances page's grouping and narrowing of WIRE lines
   (ApiCharge): `statementsFor` (club lines first, then by name),
   `exportPeriods`/`monthsSpanned`/`selectLines` for the export window. ✅tested
@@ -761,7 +792,11 @@ owns the only splash in the app.
   `eventToBooking` (the app's private `extendedProperties` FIRST, then the
   creator's email and a title guess — `guessPurpose` is deliberately timid),
   `isCancelledTitle`/`cancelledTitle`, all-day dates read as CLUB midnights
-  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing, and
+  (`eventInstant`), `appEventTitle`/`eventTimes`/`appEventProps` for writing — a
+  title is the club's format, "Dylan - N8318B (Training w CFI)": FIRST name,
+  tail number (carried on `CalendarLink`), flight type — a lesson with its
+  CFI named says "(Training w Matt)", by first name; maintenance is just
+  "N8318B (Maintenance)", and `guessPurpose` reads every one back — and
   `bookingAttendees` — the member and their CFI are INVITED to every booking
   the app writes (`sendUpdates=all`), and since a PATCH's guest list replaces
   the event's, it edits only the app's part and keeps anyone added in Google.
@@ -847,7 +882,7 @@ finger (`contentOffset`) and uncovers a fixed circled arrow that fades in and
 turns over once armed, parking at `REVEAL_PX` while it fetches, with the
 transform taken back off at rest, only a full pull released
 counts; rules in `lib/pullRefresh.ts`, reusing `touchIntent` so a touch is never
-both. Reservations, Plane Status, Squawks and the log opt in. Because `<main>` moves, anything pinned to the window from inside a page (the phone "+") renders through `common/Floating`, a portal into <body> — a fixed child of a transformed <main> rides along with it. While a page is loading (the overlay is up) or refreshing, `<main>` and every `Floating` are `inert` + `aria-busy` (`components/pageBusy.ts`, held by `LoadingProvider` and `PullToRefresh`); the chrome stays live. `lib/haptics.ts`
+both. Reservations, Plane Status, Squawks, the log and every Finances view opt in. Because `<main>` moves, anything pinned to the window from inside a page (the phone "+") renders through `common/Floating`, a portal into <body> — a fixed child of a transformed <main> rides along with it. While a page is loading (the overlay is up) or refreshing, `<main>` and every `Floating` are `inert` + `aria-busy` (`components/pageBusy.ts`, held by `LoadingProvider` and `PullToRefresh`); the chrome stays live. `lib/haptics.ts`
 taps on release: Vibration API on Android, a hidden switch checkbox on iOS 18+,
 nothing elsewhere), `LoadingProvider` (one shared splash), `AuthGate`,
 `MeProvider`, `AircraftProvider` (fleet + grounded state, refetches on
@@ -970,7 +1005,8 @@ it at every state, the minimums and the reasoning are behind the disclosure / `R
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
 ConfirmModal DateTimeField Dropdown InfoTip Input Modal MoneyInput RichText
-Select Textarea Toggle LoadingDots LoadingScreen`. `MoneyInput` is a dollar
+Select Textarea Toggle LoadingDots LoadingScreen`. `Badge` takes an optional
+`className` for LAYOUT only (the type chip's truncation). `MoneyInput` is a dollar
 box: a fixed "$", digits and one decimal point only, and the cents filled in
 on blur ("590" → "590.00") — its value is the box's string, parsed with
 `parseDollars`; use it for every amount rather than a `type="number"`. `ConfirmModal` is the one "are

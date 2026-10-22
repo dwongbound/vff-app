@@ -36,6 +36,12 @@ function monthName(monthsAgo = 0): string {
   );
 }
 
+/** This month as the API spells it, "2026-10", on the local calendar. */
+function thisPeriod(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
 /** Local noon on the 10th, `monthsAgo` back — inside that month in any TZ. */
 function dayIn(monthsAgo: number): string {
   const now = new Date();
@@ -1211,4 +1217,76 @@ test("filing a flight bills the tach hours and credits the fuel", async ({
   expect(again.ok()).toBeTruthy();
   const afterDelete = await chargesForFlight();
   expect(afterDelete.map((c: { kind: string }) => c.kind)).toEqual(["FUEL_CREDIT"]);
+});
+
+// ── Invoices ────────────────────────────────────────────────────────────────
+// The e2e server runs with EMAIL_DRIVER=log, so "sent" means printed to the
+// server log: nobody is mailed. What's under test is the window — the
+// preview, choosing people, the confirmation, the result — and the record
+// that stops the same month going out twice.
+
+test("the Finance Officer emails one member this month's invoice", async ({ page }) => {
+  await signIn(page, "robin@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+  await openView(page, "Club (by person)");
+
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Send invoices" }).click();
+  const window = page.getByRole("dialog").filter({ hasText: "Send invoices" });
+  await expect(window).toBeVisible();
+
+  // Last month is the default; this month has the seeded dues for everyone.
+  await window.getByLabel("Statement").selectOption({ label: `${monthName()} (so far)` });
+  const recipients = window.getByRole("list", { name: "Recipients" });
+  await expect(recipients.getByText("Alex Rivera")).toBeVisible();
+
+  await window.getByRole("button", { name: "Choose people", exact: true }).click();
+  // Nobody is picked yet, so there is nothing to send.
+  await expect(window.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await recipients
+    .getByRole("listitem")
+    .filter({ hasText: "Alex Rivera" })
+    .getByRole("checkbox")
+    .check();
+  await window.getByRole("button", { name: "Send 1 invoice", exact: true }).click();
+
+  // A bulk action that leaves the app asks first.
+  const confirm = page.getByRole("dialog").filter({ hasText: "Email 1 invoice?" });
+  await expect(confirm).toContainText("Alex Rivera gets their");
+  await confirm.getByRole("button", { name: "Send", exact: true }).click();
+
+  const done = page.getByRole("dialog").filter({ hasText: "Invoices sent" });
+  await expect(done.getByRole("status")).toHaveText("Sent 1 invoice.");
+  await expect(done).toContainText("alex@vffclub.test");
+  await done.getByRole("button", { name: "Close", exact: true }).click();
+
+  // The send is recorded, and the window says so beside the name next time.
+  const preview = await page.request
+    .get(`/api/finances/invoices?scope=${thisPeriod()}`)
+    .then((r) => r.json());
+  const alex = preview.recipients.find(
+    (r: { member: { name: string } }) => r.member.name === "Alex Rivera"
+  );
+  expect(alex.lastSentAt).not.toBeNull();
+  await main.getByRole("button", { name: "Send invoices" }).click();
+  const again = page.getByRole("dialog").filter({ hasText: "Send invoices" });
+  await again.getByLabel("Statement").selectOption({ label: `${monthName()} (so far)` });
+  await expect(
+    again.getByRole("list", { name: "Recipients" }).getByRole("listitem").filter({
+      hasText: "Alex Rivera",
+    })
+  ).toContainText("Sent ");
+});
+
+test("a member can't send invoices, on the page or through the API", async ({ page }) => {
+  await signIn(page, "alex@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Send invoices" })).toHaveCount(0);
+
+  const preview = await page.request.get("/api/finances/invoices?scope=all");
+  expect(preview.status()).toBe(403);
+  const send = await page.request.post("/api/finances/invoices", { data: { scope: "all" } });
+  expect(send.status()).toBe(403);
 });

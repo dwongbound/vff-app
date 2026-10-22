@@ -23,6 +23,7 @@ import ExportButton from "@/components/common/ExportButton";
 import InfoTip from "@/components/common/InfoTip";
 import FlightDetailModal from "@/components/FlightDetailModal";
 import FlightEntryModal from "@/components/FlightEntryModal";
+import { FlightTypeChip } from "@/components/FlightType";
 import { RulesModal } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
@@ -52,6 +53,7 @@ import {
   totalTachHours,
 } from "@/lib/hours";
 import type { ApiFlight, ApiFlightSummary } from "@/lib/types";
+import { SM_UP, useMediaQuery } from "@/components/useMediaQuery";
 
 type Filter = "all" | "mine";
 
@@ -72,6 +74,9 @@ function FlightLog() {
   // See the preflight page: depend on the id, not the object identity.
   const aircraftId = selected?.id ?? null;
   const { me } = useMe();
+  // Where a row's status badges sit — see `statusBadges`. One place or the
+  // other, never both in the DOM (the Finances table/list rule).
+  const wide = useMediaQuery(SM_UP, true);
   const [flights, setFlights] = useState<ApiFlightSummary[] | null>(null);
   // Opens on YOUR flying, the way Finances opens on your own statement. A
   // member coming to the log almost always came to answer a question about
@@ -386,6 +391,42 @@ function FlightLog() {
               previous.getMonth() !== flownOn.getMonth() ||
               previous.getFullYear() !== flownOn.getFullYear();
 
+            // What's waiting on someone about this entry. Beside the numbers
+            // from `sm` up; on a phone they join the type chip on the second
+            // line, which wraps — a row with a name, a route, the type AND a
+            // "Signed, then edited" has no room left on one line, and the
+            // badges used to squeeze the name to two letters.
+            const statusBadges = (
+              <>
+                {/* Only on lessons — see the detail modal for why a solo
+                    flight shows nothing rather than "no instructor". */}
+                {flight.instructor && (
+                  <Badge tone={SIGNATURE_TONES[signatureState(flight)]}>
+                    {SIGNATURE_LABELS[signatureState(flight)]}
+                  </Badge>
+                )}
+                {/* The airplane is still out. Amber rather than red — an
+                    unclosed entry is somebody's flight in progress, not a
+                    fault — and it earns a badge because it's the one row in
+                    the log that is waiting on a person. */}
+                {isOpenSession(flight) && <Badge tone="amber">In progress</Badge>}
+                {/* Filed, but missing a meter reading — a record with a gap,
+                    which is a different thing from a flight still out and is
+                    badged separately for that reason. It earns a badge
+                    because an entry nobody can FIND is one nobody fixes, and
+                    an unfixed gap bills nothing forever: `flightCharge`
+                    returns null on an unmeasurable span, and filling the
+                    number in from this row re-bills the flight. Amber, not
+                    red — an honest gap is not a fault. */}
+                {isIncompleteEntry(flight) && (
+                  <Badge tone="amber">
+                    Needs {missingMeters(flight).join(" & ")}
+                  </Badge>
+                )}
+                {flight.openSquawkCount > 0 && <Badge tone="red">Squawk</Badge>}
+              </>
+            );
+
             return (
               <li key={flight.id}>
                 {newMonth && (
@@ -428,41 +469,21 @@ function FlightLog() {
                         </span>
                       )}
                     </div>
-                    <div className="truncate text-xs text-gray-500 dark:text-gray-400">
+                    <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {/* What kind of flight, as the booking calls it. */}
+                      <FlightTypeChip purpose={flight.purpose} short />
+                      {!wide && statusBadges}
                       {/* The weekday still earns its place — "was that the
                           Saturday one?" — but the date itself is now read off
                           the left, so it isn't repeated here. */}
-                      {flownOn.toLocaleDateString(undefined, { weekday: "long" })}
-                      {flight.fuelAddedGal != null && ` · ${flight.fuelAddedGal} gal`}
+                      <span className="min-w-0 truncate">
+                        {flownOn.toLocaleDateString(undefined, { weekday: "long" })}
+                        {flight.fuelAddedGal != null && ` · ${flight.fuelAddedGal} gal`}
+                      </span>
                     </div>
                   </div>
 
-                  {/* Only on lessons — see the detail modal for why a solo
-                      flight shows nothing rather than "no instructor". */}
-                  {flight.instructor && (
-                    <Badge tone={SIGNATURE_TONES[signatureState(flight)]}>
-                      {SIGNATURE_LABELS[signatureState(flight)]}
-                    </Badge>
-                  )}
-                  {/* The airplane is still out. Amber rather than red — an
-                      unclosed entry is somebody's flight in progress, not a
-                      fault — and it earns a badge because it's the one row in
-                      the log that is waiting on a person. */}
-                  {isOpenSession(flight) && <Badge tone="amber">In progress</Badge>}
-                  {/* Filed, but missing a meter reading — a record with a gap,
-                      which is a different thing from a flight still out and is
-                      badged separately for that reason. It earns a badge
-                      because an entry nobody can FIND is one nobody fixes, and
-                      an unfixed gap bills nothing forever: `flightCharge`
-                      returns null on an unmeasurable span, and filling the
-                      number in from this row re-bills the flight. Amber, not
-                      red — an honest gap is not a fault. */}
-                  {isIncompleteEntry(flight) && (
-                    <Badge tone="amber">
-                      Needs {missingMeters(flight).join(" & ")}
-                    </Badge>
-                  )}
-                  {flight.openSquawkCount > 0 && <Badge tone="red">Squawk</Badge>}
+                  {wide && statusBadges}
                   {flight.photoCount > 0 && (
                     <span className="text-xs text-gray-400">
                       {flight.photoCount} 📷

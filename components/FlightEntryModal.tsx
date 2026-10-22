@@ -27,6 +27,8 @@ import { formatHours, tachHours, validateMeters } from "@/lib/hours";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
 import { newRequestId } from "@/lib/outbox";
 import type { ApiAircraft, ApiFlight, ApiMember } from "@/lib/types";
+import { FlightTypeSelect } from "@/components/FlightType";
+import type { Purpose } from "@/lib/constants";
 
 export default function FlightEntryModal({
   open,
@@ -59,6 +61,7 @@ export default function FlightEntryModal({
   const [landings, setLandings] = useState("1");
   const [nightLandings, setNightLandings] = useState("0");
   const [withInstructor, setWithInstructor] = useState(false);
+  const [purpose, setPurpose] = useState<Purpose | "">("");
   // The CFI who was on board. "" = not recorded, which is legal — a member
   // catching up an old entry may not remember, and an entry with no name on it
   // is better than one with a guess.
@@ -153,6 +156,7 @@ export default function FlightEntryModal({
       // Only sent alongside the assertion it belongs to: unticking the box
       // must not leave a CFI's name on a flight they weren't on.
       instructorId: withInstructor && instructorId ? instructorId : null,
+      purpose: purpose || null,
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
@@ -276,6 +280,8 @@ export default function FlightEntryModal({
             hint="Full-stop only — that's what counts for currency."
           />
         </div>
+
+        <FlightTypeSelect value={purpose} onChange={setPurpose} />
 
         <label className="flex items-start gap-2 text-sm">
           <input

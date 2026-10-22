@@ -220,6 +220,24 @@ Nothing else changes: photos are always read back through `/api/photos/[id]`,
 which checks the session first, so the bucket never needs to be public and no
 signed URLs leak into the client.
 
+## Invoice email
+
+The Finance Officer's **Send invoices** (Finances › Club view, on the summary
+card) emails each member their statement for a month, or everything they
+still owe. Sending goes through [Resend](https://resend.com)'s HTTP API
+(`lib/email.ts`, no SDK); without it the window still previews who would get
+what, and says email isn't set up.
+
+| Variable | What it is |
+| --- | --- |
+| `RESEND_API_KEY` | An API key from Resend (Sending access is enough). |
+| `EMAIL_FROM` | The sender, e.g. `VFF Flying Club <billing@vardafreeflyers.com>`. Its domain must be verified in Resend. |
+| `EMAIL_DRIVER` | Optional. `log` prints each email to the server log instead of sending it, which is what dev and the e2e suite use. |
+
+Replies go to the officer who sent the invoice (`reply_to` is their account
+email). Set the two variables on Vercel for `main` and `staging`, then send
+yourself a test by choosing only your own name in the window.
+
 ## Google Calendar
 
 The club already keeps each airplane's schedule on a Google Calendar (the

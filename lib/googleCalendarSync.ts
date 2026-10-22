@@ -49,6 +49,8 @@ const SYNC_INTERVAL_MS = 60_000;
 export interface CalendarLink {
   refreshToken: string;
   calendarId: string;
+  /** The airplane's tail number, which every title the app writes carries. */
+  tailNumber: string;
 }
 
 /** The secret the refresh token is sealed under (lib/secretBox.ts). */
@@ -82,9 +84,16 @@ export async function clubRefreshToken(): Promise<string> {
  * quietly falling back to app-only would let the two schedules drift apart.
  */
 export async function calendarLinkFor(aircraftId: string): Promise<CalendarLink | null> {
-  const cal = await prisma.aircraftCalendar.findUnique({ where: { aircraftId } });
+  const cal = await prisma.aircraftCalendar.findUnique({
+    where: { aircraftId },
+    include: { aircraft: { select: { tailNumber: true } } },
+  });
   if (!cal) return null;
-  return { refreshToken: await clubRefreshToken(), calendarId: cal.calendarId };
+  return {
+    refreshToken: await clubRefreshToken(),
+    calendarId: cal.calendarId,
+    tailNumber: cal.aircraft.tailNumber,
+  };
 }
 
 /**
@@ -250,7 +259,11 @@ export async function insertCalendarBooking(
     notes: string | null;
   }
 ): Promise<GoogleEvent> {
-  const title = appEventTitle({ ...b, instructorName: await nameOf(b.instructorId) });
+  const title = appEventTitle({
+    ...b,
+    tailNumber: link.tailNumber,
+    instructorName: await nameOf(b.instructorId),
+  });
   // The member and their CFI are invited, so the booking lands in their own
   // calendars. The club account stays the organiser, which is what lets any
   // member book without needing access to the airplane's calendar themselves.
@@ -300,6 +313,7 @@ export async function patchCalendarBooking(
     title = appEventTitle({
       memberName: b.memberName,
       purpose: b.purpose,
+      tailNumber: link.tailNumber,
       instructorName: await nameOf(b.instructorId),
     });
   }

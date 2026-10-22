@@ -83,6 +83,7 @@ export function guessPurpose(title: string | null | undefined): Purpose {
   const t = (title ?? "").toLowerCase();
   if (/\bcheck\s?ride\b/.test(t)) return "CHECKRIDE";
   if (/\b(maint\w*|annual|oil change|mx)\b/.test(t)) return "MAINTENANCE";
+  if (/\bsolo\b/.test(t)) return "TRAINING_SOLO";
   if (/\b(lesson|training|instruction|checkout|dual)\b/.test(t)) return "TRAINING";
   if (/\b(cross[\s-]?country|xc)\b/.test(t)) return "CROSS_COUNTRY";
   return "LOCAL";
@@ -211,28 +212,42 @@ export function eventToBooking(
   };
 }
 
-/** Short purpose words for a calendar title — "Training (with CFI)" is a form label. */
+/**
+ * The flight type as a calendar title says it, inside the brackets — the
+ * form's labels already carry brackets of their own ("Training (Solo)").
+ */
 const TITLE_PURPOSE: Record<Purpose, string> = {
-  LOCAL: "Local flight",
+  LOCAL: "Local",
   CROSS_COUNTRY: "Cross-country",
-  TRAINING: "Lesson",
+  TRAINING: "Training w CFI",
+  TRAINING_SOLO: "Training solo",
   CHECKRIDE: "Checkride",
   MAINTENANCE: "Maintenance",
 };
 
 /**
- * The title the app gives an event it writes, in the club's own style
- * ("Dylan Flight w Matt"): who, then what, then with whom. Maintenance is the
- * club's block, not a member's flight, so it's just "Maintenance".
+ * The title the app gives an event it writes, in the club's format:
+ * "Dylan - N8318B (Training w CFI)" — the member's FIRST name, the airplane,
+ * then the flight type. A lesson with its CFI named says who instead:
+ * "Dylan - N8318B (Training w Matt)". Maintenance is the club's block rather
+ * than anyone's flight, so it names no member: "N8318B (Maintenance)".
  */
 export function appEventTitle(b: {
   memberName: string;
+  tailNumber: string;
   purpose: Purpose;
   instructorName?: string | null;
 }): string {
-  if (b.purpose === "MAINTENANCE") return "Maintenance";
-  const base = `${b.memberName} — ${TITLE_PURPOSE[b.purpose]}`;
-  return b.instructorName ? `${base} w/ ${b.instructorName}` : base;
+  const cfi = b.purpose === "TRAINING" ? firstName(b.instructorName ?? "") : "";
+  const type = cfi ? `Training w ${cfi}` : TITLE_PURPOSE[b.purpose];
+  const what = `${b.tailNumber} (${type})`;
+  if (b.purpose === "MAINTENANCE") return what;
+  const first = firstName(b.memberName);
+  return first ? `${first} - ${what}` : what;
+}
+
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0];
 }
 
 /** Event start/end for a booking, all-day ones as club-local DATES. */
