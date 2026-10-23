@@ -11,6 +11,7 @@ import {
   missingMeters,
   resolveTimes,
   sessionState,
+  sortFlightLog,
   startFromPreflight,
   startFromRunway,
 } from "@/lib/flightSession";
@@ -226,5 +227,67 @@ describe("incomplete entries", () => {
   // a rebuilt instrument, and `!flight.tachStart` would call that missing.
   it("treats a zero reading as a reading", () => {
     expect(isIncompleteEntry({ ...filed, tachStart: 0, tachEnd: 0.4 })).toBe(false);
+  });
+});
+
+describe("sortFlightLog", () => {
+  const row = (id: string, flownOn: string, tachStart: number | null, filed = true) => ({
+    id,
+    flownOn,
+    tachStart,
+    filedAt: filed ? flownOn : null,
+  });
+  // Arrives in the order the rows were TYPED, not flown — the case it exists for.
+  const log = [
+    row("aug22-late", "2026-08-22T19:00:00Z", 1512.5),
+    row("aug22-early", "2026-08-22T19:00:00Z", 1511.47),
+    row("aug06", "2026-08-06T19:00:00Z", 1498.34),
+    row("open", "2026-08-21T19:00:00Z", 1510.36, false),
+    row("oct09", "2026-10-09T19:00:00Z", 1531.95),
+  ];
+  const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
+
+  it("puts the latest at the top, open session first", () => {
+    expect(ids(sortFlightLog(log, "newest"))).toEqual([
+      "open",
+      "oct09",
+      "aug22-late",
+      "aug22-early",
+      "aug06",
+    ]);
+  });
+
+  it("flips to read forwards, the open session last", () => {
+    expect(ids(sortFlightLog(log, "oldest"))).toEqual([
+      "aug06",
+      "aug22-early",
+      "aug22-late",
+      "oct09",
+      "open",
+    ]);
+  });
+
+  it("orders a day by the tach, a missing start reading last on its day", () => {
+    const day = [
+      row("none", "2026-08-29T19:00:00Z", null),
+      row("second", "2026-08-29T19:00:00Z", 1521),
+      row("first", "2026-08-29T19:00:00Z", 1519.02),
+    ];
+    expect(ids(sortFlightLog(day, "oldest"))).toEqual(["first", "second", "none"]);
+    expect(ids(sortFlightLog(day, "newest"))).toEqual(["none", "second", "first"]);
+  });
+
+  it("keeps a tie in arrival order on newest and reverses it on oldest", () => {
+    // Two flights the same day off the same start reading — the API hands them
+    // back newest-first, and flipping the order has to flip them too.
+    const tied = [row("later", "2026-10-22T19:00:00Z", 1507.05), row("earlier", "2026-10-22T19:00:00Z", 1507.05)];
+    const copy = [...tied];
+    expect(ids(sortFlightLog(tied, "newest"))).toEqual(["later", "earlier"]);
+    expect(ids(sortFlightLog(tied, "oldest"))).toEqual(["earlier", "later"]);
+    expect(tied).toEqual(copy);
+  });
+
+  it("is an exact mirror between the two orders", () => {
+    expect(sortFlightLog(log, "oldest")).toEqual([...sortFlightLog(log, "newest")].reverse());
   });
 });

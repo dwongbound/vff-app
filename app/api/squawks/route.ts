@@ -8,8 +8,9 @@
 //
 // Anyone in the club can raise one — that's the point, and it's why filing is
 // NOT behind `squawk:manage`. A member never picks the status: everything
-// lands at NEW and the Safety Officer triages it (see [id]/route.ts).
-import { NextResponse } from "next/server";
+// lands at NEW and the Safety Officer triages it (see [id]/route.ts) — who
+// is emailed the moment it's filed (lib/squawkAlert.ts).
+import { NextResponse, after } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeSquawk } from "@/lib/serialize";
@@ -19,6 +20,8 @@ import {
   type SquawkStatus,
 } from "@/lib/squawks";
 import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
+import { appBaseUrl } from "@/lib/googleCalendar";
+import { alertSafetyOfficers } from "@/lib/squawkAlertSend";
 
 const INCLUDE = {
   reportedBy: { select: { id: true, name: true, email: true } },
@@ -137,6 +140,12 @@ export async function POST(req: Request) {
     }
     throw error;
   }
+
+  // Only a NEW row reaches here — a replayed request returned above — so a
+  // retried submission never mails the officer twice. `after()` sends once
+  // the reply is out: the member filing from the ramp doesn't wait on it.
+  const baseUrl = appBaseUrl(req);
+  after(() => alertSafetyOfficers(created.id, baseUrl));
 
   return NextResponse.json(serializeSquawk(created), { status: 201 });
 }

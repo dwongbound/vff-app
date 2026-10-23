@@ -40,6 +40,7 @@ function flight(over: Partial<ApiFlightSummary> = {}): ApiFlightSummary {
     arrival: null,
     route: null,
     fuelAddedGal: null,
+    fuelPricePerGalCents: null,
     fuelCostCents: null,
     fuelPaidPersonally: true,
     landingFeeCents: null,
@@ -156,6 +157,16 @@ describe("flightLogSheet", () => {
     // The second flight recorded neither, so the column stays empty rather
     // than carrying a price worked out from nothing.
     expect(sheet.rows[5][7]).toBeNull();
+  });
+
+  it("uses the price the member typed rather than re-deriving it", () => {
+    const priced = flightLogSheet({
+      tailNumber: "N8318B",
+      flights: [flight({ fuelAddedGal: 22.1, fuelPricePerGalCents: 699, fuelCostCents: 15448 })],
+      now: NOW,
+    });
+    expect(priced.rows[4][7]).toBe(6.99);
+    expect(priced.rows[4][8]).toBe(154.48);
   });
 
   it("never divides by zero when a fill-up recorded no gallons", () => {

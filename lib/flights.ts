@@ -13,6 +13,8 @@
 // at a fraction of the size, and the objects come from the detail endpoint the
 // modal calls when a member actually opens an entry.
 
+import { fuelTotalCents } from "./fuel";
+
 /** Everything a log ROW draws, with photos and squawks counted, not loaded. */
 export const FLIGHT_LIST_SELECT = {
   aircraft: { select: { id: true, tailNumber: true } },
@@ -89,9 +91,73 @@ export function mentionsLandingFee(body: Record<string, unknown>): boolean {
   return "landingFeeCents" in body || "landingFeeDollars" in body;
 }
 
-/** What the pilot paid for fuel, in whole cents. */
+/**
+ * A fuel TOTAL sent outright, in whole cents. Only older clients do this now —
+ * a job frozen in somebody's outbox before the price box existed — so it stays
+ * understood. See `fuelFrom`.
+ */
 export function fuelCostCentsFrom(body: Record<string, unknown>): number | null {
   return moneyFrom(body, "fuelCostCents", "fuelCostDollars");
+}
+
+/** The pump price per gallon, in cents. Negative is a typo, so it's dropped. */
+export function fuelPriceCentsFrom(body: Record<string, unknown>): number | null {
+  const cents = moneyFrom(body, "fuelPricePerGalCents", "fuelPricePerGalDollars");
+  return cents !== null && cents >= 0 ? cents : null;
+}
+
+function mentionsFuelPrice(body: Record<string, unknown>): boolean {
+  return "fuelPricePerGalCents" in body || "fuelPricePerGalDollars" in body;
+}
+
+function mentionsFuelCost(body: Record<string, unknown>): boolean {
+  return "fuelCostCents" in body || "fuelCostDollars" in body;
+}
+
+export interface FuelColumns {
+  fuelPricePerGalCents: number | null;
+  fuelCostCents: number | null;
+}
+
+/**
+ * Fuel money for a NEW row. A price wins and the total is gallons × price
+ * (null until gallons are known — a price alone credits nothing). Without one,
+ * a total sent outright is taken as it stands, with no price beside it.
+ */
+export function fuelFrom(body: Record<string, unknown>, gallons: number | null): FuelColumns {
+  const price = fuelPriceCentsFrom(body);
+  if (price !== null) {
+    return { fuelPricePerGalCents: price, fuelCostCents: fuelTotalCents(gallons, price) };
+  }
+  return { fuelPricePerGalCents: null, fuelCostCents: fuelCostCentsFrom(body) };
+}
+
+/**
+ * Fuel money for a CORRECTION — only what the body changes, `in body` style.
+ *
+ *   price named     the total follows it (and clearing the price clears both)
+ *   total named     taken as sent, and any price is dropped: a price beside a
+ *                   total it doesn't multiply to is a sum that doesn't add up
+ *   gallons only    a priced row's total is re-worked; an older total-only
+ *                   row's total is left alone, since it was never a product
+ *   none of them    nothing
+ */
+export function fuelPatchFrom(
+  body: Record<string, unknown>,
+  gallons: number | null,
+  existing: { fuelPricePerGalCents: number | null }
+): Partial<FuelColumns> {
+  if (mentionsFuelPrice(body)) {
+    const price = fuelPriceCentsFrom(body);
+    return { fuelPricePerGalCents: price, fuelCostCents: fuelTotalCents(gallons, price) };
+  }
+  if (mentionsFuelCost(body)) {
+    return { fuelPricePerGalCents: null, fuelCostCents: fuelCostCentsFrom(body) };
+  }
+  if ("fuelAddedGal" in body && existing.fuelPricePerGalCents !== null) {
+    return { fuelCostCents: fuelTotalCents(gallons, existing.fuelPricePerGalCents) };
+  }
+  return {};
 }
 
 /**

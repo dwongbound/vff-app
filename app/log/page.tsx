@@ -1,5 +1,6 @@
 "use client";
-// Flight Log tab — every flight filed on the airplane, newest first.
+// Flight Log tab — every flight filed on the airplane, newest first (the sort
+// button beside the switch flips it).
 //
 // The Club/Mine switch changes what the page is *about*, not just which rows
 // it filters:
@@ -41,6 +42,8 @@ import {
   isIncompleteEntry,
   isOpenSession,
   missingMeters,
+  sortFlightLog,
+  type LogOrder,
 } from "@/lib/flightSession";
 import { flightLogSheet } from "@/lib/exports";
 import { xlsxFilename } from "@/lib/xlsx";
@@ -83,6 +86,9 @@ function FlightLog() {
   // themselves — "am I current", "what did I fly last month" — and the club
   // view is one tap away for the times they didn't.
   const [filter, setFilter] = useState<Filter>("mine");
+  // Latest at the top: the log is mostly read for "what happened last". The
+  // button beside the switch flips it to read forwards from the start.
+  const [order, setOrder] = useState<LogOrder>("newest");
   const [openFlight, setOpenFlight] = useState<ApiFlight | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   // Adding a flight the app never saw — a page of the paper log being caught
@@ -140,10 +146,16 @@ function FlightLog() {
     openFlight && canEditFlight(openFlight, me ? { id: me.id, isAdmin: me.isAdmin } : null)
   );
 
-  const visible =
-    filter === "mine"
-      ? all.filter((f) => (asInstructor ? f.instructor?.id === me?.id : f.mine))
-      : all;
+  const visible = useMemo(
+    () =>
+      sortFlightLog(
+        filter === "mine"
+          ? all.filter((f) => (asInstructor ? f.instructor?.id === me?.id : f.mine))
+          : all,
+        order
+      ),
+    [all, filter, asInstructor, me?.id, order]
+  );
 
   // What this instructor still owes the club a signature on.
   const awaiting = useMemo(
@@ -248,6 +260,22 @@ function FlightLog() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+            aria-label={`Sorted ${order} first — show ${
+              order === "newest" ? "oldest" : "newest"
+            } first`}
+            title={order === "newest" ? "Newest first" : "Oldest first"}
+            className="flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <SortIcon order={order} />
+            {/* Icon only on a phone: the row already holds the switch, Export
+                and Add flight, and the label is in the aria-label anyway. */}
+            <span className="hidden sm:inline">
+              {order === "newest" ? "Newest first" : "Oldest first"}
+            </span>
+          </button>
           {/* Exports what the switch beside it is showing — the club's log, or
               yours. The two are different documents (see the Club/Mine note at
               the top of this file), and an export that ignored the switch would
@@ -552,9 +580,10 @@ function FlightLog() {
         viewerId={me?.id ?? null}
         canEdit={mayCorrect}
         onSaved={async (updated) => {
-          // Show the correction under the reader straight away, then refetch:
-          // a corrected tach re-bills the flight and can move the airplane's
-          // meters, which the header and the totals above both read.
+          // A Save closes the modal (FlightDetailModal calls onClose after
+          // this); "File this flight" keeps it open on the filed entry. Either
+          // way refetch: a corrected tach re-bills the flight and can move the
+          // airplane's meters, which the header and the totals above both read.
           setOpenFlight(updated);
           await refresh();
           notifyAircraftChanged();
@@ -601,3 +630,28 @@ function switchLabel(value: Filter, asInstructor: boolean): string {
   return "Mine";
 }
 
+
+/** Two arrows, the one pointing the way the list reads drawn solid. */
+function SortIcon({ order }: { order: LogOrder }) {
+  const down = order === "newest";
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+      <path
+        d="M5 13V3M5 3 2.5 5.5M5 3l2.5 2.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={down ? 0.35 : 1}
+      />
+      <path
+        d="M11 3v10m0 0-2.5-2.5M11 13l2.5-2.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={down ? 1 : 0.35}
+      />
+    </svg>
+  );
+}
