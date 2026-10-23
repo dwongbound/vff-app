@@ -55,9 +55,14 @@ test("a member can correct their own entry, and the log says it was edited", asy
   await expect(modal.getByRole("button", { name: "Edit" })).toHaveCount(0);
   await modal.getByRole("button", { name: "Save" }).click();
 
-  // Back to the record, showing the correction and stamped as edited. The
-  // stamp is what an instructor's signature gets compared against, so it
-  // matters that saving sets it.
+  // Save is the end of the correction: the modal closes rather than dropping
+  // the member back onto the record they just changed.
+  await expect(modal).toHaveCount(0, { timeout: 60_000 });
+
+  // Reopened, it shows the correction stamped as edited. The stamp is what an
+  // instructor's signature gets compared against, so it matters that saving
+  // sets it.
+  await page.getByRole("main").getByRole("button").filter({ hasText: "KTOA" }).first().click();
   await expect(modal.getByText("last edited")).toBeVisible({ timeout: 60_000 });
   await expect(modal.getByText("Landings")).toBeVisible();
 
@@ -150,6 +155,8 @@ test("a flight's type shows as a chip on the log, and can be corrected", async (
   await expect(type).toHaveValue("TRAINING_SOLO");
   await type.selectOption("LOCAL");
   await modal.getByRole("button", { name: "Save" }).click();
+  await expect(modal).toHaveCount(0, { timeout: 60_000 });
+  await row.click();
   await expect(modal.getByText("Local flight", { exact: true })).toBeVisible({ timeout: 60_000 });
 
   const after = await page.request.get(`/api/flights/${flight.id}`);

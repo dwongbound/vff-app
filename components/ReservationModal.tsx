@@ -32,6 +32,7 @@ import {
   toDateInputValue,
   toLocalInputValue,
 } from "@/lib/dates";
+import { bookingTitle } from "@/lib/calendarEvents";
 import { buildIcs, icsFilename } from "@/lib/ics";
 import { allDayLabel, bookedBy, validateReservation } from "@/lib/reservations";
 import type { ApiMember, ApiReservation } from "@/lib/types";
@@ -250,7 +251,9 @@ export default function ReservationModal({
       <Modal
         open={open}
         onClose={onClose}
-        title={bookedBy(reservation)}
+        // Named as the airplane's Google Calendar names it — "Dylan - N8318B
+        // (Local)" — which still leads with who has the airplane.
+        title={bookingTitle(reservation)}
         subtitle={`${tailNumber} · ${formatFullDate(reservation.startsAt)}`}
         // No Close button: the header's ✕ (and Escape, and the backdrop)
         // already close it, and a footer of two grey buttons made Export
@@ -324,7 +327,7 @@ export default function ReservationModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={reservation ? "Your booking" : `Book ${tailNumber}`}
+      title={reservation ? bookingTitle(reservation) : `Book ${tailNumber}`}
       subtitle={
         timesUsable && endsAt > startsAt
           ? `${formatFullDate(startsAt)} · ${formatDuration(startsAt, endsAt)}`

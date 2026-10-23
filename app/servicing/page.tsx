@@ -20,10 +20,11 @@ import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
 import { useAircraft } from "@/components/AircraftProvider";
+import FuelSummary from "@/components/FuelSummary";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
 import { formatDay, toDateInputValue } from "@/lib/dates";
-import { formatCents } from "@/lib/hours";
+import { fuelTotalHint } from "@/lib/fuel";
 import type { ApiServicing } from "@/lib/types";
 
 export default function ServicingPage() {
@@ -33,7 +34,7 @@ export default function ServicingPage() {
   const [recent, setRecent] = useState<ApiServicing[] | null>(null);
   const [servicedAt, setServicedAt] = useState(() => toDateInputValue(new Date()));
   const [fuelAddedGal, setFuelAddedGal] = useState("");
-  const [fuelCostDollars, setFuelCostDollars] = useState("");
+  const [fuelPriceDollars, setFuelPriceDollars] = useState("");
   const [oilAddedQts, setOilAddedQts] = useState("");
   const [paidPersonally, setPaidPersonally] = useState(true);
   const [notes, setNotes] = useState("");
@@ -60,7 +61,7 @@ export default function ServicingPage() {
   const nothingRecorded =
     numeric(fuelAddedGal) == null &&
     numeric(oilAddedQts) == null &&
-    numeric(fuelCostDollars) == null;
+    numeric(fuelPriceDollars) == null;
 
   async function file() {
     if (!selected) return;
@@ -74,7 +75,8 @@ export default function ServicingPage() {
       // otherwise slide to the day before.
       servicedAt: `${servicedAt}T12:00:00`,
       fuelAddedGal: numeric(fuelAddedGal),
-      fuelCostDollars: numeric(fuelCostDollars),
+      // The pump price; the server multiplies it out to the total it credits.
+      fuelPricePerGalDollars: numeric(fuelPriceDollars),
       oilAddedQts: numeric(oilAddedQts),
       paidPersonally,
       notes: notes.trim() || null,
@@ -87,12 +89,12 @@ export default function ServicingPage() {
     }
 
     setSaved(
-      paidPersonally && numeric(fuelCostDollars) != null
+      paidPersonally && numeric(fuelPriceDollars) != null
         ? "Recorded — the cost is credited back to you on this month's statement."
         : "Recorded."
     );
     setFuelAddedGal("");
-    setFuelCostDollars("");
+    setFuelPriceDollars("");
     setOilAddedQts("");
     setNotes("");
     await refresh();
@@ -150,14 +152,14 @@ export default function ServicingPage() {
             }
           />
           <Input
-            label="Cost"
+            label="Price per gallon"
             type="number"
             inputMode="decimal"
             step="0.01"
             min="0"
-            value={fuelCostDollars}
-            onChange={(e) => setFuelCostDollars(e.target.value)}
-            hint="Dollars, off the receipt"
+            value={fuelPriceDollars}
+            onChange={(e) => setFuelPriceDollars(e.target.value)}
+            hint={fuelTotalHint(fuelAddedGal, fuelPriceDollars) ?? "Dollars, off the pump"}
           />
           <Input
             label="Oil added"
@@ -247,13 +249,13 @@ export default function ServicingPage() {
               <li key={s.id} className="flex flex-wrap items-baseline gap-x-2 py-2">
                 <span className="font-medium">{formatDay(s.servicedAt)}</span>
                 <span className="text-gray-600 dark:text-gray-300">
-                  {[
-                    s.fuelAddedGal != null && `${s.fuelAddedGal} gal`,
-                    s.oilAddedQts != null && `${s.oilAddedQts} qt oil`,
-                    s.fuelCostCents != null && formatCents(s.fuelCostCents),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  {(s.fuelAddedGal != null || s.fuelCostCents != null) && (
+                    <FuelSummary fuel={s} />
+                  )}
+                  {(s.fuelAddedGal != null || s.fuelCostCents != null) &&
+                    s.oilAddedQts != null &&
+                    " · "}
+                  {s.oilAddedQts != null && `${s.oilAddedQts} qt oil`}
                 </span>
                 <span className="text-gray-500 dark:text-gray-400">{s.user.name}</span>
                 {s.fuelCostCents != null && (

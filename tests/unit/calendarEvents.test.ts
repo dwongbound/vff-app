@@ -3,6 +3,7 @@ import {
   PROP,
   appEventProps,
   appEventTitle,
+  bookingTitle,
   bookingAttendees,
   cancelledTitle,
   eventInstant,
@@ -380,5 +381,33 @@ describe("bookingAttendees", () => {
     expect(
       bookingAttendees([{ email: "sam@club.test" }], ["sam@club.test"], ["sam@club.test"])
     ).toBeNull();
+  });
+});
+
+describe("bookingTitle", () => {
+  const booking = {
+    title: null,
+    user: { name: "Dylan Wong" },
+    instructor: null,
+    purpose: "LOCAL" as const,
+    aircraft: { tailNumber: "n8318b" },
+  };
+
+  it("is the title the app writes to Google for it", () => {
+    expect(bookingTitle(booking)).toBe("Dylan - N8318B (Local)");
+    expect(
+      bookingTitle({ ...booking, purpose: "TRAINING", instructor: { name: "Matt Large" } })
+    ).toBe("Dylan - N8318B (Training w Matt)");
+    expect(bookingTitle({ ...booking, purpose: "MAINTENANCE" })).toBe("N8318B (Maintenance)");
+  });
+
+  it("keeps the words of an event typed into Google", () => {
+    expect(bookingTitle({ ...booking, user: null, title: "Strut Maintanence" })).toBe(
+      "Strut Maintanence"
+    );
+  });
+
+  it("names the airplane when nobody is attached", () => {
+    expect(bookingTitle({ ...booking, user: null })).toBe("N8318B (Local)");
   });
 });

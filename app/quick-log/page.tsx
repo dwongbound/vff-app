@@ -69,6 +69,7 @@ import {
   type QuickLogForm,
 } from "@/lib/quickLogDraft";
 import { fetchJsonArray } from "@/lib/api";
+import { fuelTotalHint } from "@/lib/fuel";
 import { QUEUED_NOTICE } from "@/lib/offline";
 import { flightJob, hasPending } from "@/lib/outbox";
 import { clubDateKey, formatDay, toDateInputValue } from "@/lib/dates";
@@ -99,7 +100,7 @@ export default function QuickLogPage() {
   // see lib/landingAirports.ts for why that's the right way round.
   const [airports, setAirports] = useState("");
   const [fuelAdded, setFuelAdded] = useState("");
-  const [fuelCost, setFuelCost] = useState("");
+  const [fuelPrice, setFuelPrice] = useState("");
   const [oilAdded, setOilAdded] = useState("");
   // Whose card the fuel went on. Defaults to the member's own, which is the
   // case that needs paying back — the safer default is the one that can't
@@ -233,7 +234,7 @@ export default function QuickLogPage() {
     setHobbsEnd("");
     setAirports("");
     setFuelAdded("");
-    setFuelCost("");
+    setFuelPrice("");
     setOilAdded("");
     setPaidPersonally(true);
     setPurpose("");
@@ -255,12 +256,12 @@ export default function QuickLogPage() {
       setHobbsEnd(draft.hobbsEnd);
       setAirports(draft.airports);
       setFuelAdded(draft.fuelAdded);
-      setFuelCost(draft.fuelCost);
+      setFuelPrice(draft.fuelPrice);
       setOilAdded(draft.oilAdded);
       setPaidPersonally(draft.paidPersonally);
       setPurpose(isPurpose(draft.purpose) ? draft.purpose : "");
       setEdited(draft.edited);
-      setShowFuel(Boolean(draft.fuelAdded || draft.fuelCost || draft.oilAdded));
+      setShowFuel(Boolean(draft.fuelAdded || draft.fuelPrice || draft.oilAdded));
       setDraftSavedAt(draft.savedAt);
     } else if (restoredFor !== null) {
       // Switched airplane, and this one has no draft: start clean.
@@ -284,7 +285,7 @@ export default function QuickLogPage() {
       hobbsEnd,
       airports,
       fuelAdded,
-      fuelCost,
+      fuelPrice,
       oilAdded,
       paidPersonally,
       purpose,
@@ -311,7 +312,7 @@ export default function QuickLogPage() {
     hobbsEnd,
     airports,
     fuelAdded,
-    fuelCost,
+    fuelPrice,
     oilAdded,
     paidPersonally,
     purpose,
@@ -488,7 +489,7 @@ export default function QuickLogPage() {
       arrival: landed.arrival,
       route: landed.route,
       fuelAddedGal: fuelAdded === "" ? null : Number(fuelAdded),
-      fuelCostDollars: fuelCost === "" ? null : Number(fuelCost),
+      fuelPricePerGalDollars: fuelPrice === "" ? null : Number(fuelPrice),
       // Whose card. A club-card fill is the club buying its own fuel and must
       // not raise a credit — the server is what enforces that, this is the
       // member's answer to it.
@@ -547,7 +548,7 @@ export default function QuickLogPage() {
     setEdited({ tachStart: tachEnd !== "", hobbsStart: hobbsEnd !== "" });
     setAirports("");
     setFuelAdded("");
-    setFuelCost("");
+    setFuelPrice("");
     setOilAdded("");
     setPaidPersonally(true);
     setPurpose("");
@@ -763,9 +764,9 @@ export default function QuickLogPage() {
               Fuel &amp; oil <span className="font-normal text-gray-400">— optional</span>
             </span>
             <span className="block text-xs text-gray-500 dark:text-gray-400">
-              {fuelAdded || fuelCost || oilAdded
-                ? `${fuelAdded || "—"} gal${fuelCost ? ` · $${fuelCost}` : ""}${
-                    fuelCost ? (paidPersonally ? " · own card" : " · club card") : ""
+              {fuelAdded || fuelPrice || oilAdded
+                ? `${fuelAdded || "—"} gal${fuelPrice ? ` × $${fuelPrice}` : ""}${
+                    fuelPrice ? (paidPersonally ? " · own card" : " · club card") : ""
                   }${oilAdded ? ` · ${oilAdded} qt oil` : ""}`
                 : "Anything you put in after this flight"}
             </span>
@@ -797,13 +798,13 @@ export default function QuickLogPage() {
                 hint="US gallons"
               />
               <Input
-                label="Fuel cost"
+                label="Price per gallon"
                 type="number"
                 step="0.01"
                 min="0"
-                value={fuelCost}
-                onChange={(e) => setFuelCost(e.target.value)}
-                hint="Dollars"
+                value={fuelPrice}
+                onChange={(e) => setFuelPrice(e.target.value)}
+                hint={fuelTotalHint(fuelAdded, fuelPrice) ?? "Dollars"}
               />
               <Input
                 label="Oil added"
