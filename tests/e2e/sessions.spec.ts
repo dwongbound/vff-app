@@ -251,6 +251,11 @@ test("a pilot writes up their own flight, and it survives a reload", async ({
   await log.fill("Steep turns and stalls.\n\n- Left turn was better\n- Watch the ball");
   await dialog.getByRole("button", { name: "Save" }).click();
 
+  // A successful Save closes the modal, so open the entry again to read it.
+  await expect(dialog).toBeHidden({ timeout: 60_000 });
+  await main.getByRole("button").filter({ hasText: MARKER }).first().click();
+  await expect(dialog).toBeVisible({ timeout: 60_000 });
+
   // Rendered, not shown as markup: the bullets are a real list.
   await expect(dialog.getByRole("listitem").first()).toBeVisible({ timeout: 60_000 });
   await expect(dialog.getByText("Left turn was better")).toBeVisible();
