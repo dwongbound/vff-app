@@ -18,12 +18,15 @@ export default function Banner({
   tone = "indigo",
   children,
   href,
+  linkLabel,
   onLinkClick,
   onDismiss,
 }: {
   tone?: BannerTone;
   children: ReactNode;
   href?: string;
+  /** Words for the link, when a bare "→" wouldn't say what pressing it does. */
+  linkLabel?: string;
   onLinkClick?: () => void;
   onDismiss?: () => void;
 }) {
@@ -36,10 +39,12 @@ export default function Banner({
             <Link
               href={href}
               onClick={onLinkClick}
-              aria-label="Go there"
-              className="ml-1.5 whitespace-nowrap text-base font-bold hover:opacity-70"
+              aria-label={linkLabel ?? "Go there"}
+              className={`ml-1.5 whitespace-nowrap font-bold hover:opacity-70 ${
+                linkLabel ? "underline underline-offset-2" : "text-base"
+              }`}
             >
-              →
+              {linkLabel ? `${linkLabel} →` : "→"}
             </Link>
           )}
         </span>
