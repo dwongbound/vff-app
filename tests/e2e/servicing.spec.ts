@@ -26,7 +26,8 @@ test("Add Fuel lives with the checkouts and files without a flight", async ({
   await expect(page.getByText(/Enter some fuel, some oil, or what it cost/)).toBeVisible();
 
   await page.getByLabel("Fuel added").fill("18.4");
-  await page.getByLabel("Cost", { exact: true }).fill("131.24");
+  // The form takes the pump price; the server multiplies it out.
+  await page.getByLabel("Price per gallon").fill("7.13");
   await expect(record).toBeEnabled();
   await record.click();
 
@@ -44,7 +45,7 @@ test("the club's own card records the fuel without owing anybody", async ({
   await gotoTab(page, "/servicing", "Add Fuel");
 
   await page.getByLabel("Fuel added").fill("12");
-  await page.getByLabel("Cost", { exact: true }).fill("84.00");
+  await page.getByLabel("Price per gallon").fill("7.00");
   await page.getByRole("radio", { name: /The club's card/ }).check();
   await page.getByRole("button", { name: "Record", exact: true }).click();
 
