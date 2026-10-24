@@ -484,7 +484,9 @@ owns the only splash in the app.
   "is anything overdue". The common write is PATCH `{ lastDoneTach, lastDoneOn }`
   — the shop handed it back, restart both clocks.
 - `squawks` (GET `?status=open|closed|all|<STATUS>`, POST — POST ignores any
-  status in the body) · `squawks/[id]` (PATCH; the WHOLE route needs
+  status in the body, and EMAILS the Safety Officer(s) about every NEW row
+  inside `after()`; a replayed request returns before it, so a retry never
+  mails twice) · `squawks/[id]` (PATCH; the WHOLE route needs
   `squawk:manage`, wording included, because the description is what the next
   pilot reads to decide whether to fly).
 - `servicing` (GET window, POST — one fill-up, no flight; refuses a row that
@@ -633,7 +635,10 @@ owns the only splash in the app.
   `START_FIELDS`/`RUNWAY_FIELDS`/`END_FIELDS` — a test asserts all six still
   exist on their card, because renaming one would silently open sessions with
   no meters), `resolveTimes` (an overnight leg's end rolls forward a day, ONCE,
-  so a mistyped time stays visibly wrong), and the two permission rules:
+  so a mistyped time stays visibly wrong), `sortFlightLog` (the log page's
+  order — day, then TACH within a day, open sessions as the latest; newest
+  first by default, the button beside Club/Mine flips it), and the two
+  permission rules:
   `canEditFlight` (yours, or an admin's correction — the log page asks this
   rather than spelling it out) and `canEditLogEntry` (the AUTHOR alone — see
   the gotcha). ✅tested
@@ -673,6 +678,13 @@ owns the only splash in the app.
   one exists because Postgres sorts an enum in DECLARATION order, which would
   bury the grounded squawks at the bottom of every list. Nothing outside this
   file may switch on a status string. ✅tested
+- `squawkAlert.ts` — who a new squawk is mailed to (`squawkAlertRecipients`:
+  every SAFETY_OFFICER; the admins while the office is empty; never the
+  reporter) and what it says (`squawkAlertEmail`, member text escaped).
+  `squawkAlertSend.ts` is the db half, and NEVER throws — the squawk landed
+  whatever the mail service says, and a failure goes to the server log. Mail
+  itself is `email.ts` (Resend by fetch, `EMAIL_DRIVER=log` in dev/e2e).
+  ✅tested
 - `positions.ts` — club offices and what each may do. The ONLY place an office
   maps to a capability; routes ask `can(user, "finance:manage")`, never "is
   this person the Finance Officer". **Admins hold every capability implicitly**,
@@ -699,6 +711,15 @@ owns the only splash in the app.
   reports what it cost),
   `flightCharge`/`fuelCredit`, `ruleAppliesTo`/`membersBilledBy`,
   money parsing/formatting. ✅tested
+- `fuel.ts` — fuel money. Every form asks for the PUMP PRICE per gallon
+  (`fuelPricePerGalCents`, as typed) and the server multiplies it out to
+  `fuelCostCents`, which stays the TOTAL — the number `fuelCredit` pays back
+  and the only one rows predating the price carry. Such a row shows as
+  "22.1 gal · $153.01" rather than with a price back-derived from it (that
+  rarely multiplies back to the cent). The body readers are `fuelFrom` /
+  `fuelPatchFrom` in `flights.ts`, shared by both flight routes and
+  servicing; a total sent outright is still accepted, because an outbox job
+  frozen before the price box existed sends one. ✅tested
 - `landingFees.ts` — what a field charges to land: the fee TABLE (KTOA $6) and
   `landingFeeFor` / `landingFeeInputFor`. Only a DEFAULT — what the club bills is
   `Flight.landingFeeCents`, the figure the pilot left in the box, because rates
@@ -839,8 +860,10 @@ grounded banner points there too.
 `FlightDetailModal` reads in two modes: VIEW (the record) and EDIT (the
 correction), gated on `canEdit` — your own entry or an admin, the same rule
 PATCH enforces. Same modal rather than a separate screen, because a correction
-is made while looking at the thing that's wrong. Delete is `danger` red and
-hides while editing. Est. cost carries an (i) that writes the sum out, and it
+is made while looking at the thing that's wrong — but a successful Save
+CLOSES it (the row already shows the new figures), while "File this flight"
+keeps it open on the filed entry. Delete is `danger` red and hides while
+editing. Est. cost carries an (i) that writes the sum out, and it
 exists because the headline and the money round differently: the title says
 "1.2 hours" while the bill is 1.19 tach hr × the rate, plus any landing fee.
 EDIT now covers the whole session: both meters (clearable), the out and in
@@ -1203,9 +1226,13 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   "the club doesn't know" and "the airplane logged no time" are different
   answers and only one of them is a claim. (2) An open session bills NOTHING,
   and filling the missing reading in later from the log bills it then, because
-  every write to a flight re-runs `syncFlightCharges`. (3) The log's default
-  order puts open sessions FIRST — anything reading `flights[0]` as "the last
-  flight" (Plane Status did) now has to filter them out first.
+  every write to a flight re-runs `syncFlightCharges`. (3) The log PAGE puts open
+  sessions FIRST (`sortFlightLog`), and the API is newest first by day, so an
+  open session is at or near the top either way — anything reading
+  `flights[0]` as "the last flight" (Plane Status did) has to filter them out
+  first. The API must NOT float them up by ordering on `filedAt`: that is
+  oldest-FILED first, and with `take` it dropped the newest flights off every
+  `limit=N` read (`FLIGHT_LIST_ORDER` in lib/flights.ts).
 - **`PATCH /api/flights/[id]` does not touch the airplane's meters, and the
   detail modal's "File this flight" inherits that.** Correcting a tach reading
   re-bills the flight (`syncFlightCharges` runs on every PATCH) but leaves

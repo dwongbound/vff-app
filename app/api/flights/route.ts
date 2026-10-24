@@ -26,8 +26,9 @@ import { prisma } from "@/lib/prisma";
 import { serializeFlight, serializeFlightSummary } from "@/lib/serialize";
 import {
   FLIGHT_DETAIL_INCLUDE,
+  FLIGHT_LIST_ORDER,
   FLIGHT_LIST_SELECT,
-  fuelCostCentsFrom,
+  fuelFrom,
   landingFeeCentsFrom,
 } from "@/lib/flights";
 import { validateMeters } from "@/lib/hours";
@@ -173,10 +174,12 @@ export async function GET(req: Request) {
       ...(openOnly ? { filedAt: null } : {}),
     },
     include: FLIGHT_LIST_SELECT,
-    // Open sessions first, then by day. A flight that hasn't been closed out is
-    // the one thing in this list somebody has to DO something about, and it
-    // sorts by `flownOn` into the middle of an ordinary day's flying otherwise.
-    orderBy: [{ filedAt: { sort: "asc", nulls: "first" } }, { flownOn: "desc" }, { createdAt: "desc" }],
+    // Newest first: by day, then by tach within a day. This has to be right in
+    // the QUERY, not just on the page, because `take` keeps the top of it —
+    // ordering on `filedAt` ascending (to float open sessions up) handed every
+    // `limit=N` reader the club's OLDEST N flights. The log page still puts an
+    // open session at the head itself (`sortFlightLog`).
+    orderBy: FLIGHT_LIST_ORDER,
     take: limit,
   });
 
@@ -380,7 +383,8 @@ export async function POST(req: Request) {
     arrival: body.arrival ? String(body.arrival).trim().toUpperCase() : null,
     route: body.route ? String(body.route).trim() : null,
     fuelAddedGal: num(body.fuelAddedGal),
-    fuelCostCents: fuelCostCentsFrom(body),
+    // The pump price as typed, and the total (gallons × price) that's credited.
+    ...fuelFrom(body, num(body.fuelAddedGal)),
     // Whose card, and it defaults to the MEMBER's when the client says
     // nothing. That's the column's own default and it's the compatible
     // answer: every form that predates the toggle meant "pay me back",

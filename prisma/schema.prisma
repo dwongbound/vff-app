@@ -522,6 +522,11 @@ model Flight {
   // Servicing done after the flight, so the next pilot knows what they're
   // getting. Fuel in gallons added, oil in quarts.
   fuelAddedGal  Float?
+  // What the pilot TYPED: the pump's price per gallon. `fuelCostCents` stays
+  // the TOTAL (gallons × price, worked out by the server) because the total is
+  // what's credited back and what every row before this column recorded — a
+  // row with a total and no price is a pre-price row, not a broken one.
+  fuelPricePerGalCents Int?
   fuelCostCents Int?
   oilAddedQts   Float?
 
@@ -684,6 +689,9 @@ model Servicing {
   servicedAt DateTime
 
   fuelAddedGal  Float?
+  // Price per gallon, as typed; `fuelCostCents` is the total. Same split as
+  // Flight's, for the same reason.
+  fuelPricePerGalCents Int?
   fuelCostCents Int?
   oilAddedQts   Float?
 

@@ -179,6 +179,7 @@ export interface ApiFlightSummary {
   arrival: string | null;
   route: string | null;
   fuelAddedGal: number | null;
+  fuelPricePerGalCents: number | null;
   fuelCostCents: number | null;
   /**
    * Whose card the fuel went on. False = the club's, which records the fill-up
@@ -350,6 +351,7 @@ export interface ApiServicing {
   user: ApiUserSummary;
   servicedAt: string;
   fuelAddedGal: number | null;
+  fuelPricePerGalCents: number | null;
   fuelCostCents: number | null;
   oilAddedQts: number | null;
   /** Member's own card (so the club owes them) rather than the club's. */

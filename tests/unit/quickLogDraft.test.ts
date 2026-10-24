@@ -35,7 +35,7 @@ const EMPTY: QuickLogForm = {
   hobbsEnd: "",
   airports: "",
   fuelAdded: "",
-  fuelCost: "",
+  fuelPrice: "",
   oilAdded: "",
   paidPersonally: true,
   edited: { tachStart: false, hobbsStart: false },

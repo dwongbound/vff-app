@@ -62,7 +62,7 @@ export interface PostflightForm {
   arrival: string;
   route: string;
   fuelAdded: string;
-  fuelCost: string;
+  fuelPrice: string;
   oilAdded: string;
   /**
    * The landing fee, in dollars as typed. Prefilled from the arrival airport
@@ -209,7 +209,7 @@ export function parsePostflightDraft(
     arrival: str(row.arrival),
     route: str(row.route),
     fuelAdded: str(row.fuelAdded),
-    fuelCost: str(row.fuelCost),
+    fuelPrice: str(row.fuelPrice),
     oilAdded: str(row.oilAdded),
     landingFee: str(row.landingFee),
     notes: str(row.notes),
@@ -302,7 +302,7 @@ export function postflightDraftHasProgress(form: PostflightForm): boolean {
     form.arrival,
     form.route,
     form.fuelAdded,
-    form.fuelCost,
+    form.fuelPrice,
     form.oilAdded,
     form.notes,
   ];

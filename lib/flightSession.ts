@@ -248,3 +248,47 @@ export function canEditLogEntry(
 export function cardDay(at: string | Date = new Date()): string {
   return clubDateKey(at);
 }
+
+/** Which end of the log the reader starts at. */
+export type LogOrder = "newest" | "oldest";
+
+/**
+ * The flight log in reading order.
+ *
+ * By DAY, then by where each flight started on the tach — the order they were
+ * actually flown in. The server sorts a day by when its rows were CREATED,
+ * which is the order they were typed in: a flight added by hand a week later,
+ * or a page of the paper log imported in one go, lands above or below the
+ * wrong neighbour. The tach is the airplane's own clock and can't be filed out
+ * of order.
+ *
+ * An OPEN session counts as later than every filed flight, so on "newest" it
+ * leads the list — it's the one row somebody still has to do something about,
+ * the same reason the API puts it first — and on "oldest" it waits at the end,
+ * which is where the flight still happening belongs in a history read forwards.
+ * Within a day an entry with no start reading goes last, as the export does.
+ *
+ * Ties (same day, same start reading) fall back to the order they arrived in,
+ * which is the API's newest-first — and that fallback flips with everything
+ * else, so "oldest" is always the exact mirror of "newest". A tie that held its
+ * place both ways made the button look broken on a day with two such rows.
+ *
+ * Returns a new array.
+ */
+export function sortFlightLog<
+  T extends SessionLike & { flownOn: string | Date; tachStart: number | null }
+>(flights: readonly T[], order: LogOrder): T[] {
+  const sign = order === "oldest" ? 1 : -1;
+  return flights
+    .map((flight, index) => ({ flight, index }))
+    .sort((a, b) => {
+      const byOpen = Number(isOpenSession(a.flight)) - Number(isOpenSession(b.flight));
+      const byDay =
+        new Date(a.flight.flownOn).getTime() - new Date(b.flight.flownOn).getTime();
+      const byTach = (a.flight.tachStart ?? Infinity) - (b.flight.tachStart ?? Infinity);
+      // `Infinity - Infinity` is NaN — two entries with no start reading tie.
+      const ordered = byOpen || byDay || (Number.isNaN(byTach) ? 0 : byTach);
+      return (ordered || b.index - a.index) * sign;
+    })
+    .map(({ flight }) => flight);
+}

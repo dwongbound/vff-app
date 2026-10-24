@@ -246,6 +246,30 @@ export function appEventTitle(b: {
   return first ? `${first} - ${what}` : what;
 }
 
+/**
+ * What a booking is CALLED — the same words the airplane's Google Calendar
+ * shows for it, so the app and the calendar never name one booking two ways.
+ *
+ * An event typed into Google keeps its own title (`title` is only set when it
+ * isn't one the app generated); everything else gets `appEventTitle`, which is
+ * what the app writes to Google for it.
+ */
+export function bookingTitle(r: {
+  title?: string | null;
+  user: { name: string } | null;
+  instructor?: { name: string } | null;
+  purpose: Purpose;
+  aircraft: { tailNumber: string };
+}): string {
+  if (r.title) return r.title;
+  return appEventTitle({
+    memberName: r.user?.name ?? "",
+    tailNumber: r.aircraft.tailNumber.toUpperCase(),
+    purpose: r.purpose,
+    instructorName: r.instructor?.name ?? null,
+  });
+}
+
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0];
 }

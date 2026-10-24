@@ -38,6 +38,7 @@ import type { PostflightForm } from "@/lib/postflightDraft";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray } from "@/lib/api";
+import { fuelTotalHint } from "@/lib/fuel";
 import { QUEUED_NOTICE } from "@/lib/offline";
 import { flightJob, hasPending } from "@/lib/outbox";
 import {
@@ -101,7 +102,7 @@ export default function PostflightPage() {
   const [arrival, setArrival] = useState("");
   const [route, setRoute] = useState("");
   const [fuelAdded, setFuelAdded] = useState("");
-  const [fuelCost, setFuelCost] = useState("");
+  const [fuelPrice, setFuelPrice] = useState("");
   // Whose card the fuel went on. Defaults to the member's own — the case that
   // needs paying back, and what recording a cost has always meant here. NOT in
   // the device draft: it's one radio pair with a safe default, and adding a
@@ -359,7 +360,7 @@ export default function PostflightPage() {
       arrival,
       route,
       fuelAdded,
-      fuelCost,
+      fuelPrice,
       oilAdded,
       landingFee,
       notes,
@@ -391,7 +392,7 @@ export default function PostflightPage() {
       arrival,
       route,
       fuelAdded,
-      fuelCost,
+      fuelPrice,
       oilAdded,
       landingFee,
       notes,
@@ -423,7 +424,7 @@ export default function PostflightPage() {
       setArrival(stored.arrival);
       setRoute(stored.route);
       setFuelAdded(stored.fuelAdded);
-      setFuelCost(stored.fuelCost);
+      setFuelPrice(stored.fuelPrice);
       setOilAdded(stored.oilAdded);
       setLandingFee(stored.landingFee);
       setNotes(stored.notes);
@@ -469,7 +470,7 @@ export default function PostflightPage() {
     setArrival("");
     setRoute("");
     setFuelAdded("");
-    setFuelCost("");
+    setFuelPrice("");
     setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
@@ -575,7 +576,7 @@ export default function PostflightPage() {
       arrival: arrival.trim() || null,
       route: route.trim() || null,
       fuelAddedGal: fuelAdded === "" ? null : Number(fuelAdded),
-      fuelCostDollars: fuelCost === "" ? null : Number(fuelCost),
+      fuelPricePerGalDollars: fuelPrice === "" ? null : Number(fuelPrice),
       fuelPaidPersonally,
       oilAddedQts: oilAdded === "" ? null : Number(oilAdded),
       landingFeeDollars: landingFee === "" ? null : Number(landingFee),
@@ -652,7 +653,7 @@ export default function PostflightPage() {
     setArrival("");
     setRoute("");
     setFuelAdded("");
-    setFuelCost("");
+    setFuelPrice("");
     setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
@@ -1036,14 +1037,14 @@ export default function PostflightPage() {
             hint="gallons"
           />
           <Input
-            label="Fuel cost"
+            label="Price per gallon"
             type="number"
             inputMode="decimal"
             step="0.01"
             min="0"
-            value={fuelCost}
-            onChange={(e) => setFuelCost(e.target.value)}
-            hint="dollars"
+            value={fuelPrice}
+            onChange={(e) => setFuelPrice(e.target.value)}
+            hint={fuelTotalHint(fuelAdded, fuelPrice) ?? "dollars"}
           />
           <Input
             label="Oil added"
