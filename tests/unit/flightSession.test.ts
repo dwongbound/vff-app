@@ -6,6 +6,7 @@ import {
   canEditFlight,
   canEditLogEntry,
   endFromTurnoff,
+  flightToFinish,
   isIncompleteEntry,
   isOpenSession,
   missingMeters,
@@ -289,5 +290,44 @@ describe("sortFlightLog", () => {
 
   it("is an exact mirror between the two orders", () => {
     expect(sortFlightLog(log, "oldest")).toEqual([...sortFlightLog(log, "newest")].reverse());
+  });
+});
+
+describe("flightToFinish", () => {
+  const NOW = new Date("2026-08-21T20:00:00Z");
+  const open = {
+    id: "a",
+    filedAt: null,
+    startedAt: "2026-08-21T17:00:00Z",
+    flownOn: "2026-08-21T07:00:00Z",
+  };
+
+  it("names a flight the pilot opened with a preflight and never filed", () => {
+    expect(flightToFinish([open], "/reservations", NOW)?.id).toBe("a");
+  });
+
+  it("stays quiet on the cards and the forms that finish the flight", () => {
+    for (const path of ["/preflight", "/runway", "/postflight", "/quick-log"]) {
+      expect(flightToFinish([open], path, NOW)).toBeNull();
+    }
+    // A prefix of a hidden page is not that page.
+    expect(flightToFinish([open], "/log", NOW)?.id).toBe("a");
+  });
+
+  it("ignores a filed entry, even one missing its tach end", () => {
+    expect(
+      flightToFinish([{ ...open, filedAt: "2026-08-21T19:00:00Z" }], "/log", NOW)
+    ).toBeNull();
+  });
+
+  it("leaves an entry older than the session window to the log", () => {
+    // The post-flight form would file a NEW entry beside this one, so the
+    // banner must not send anybody there for it.
+    const stale = { ...open, startedAt: "2026-08-19T17:00:00Z" };
+    expect(flightToFinish([stale], "/log", NOW)).toBeNull();
+  });
+
+  it("falls back to the day the walk opened it when no clock was read", () => {
+    expect(flightToFinish([{ ...open, startedAt: null }], "/log", NOW)?.id).toBe("a");
   });
 });

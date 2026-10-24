@@ -58,6 +58,38 @@ export function isOpenSession(flight: SessionLike): boolean {
 }
 
 /**
+ * Pages where the "finish your flight" banner would be noise rather than news:
+ * the cards themselves (preflight → runway is the flight STARTING, and asking
+ * "are you finished?" there is the wrong question) and the two forms that
+ * finish it, which already say so in their own line above the form.
+ */
+export const FINISH_NUDGE_HIDDEN_ON = ["/preflight", "/runway", "/postflight", "/quick-log"];
+
+/**
+ * The open session the app should remind its pilot to finish, if any.
+ *
+ * Same 24-hour window as `findOpenSession`, and for the same reason: the
+ * post-flight form can only close out a session the server will still join,
+ * so nudging toward an older one would send the member to a form that files a
+ * NEW entry beside it. An older open entry stays where it is in the log, marked
+ * unfinished, for closing out or deleting by hand. Timed off the walk's own
+ * clock (`startedAt`), falling back to the day it was opened.
+ */
+export function flightToFinish<
+  F extends { filedAt: string | null; startedAt: string | null; flownOn: string },
+>(openFlights: F[], pathname: string, now: Date = new Date()): F | null {
+  if (FINISH_NUDGE_HIDDEN_ON.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return null;
+  }
+  const since = now.getTime() - SESSION_WINDOW_HOURS * 3_600_000;
+  return (
+    openFlights.find(
+      (f) => isOpenSession(f) && new Date(f.startedAt ?? f.flownOn).getTime() >= since
+    ) ?? null
+  );
+}
+
+/**
  * A FILED entry with a meter reading missing — a record with a gap in it.
  *
  * Deliberately a different question from `isOpenSession`, and the difference
