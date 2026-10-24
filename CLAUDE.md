@@ -1226,9 +1226,13 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   "the club doesn't know" and "the airplane logged no time" are different
   answers and only one of them is a claim. (2) An open session bills NOTHING,
   and filling the missing reading in later from the log bills it then, because
-  every write to a flight re-runs `syncFlightCharges`. (3) The log's default
-  order puts open sessions FIRST — anything reading `flights[0]` as "the last
-  flight" (Plane Status did) now has to filter them out first.
+  every write to a flight re-runs `syncFlightCharges`. (3) The log PAGE puts open
+  sessions FIRST (`sortFlightLog`), and the API is newest first by day, so an
+  open session is at or near the top either way — anything reading
+  `flights[0]` as "the last flight" (Plane Status did) has to filter them out
+  first. The API must NOT float them up by ordering on `filedAt`: that is
+  oldest-FILED first, and with `take` it dropped the newest flights off every
+  `limit=N` read (`FLIGHT_LIST_ORDER` in lib/flights.ts).
 - **`PATCH /api/flights/[id]` does not touch the airplane's meters, and the
   detail modal's "File this flight" inherits that.** Correcting a tach reading
   re-bills the flight (`syncFlightCharges` runs on every PATCH) but leaves

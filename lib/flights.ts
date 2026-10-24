@@ -13,9 +13,24 @@
 // at a fraction of the size, and the objects come from the detail endpoint the
 // modal calls when a member actually opens an entry.
 
+import type { Prisma } from "./generated/prisma/client";
 import { fuelTotalCents } from "./fuel";
 
 /** Everything a log ROW draws, with photos and squawks counted, not loaded. */
+/**
+ * The order every flight list is read in: NEWEST FIRST — by day, then by tach
+ * within a day (two hops on one afternoon), then by when the row was written.
+ * Shared rather than inlined because `take` keeps the top of it, so getting it
+ * backwards doesn't just flip a list, it drops the newest flights off the end
+ * of every `limit=N` read. Open sessions are NOT floated up here; the log page
+ * does that itself (`sortFlightLog`).
+ */
+export const FLIGHT_LIST_ORDER: Prisma.FlightOrderByWithRelationInput[] = [
+  { flownOn: "desc" },
+  { tachStart: { sort: "desc", nulls: "last" } },
+  { createdAt: "desc" },
+];
+
 export const FLIGHT_LIST_SELECT = {
   aircraft: { select: { id: true, tailNumber: true } },
   pilot: { select: { id: true, name: true, email: true } },

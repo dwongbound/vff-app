@@ -164,3 +164,25 @@ test("a flight's type shows as a chip on the log, and can be corrected", async (
 
   await page.request.delete(`/api/flights/${flight.id}`);
 });
+
+test("the flight list leads with the newest flight, not the first one filed", async ({
+  page,
+}) => {
+  // Filed last AND flown last. The list used to be ordered by when entries were
+  // FILED, oldest first, so `limit=1` handed back the club's first-ever flight
+  // and a long log lost its newest entries off the end of `take`.
+  const flight = await seedFlight(page);
+  const fleet = await page.request.get("/api/aircraft");
+  const [aircraft] = (await fleet.json()) as { id: string }[];
+
+  const res = await page.request.get(`/api/flights?aircraftId=${aircraft.id}&limit=1`);
+  const [first] = (await res.json()) as { id: string }[];
+  expect(first.id).toBe(flight.id);
+
+  // And the whole list runs newest to oldest by the day it was flown.
+  const all = await page.request.get(`/api/flights?aircraftId=${aircraft.id}&limit=500`);
+  const days = ((await all.json()) as { flownOn: string }[]).map((f) => +new Date(f.flownOn));
+  expect(days).toEqual([...days].sort((a, b) => b - a));
+
+  await page.request.delete(`/api/flights/${flight.id}`);
+});

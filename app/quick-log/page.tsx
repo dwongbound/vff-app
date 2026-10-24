@@ -165,9 +165,9 @@ export default function QuickLogPage() {
 
   // The last FILED flight, for the prefill hints below.
   //
-  // `filedAt` is filtered for rather than trusted to ordering: the log's
-  // default order puts OPEN sessions first, so `flights[0]` is "the airplane
-  // is out" rather than "the last flight" — the trap Plane Status fell into.
+  // `filedAt` is filtered for rather than trusted to ordering: the list is
+  // newest first, and an OPEN session is today's, so `flights[0]` is often "the
+  // airplane is out" rather than "the last flight" — the trap Plane Status fell into.
   // Asking for a few and picking the first filed one is the cheap fix.
   const loadLastFiled = useCallback(async () => {
     if (!aircraftId) {
