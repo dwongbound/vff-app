@@ -293,7 +293,11 @@ Airworthy badge reads), then the squawks' line (`squawkBanner` in
 lib/squawks.ts: red for a grounding and nothing else; otherwise ONE amber line
 joining in work · unreviewed · reviewed-okay-to-fly — `newSquawkCount` /
 `okToFlySquawkCount` on the aircraft — → Squawks). A banner is NOT drawn on the tab it
-links to. Both are true of the AIRPLANE rather than of a view, so every child
+links to. The Navbar also carries the member's own FINISH-YOUR-FLIGHT line
+(amber, "Finished with your flight?" + Finish → `/postflight`) while they have
+an open session on the selected airplane inside `SESSION_WINDOW_HOURS` —
+`flightToFinish` in lib/flightSession.ts, re-asked on every navigation and
+hidden on the cards and the two forms that finish a flight. Both are true of the AIRPLANE rather than of a view, so every child
 tab gets them. The squawk cards and maintenance rows lay out by the CARD's
 width (`@container` / `@xl:` container queries), not the screen's: the
 control (status picker, Mark done) goes under the text until the card is
