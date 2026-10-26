@@ -251,6 +251,11 @@ test("a pilot writes up their own flight, and it survives a reload", async ({
   await log.fill("Steep turns and stalls.\n\n- Left turn was better\n- Watch the ball");
   await dialog.getByRole("button", { name: "Save" }).click();
 
+  // A successful Save closes the modal, so open the entry again to read it.
+  await expect(dialog).toBeHidden({ timeout: 60_000 });
+  await main.getByRole("button").filter({ hasText: MARKER }).first().click();
+  await expect(dialog).toBeVisible({ timeout: 60_000 });
+
   // Rendered, not shown as markup: the bullets are a real list.
   await expect(dialog.getByRole("listitem").first()).toBeVisible({ timeout: 60_000 });
   await expect(dialog.getByText("Left turn was better")).toBeVisible();
@@ -258,4 +263,38 @@ test("a pilot writes up their own flight, and it survives a reload", async ({
   // And it's on the entry, not just on the screen.
   const reread = await page.request.get(`/api/flights/${flightId}`);
   expect((await reread.json()).logEntry).toContain("Left turn was better");
+});
+
+test("an unfinished flight is pointed out on every other page until it's filed", async ({
+  page,
+}) => {
+  await clearOpenSessions(page);
+  const aircraft = await fleet(page);
+  const tachStart = Number(((aircraft.lastTach ?? 1000) + 0.1).toFixed(2));
+
+  await completeCard(page, aircraft.id, "PREFLIGHT", {
+    "cockpit.meters.tach": tachStart,
+    "cockpit.time.at": "09:15",
+  });
+
+  // Anywhere else in the app, the airplane being out is news.
+  await gotoTab(page, "/reservations", "Reservations");
+  await expect(page.getByText("Finished with your flight?")).toBeVisible({
+    timeout: 60_000,
+  });
+
+  // The button goes to the form that finishes it, where the banner would only
+  // repeat what the form's own line already says.
+  await page.getByRole("link", { name: "Finish" }).click();
+  await expect(page).toHaveURL(/\/postflight/);
+  const main = page.getByRole("main");
+  await expect(main.getByText(/Closing out the flight you opened/)).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText("Finished with your flight?")).toHaveCount(0);
+
+  // Once the entry is no longer open, the reminder goes with it.
+  await clearOpenSessions(page);
+  await gotoTab(page, "/log", "Flight log");
+  await expect(page.getByText("Finished with your flight?")).toHaveCount(0);
 });

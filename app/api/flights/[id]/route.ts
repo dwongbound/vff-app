@@ -32,7 +32,7 @@ import {
 } from "@/lib/checkouts";
 import { syncFlightCharges } from "@/lib/ledger";
 import {
-  fuelCostCentsFrom,
+  fuelPatchFrom,
   landingFeeCentsFrom,
   mentionsLandingFee,
 } from "@/lib/flights";
@@ -107,6 +107,7 @@ export async function PATCH(
       route: true,
       notes: true,
       fuelAddedGal: true,
+      fuelPricePerGalCents: true,
       fuelCostCents: true,
       fuelPaidPersonally: true,
       landingFeeCents: true,
@@ -190,11 +191,17 @@ export async function PATCH(
   for (const field of ["fuelAddedGal", "oilAddedQts"] as const) {
     if (field in body) data[field] = num(body[field]);
   }
-  // The two money fields go through the same readers the POST route uses, so a
-  // form that sends dollars is understood by both. See lib/flights.ts.
-  if ("fuelCostCents" in body || "fuelCostDollars" in body) {
-    data.fuelCostCents = fuelCostCentsFrom(body);
-  }
+  // Fuel money goes through the same readers the POST route uses. The total
+  // follows the price AND the gallons, so correcting either re-works it — see
+  // `fuelPatchFrom` for the older total-only rows.
+  Object.assign(
+    data,
+    fuelPatchFrom(
+      body,
+      "fuelAddedGal" in body ? num(body.fuelAddedGal) : existing.fuelAddedGal,
+      existing
+    )
+  );
   // Whose card, correctable like anything else on the entry — getting this
   // wrong is the difference between being paid back and not, and it re-bills
   // through `syncFlightCharges` the same way a corrected receipt does. Only

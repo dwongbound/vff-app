@@ -220,13 +220,21 @@ Nothing else changes: photos are always read back through `/api/photos/[id]`,
 which checks the session first, so the bucket never needs to be public and no
 signed URLs leak into the client.
 
-## Invoice email
+## Email
 
-The Finance Officer's **Send invoices** (Finances › Club view, on the summary
-card) emails each member their statement for a month, or everything they
-still owe. Sending goes through [Resend](https://resend.com)'s HTTP API
-(`lib/email.ts`, no SDK); without it the window still previews who would get
-what, and says email isn't set up.
+Two things send email:
+
+- The Finance Officer's **Send invoices** (Finances › Club view, on the
+  summary card) emails each member their statement for a month, or everything
+  they still owe.
+- **Filing a squawk** emails every member holding the Safety Officer position
+  (or, while nobody does, every admin), with a link straight to it on Plane
+  Status › Squawks. The member who filed it isn't mailed, and replies go to
+  them. The squawk files whether or not the mail goes; a failure is logged.
+
+Sending goes through [Resend](https://resend.com)'s HTTP API
+(`lib/email.ts`, no SDK); without it the invoice window still previews who
+would get what and says email isn't set up, and squawks file with no alert.
 
 | Variable | What it is |
 | --- | --- |

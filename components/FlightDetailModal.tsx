@@ -44,6 +44,8 @@ import { hasContent } from "@/lib/markdown";
 import RichTextEditor, { RichTextView } from "./common/RichText";
 import type { ApiFlight, ApiMember } from "@/lib/types";
 import { FlightTypeChip, FlightTypeSelect } from "@/components/FlightType";
+import FuelSummary from "@/components/FuelSummary";
+import { fuelTotalHint } from "@/lib/fuel";
 import type { Purpose } from "@/lib/constants";
 
 /** The editable half of a log entry, as the inputs hold it (strings). */
@@ -62,7 +64,8 @@ interface EditForm {
   arrival: string;
   route: string;
   fuelAddedGal: string;
-  fuelCostDollars: string;
+  /** Price per gallon. The total is the server's sum — see lib/fuel.ts. */
+  fuelPriceDollars: string;
   landingFeeDollars: string;
   oilAddedQts: string;
   withInstructor: boolean;
@@ -93,7 +96,7 @@ function formFor(flight: ApiFlight): EditForm {
     arrival: flight.arrival ?? "",
     route: flight.route ?? "",
     fuelAddedGal: text(flight.fuelAddedGal),
-    fuelCostDollars: money(flight.fuelCostCents),
+    fuelPriceDollars: money(flight.fuelPricePerGalCents),
     landingFeeDollars: money(flight.landingFeeCents),
     oilAddedQts: text(flight.oilAddedQts),
     withInstructor: flight.withInstructor,
@@ -240,7 +243,12 @@ export default function FlightDetailModal({
       arrival: form.arrival.trim() || null,
       route: form.route.trim() || null,
       fuelAddedGal: numeric(form.fuelAddedGal),
-      fuelCostCents: dollars(form.fuelCostDollars),
+      // The price, and the server works the total out. An older entry has a
+      // total and no price: left empty, its box sends nothing, so saving some
+      // other correction can't wipe the total it was billed on.
+      ...(form.fuelPriceDollars.trim() !== "" || flight.fuelPricePerGalCents != null
+        ? { fuelPricePerGalCents: dollars(form.fuelPriceDollars) }
+        : {}),
       landingFeeCents: dollars(form.landingFeeDollars),
       oilAddedQts: numeric(form.oilAddedQts),
       withInstructor: form.withInstructor,
@@ -264,6 +272,10 @@ export default function FlightDetailModal({
     setEditing(false);
     setForm(null);
     onSaved?.(result.data);
+    // The correction is made; the reader came to change something, not to
+    // re-read it, and the row in the log already shows the new figures. A
+    // refused save never gets here — the modal stays open on its error.
+    onClose();
   }
 
   /**
@@ -494,13 +506,18 @@ export default function FlightDetailModal({
                 hint="Gallons"
               />
               <Input
-                label="Fuel cost"
+                label="Price per gallon"
                 type="number"
                 step="0.01"
                 min="0"
-                value={form.fuelCostDollars}
-                onChange={(e) => set({ fuelCostDollars: e.target.value })}
-                hint="Dollars, credited back to you"
+                value={form.fuelPriceDollars}
+                onChange={(e) => set({ fuelPriceDollars: e.target.value })}
+                hint={
+                  fuelTotalHint(form.fuelAddedGal, form.fuelPriceDollars) ??
+                  (flight.fuelPricePerGalCents == null && flight.fuelCostCents != null
+                    ? `Recorded as a ${formatCents(flight.fuelCostCents)} total`
+                    : "Dollars — the total is credited back to you")
+                }
               />
               <Input
                 label="Landing fee"
@@ -664,9 +681,7 @@ export default function FlightDetailModal({
               </h3>
               <ul className="space-y-1 text-sm">
                 <li>
-                  Fuel added:{" "}
-                  {flight.fuelAddedGal != null ? `${flight.fuelAddedGal} gal` : "none"}
-                  {flight.fuelCostCents != null && ` (${formatCents(flight.fuelCostCents)})`}
+                  Fuel added: <FuelSummary fuel={flight} />
                 </li>
                 <li>
                   Oil added:{" "}

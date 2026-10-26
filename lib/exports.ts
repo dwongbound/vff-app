@@ -202,12 +202,15 @@ export function flightLogSheet({
       // app's opinion rather than the check.
       null,
       gallons,
-      // Only when both halves are known, and never a divide by zero: a
-      // per-gallon price worked out from a missing quantity is a made-up
-      // number in a column people read as fact.
-      gallons != null && gallons > 0 && fuelCost != null
-        ? Math.round((fuelCost / gallons) * 100) / 100
-        : null,
+      // The price the member typed, when there is one. An older row has only
+      // a total, so it's derived — and only when both halves are known, never
+      // a divide by zero: a per-gallon price worked out from a missing
+      // quantity is a made-up number in a column people read as fact.
+      flight.fuelPricePerGalCents != null
+        ? dollars(flight.fuelPricePerGalCents)
+        : gallons != null && gallons > 0 && fuelCost != null
+          ? Math.round((fuelCost / gallons) * 100) / 100
+          : null,
       fuelCost,
       // A fuel cost recorded against a flight is always money the member laid
       // out themselves — it's what raises their FUEL_CREDIT (lib/finance.ts).

@@ -52,7 +52,7 @@ const EMPTY: PostflightForm = {
   arrival: "",
   route: "",
   fuelAdded: "",
-  fuelCost: "",
+  fuelPrice: "",
   oilAdded: "",
   landingFee: "",
   notes: "",
