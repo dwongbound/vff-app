@@ -14,6 +14,7 @@
 // "YYYY-MM-DDTHH:mm" in datetime mode).
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useKeepInViewport } from "../useKeepInViewport";
+import { useScrollLock } from "../useScrollLock";
 import {
   formatClock,
   fromDateInputValue,
@@ -75,6 +76,8 @@ export default function DateTimeField({
   // Aligned to the field's right edge; a narrow field near the left of the
   // window would otherwise push the calendar off it. (Up/down is `dropUp`.)
   const popoverRef = useKeepInViewport<HTMLDivElement>(open);
+  // The page doesn't scroll out from under the open calendar.
+  useScrollLock(open);
   const [dropUp, setDropUp] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 

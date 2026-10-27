@@ -38,6 +38,7 @@ import Logo from "./Logo";
 import { useAircraft } from "./AircraftProvider";
 import { useMe } from "./MeProvider";
 import { useKeepInViewport } from "./useKeepInViewport";
+import { useScrollLock } from "./useScrollLock";
 import { useBeginNavigation } from "./LoadingProvider";
 import { useSwipe } from "./SwipeProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
@@ -45,7 +46,7 @@ import { formatTime } from "@/lib/dates";
 import { flightToFinish } from "@/lib/flightSession";
 import type { ApiFlightSummary } from "@/lib/types";
 import { useOutboxSent } from "./OutboxProvider";
-import { appScrollTop, getAppScroller } from "@/lib/appScroll";
+import { appScrollTop } from "@/lib/appScroll";
 import { setNavDirection } from "@/lib/navDirection";
 import { applyTheme, getStoredTheme, storeTheme, type Theme } from "@/lib/theme";
 import { CLUB_NAME, CLUB_SHORT_NAME } from "@/lib/constants";
@@ -337,19 +338,14 @@ export default function Navbar() {
   // and a tap anywhere outside the sheet only closes it (the backdrop below
   // catches it) rather than also pressing whatever was underneath. Escape
   // closes it too, for a phone with a keyboard attached.
+  useScrollLock(openSheet !== null);
   useEffect(() => {
     if (openSheet === null) return;
-    const scroller = getAppScroller();
-    const previousOverflow = scroller?.style.overflow ?? "";
-    if (scroller) scroller.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpenSheet(null);
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      if (scroller) scroller.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [openSheet]);
   // Rail sub-lists the member has explicitly opened or collapsed, by group
   // label. Absent = "not touched", and the DEFAULT is then derived from where
