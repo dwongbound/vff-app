@@ -36,6 +36,7 @@
 // tall the sheet is (`useSheetDrag`, rules in lib/sheetDrag.ts).
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { useSheetDrag } from "./useSheetDrag";
+import { useScrollLock } from "../useScrollLock";
 
 /** The longest exit (the phone sheet), in step with `.modal-panel[data-closing]`. */
 const EXIT_MS = 250;
@@ -74,16 +75,9 @@ export default function Modal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Lock background scrolling while open (restore the previous value on close
-  // so stacked modals don't clobber each other).
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [open]);
+  // The page behind stays put while open. It's the app's scroller that has to
+  // be frozen, not <body> — the document never scrolls (lib/scrollLock.ts).
+  useScrollLock(open);
 
   // Mounted from the moment it opens until its exit has played.
   const panel = useRef<HTMLDivElement>(null);

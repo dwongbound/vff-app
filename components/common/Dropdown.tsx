@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import { useKeepInViewport } from "../useKeepInViewport";
+import { useScrollLock } from "../useScrollLock";
 
 interface DropdownProps {
   trigger: ReactNode | ((open: boolean) => ReactNode);
@@ -77,6 +78,8 @@ export default function Dropdown({
   const [rendered, setRendered] = useState(false);
   // A menu aligned to a trigger near the window's edge must not run off it.
   const panelRef = useKeepInViewport<HTMLDivElement>(rendered);
+  // The page doesn't scroll out from under an open menu.
+  useScrollLock(open);
   // Clicked open: hovering out no longer closes it.
   const [latched, setLatched] = useState(false);
   const ref = useRef<HTMLDivElement>(null);

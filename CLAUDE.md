@@ -893,7 +893,7 @@ with Checkouts expanding inline; below `md`, the rail is replaced by the
 floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
 rather than centred on the pill — a menu is the answer to the thing you just
 touched, and on a five-tab bar "centred" is a different tab entirely; while
-one is open the page is FROZEN — `#app-scroll` overflow hidden, and a
+one is open the page is FROZEN — `useScrollLock`, see below — and a
 backdrop above everything but the pill takes the first outside tap and only
 closes it),
 `SwipePager`/`SwipeProvider`
@@ -1548,6 +1548,15 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   "Close dialog" because footers now say "Close" (never "Cancel", which reads as
   cancelling the booking itself) — specs match the footer one with
   `exact: true`.
+- **An open overlay freezes the page: `useScrollLock(open)`**
+  (`components/useScrollLock.ts`, counted lock in `lib/scrollLock.ts`).
+  `Modal`, `Dropdown`, `ChipSelect`, `DateTimeField`'s calendar and the pill's
+  group sheet all take it; a NEW popup must too. It sets `overflow: hidden` on
+  `#app-scroll`, never on <body> — the document doesn't scroll, so the old
+  body lock was a no-op and every modal let the page slide underneath.
+  `PullToRefresh` and `SwipePager` stand down while `isScrollLocked()`, since
+  they move the page by hand and overflow doesn't stop them. `.app-scroll`
+  reserves its scrollbar gutter so freezing it doesn't shift the page.
 - **A closing `Modal` stays mounted for 250ms** (`EXIT_MS`) so it can animate
   out, showing the content it had while open. For that window it is
   `aria-hidden` and `pointer-events-none`, so `getByRole("dialog")` and clicks

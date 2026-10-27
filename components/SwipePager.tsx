@@ -22,6 +22,7 @@ import { scrollAppToTop } from "@/lib/appScroll";
 import { consumeNavDirection } from "@/lib/navDirection";
 import { commitDistance, pullProgress, swipeEnabledAt, touchIntent } from "@/lib/swipe";
 import { useSwipe } from "./SwipeProvider";
+import { isScrollLocked } from "./useScrollLock";
 
 // useLayoutEffect warns during SSR; fall back to useEffect on the server (the
 // pre-paint positioning it buys us only matters on the client anyway).
@@ -123,9 +124,9 @@ export default function SwipePager({ children }: { children: React.ReactNode }) 
       // so rotating a device across the breakpoint takes effect at once.
       if (!swipeEnabledAt(window.innerWidth)) return;
       if (window.location.pathname === "/login") return; // no tabs on the auth page
-      // Don't hijack touches while a dialog is open — its own scroll/controls
-      // should win.
-      if (document.querySelector('[role="dialog"]')) return;
+      // Don't hijack touches while a dialog, menu or sheet is open — its own
+      // scroll/controls should win, and the page under it is frozen.
+      if (isScrollLocked() || document.querySelector('[role="dialog"]')) return;
       if (inHorizontalScroller(e.target)) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;

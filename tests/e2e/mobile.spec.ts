@@ -884,3 +884,47 @@ test("a page is disabled until it has loaded", async ({ page }) => {
   expect(await main.evaluate((el) => (el as HTMLElement).inert)).toBe(false);
   await page.unroute(/\/api\/reservations/);
 });
+
+// An open group sheet, menu or modal freezes the page under it — on a phone
+// that means no touch scroll (the scroller goes `overflow: hidden`, which iOS
+// honours on an element) AND none of the gestures that move the page by hand:
+// a pull-down mustn't refresh it and drag it down behind the sheet.
+test("the page under an open pill sheet or modal can't be scrolled or pulled", async ({
+  page,
+}) => {
+  await page.goto("/reservations");
+  const fab = page.getByRole("button", { name: "New reservation" });
+  await expect(fab).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  const scroller = page.locator("#app-scroll");
+  const main = page.getByRole("main");
+  const restY = (await main.boundingBox())!.y;
+  const refetches: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/reservations")) refetches.push(r.url());
+  });
+
+  // The Checkouts group sheet ("Checks" on the pill).
+  const group = page.getByRole("navigation").getByRole("button", { name: "Checks", exact: true });
+  await group.click();
+  await expect(group).toHaveAttribute("aria-expanded", "true");
+  await expect(scroller).toHaveCSS("overflow-y", "hidden");
+  const lift = await pullDown(page, 160, { release: false });
+  await page.waitForTimeout(300);
+  expect((await main.boundingBox())!.y).toBeCloseTo(restY, 0);
+  await lift();
+  await page.waitForTimeout(400);
+  expect(refetches).toHaveLength(0);
+  await group.click();
+  await expect(group).toHaveAttribute("aria-expanded", "false");
+  await expect(scroller).toHaveCSS("overflow-y", "auto");
+
+  // A modal sheet: the same.
+  await fab.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(scroller).toHaveCSS("overflow-y", "hidden");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(scroller).toHaveCSS("overflow-y", "auto");
+});
