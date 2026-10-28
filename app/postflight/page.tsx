@@ -315,18 +315,24 @@ export default function PostflightPage() {
   // nobody wants. It happened: a box typed in and cleared, or a restored draft
   // that saved the box empty, latched `edited` and the meter card stayed blank
   // with the reading sitting in the shutdown item above it.
+  //
+  // The box's own value is deliberately NOT a dependency: it is checked when
+  // the card's reading changes, never on every keystroke, or backspacing the
+  // box to type a correction would refill it under the member's thumb.
   const recordedTach = turnoffValues["shutdown.tach.hours"];
   const recordedHobbs = turnoffValues["shutdown.tach.hobbs"];
   useEffect(() => {
     if (endFollowsCard(recordedTach, tachEnd, edited.tachEnd)) {
       setTachEnd(String(recordedTach));
     }
-  }, [recordedTach, tachEnd, edited.tachEnd]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordedTach, edited.tachEnd]);
   useEffect(() => {
     if (endFollowsCard(recordedHobbs, hobbsEnd, edited.hobbsEnd)) {
       setHobbsEnd(String(recordedHobbs));
     }
-  }, [recordedHobbs, hobbsEnd, edited.hobbsEnd]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordedHobbs, edited.hobbsEnd]);
 
   // The landing fee follows the airport you say you landed at, by the same
   // "mirrors until you type in it" rule as the meters above. It's a DEFAULT and
