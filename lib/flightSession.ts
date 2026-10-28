@@ -213,6 +213,24 @@ export function endFromTurnoff(values: Values, day: string): SessionEnd {
 }
 
 /**
+ * Should the post-flight form's meter END box take the shutdown card's reading?
+ *
+ * Yes while the member hasn't typed in the box, and ALSO whenever the box is
+ * empty: "edited" protects a correction, and an empty box holds none. Without
+ * the second half, a box typed in and cleared (or restored empty from a draft)
+ * stayed blank under a card that had the reading.
+ */
+export function endFollowsCard(
+  recorded: number | string | undefined,
+  box: string,
+  edited: boolean
+): recorded is number {
+  if (typeof recorded !== "number") return false;
+  if (box === String(recorded)) return false;
+  return !edited || box === "";
+}
+
+/**
  * The out/in times of one entry, with an overnight leg handled.
  *
  * A flight that departs at 22:00 and shuts down at 00:30 has both clock

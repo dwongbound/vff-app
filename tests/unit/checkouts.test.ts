@@ -97,7 +97,6 @@ describe("card order", () => {
       "starting",
       "runup",
       "pretakeoff",
-      "fiveps",
     ]);
   });
 
@@ -109,12 +108,39 @@ describe("card order", () => {
     ]);
   });
 
-  // The club's operating rules put I'M SAFE before anyone touches the airplane
-  // and the 5 Ps at the runup, so the two mnemonics bracket the whole thing.
-  it("brackets the airplane's own checks with the club's mnemonics", () => {
+  // The club's operating rules put I'M SAFE before anyone touches the airplane.
+  // The runway card ends where the airplane's own card does, at pre-takeoff:
+  // the club took the 5 Ps off it.
+  it("opens the walk with I'M SAFE and ends the runup at pre-takeoff", () => {
     expect(PREFLIGHT_CHECKOUT.sections[0].id).toBe("imsafe");
     const runway = RUNWAY_CHECKOUT.sections;
-    expect(runway[runway.length - 1].id).toBe("fiveps");
+    expect(runway[runway.length - 1].id).toBe("pretakeoff");
+    expect(runway.some((s) => s.id === "fiveps")).toBe(false);
+  });
+
+  // The club's shutdown order: the meters are read with the electrics still
+  // on, and the master and CO detector come off after them.
+  it("reads the meters before the master goes off", () => {
+    const shutdown = TURNOFF_CHECKOUT.sections.find((s) => s.id === "shutdown");
+    expect(shutdown?.items.map((i) => i.id)).toEqual([
+      "shutdown.mag-check",
+      "shutdown.brakes",
+      "shutdown.electrical",
+      "shutdown.transponder",
+      "shutdown.mixture",
+      "shutdown.mags",
+      "shutdown.timer",
+      "shutdown.tach",
+      "shutdown.master",
+      "shutdown.co-detector",
+      "shutdown.flight-plan",
+    ]);
+  });
+
+  // The closing 360 is one look at the whole airplane, not another list.
+  it("keeps the walkaround to the single lap", () => {
+    const walkaround = PREFLIGHT_CHECKOUT.sections.find((s) => s.id === "walkaround");
+    expect(walkaround?.items.map((i) => i.id)).toEqual(["walkaround.lap"]);
   });
 
   // The version stamp is what keeps an old row interpretable. PREFLIGHT and
@@ -240,8 +266,9 @@ describe("optional items and sections", () => {
 describe("the club's own additions", () => {
   it("marks them, and adds nothing else", () => {
     // Whole sections the club added, as opposed to single lines it slipped
-    // into one of the airplane's own: I'M SAFE, the 5 Ps, and the closing 360.
-    const clubSections = new Set(["imsafe", "fiveps", "walkaround"]);
+    // into one of the airplane's own: I'M SAFE and the closing 360.
+    // Outside parking became the club's own list in TURNOFF v5.
+    const clubSections = new Set(["imsafe", "walkaround", "parking"]);
     const extra = ALL.flatMap((c) =>
       c.sections.flatMap((s) =>
         clubSections.has(s.id) ? [] : s.items.filter((i) => i.club).map((i) => i.id)
@@ -261,8 +288,9 @@ describe("the club's own additions", () => {
       // The starter turn at the end of the cold-start pre-lube: the card's
       // hand pull moves oil off the cylinder walls, the crank works the pump.
       "prelube.crank",
+      // The dead-mag check that replaced the card's idle line.
+      "shutdown.mag-check",
       "shutdown.co-detector",
-      "parking.cabin",
     ]);
   });
 });
@@ -317,9 +345,20 @@ describe("derivePutAway", () => {
     ).toBe(true);
   });
 
-  it("reads the cabin from its own item", () => {
-    expect(derivePutAway({}).cabinClean).toBe(false);
-    expect(derivePutAway({ "parking.cabin": true }).cabinClean).toBe(true);
+  // The card no longer asks about the cabin, so it never raises a flag.
+  it("has nothing to say about the cabin", () => {
+    expect(derivePutAway({}).cabinClean).toBe(true);
+  });
+
+  it("parks with the club's own four items, all marked as the club's", () => {
+    const parking = TURNOFF_CHECKOUT.sections.find((s) => s.id === "parking")!;
+    expect(parking.items.map((i) => i.id)).toEqual([
+      "parking.tiedowns",
+      "parking.chocks",
+      "parking.cover",
+      "parking.plugs",
+    ]);
+    expect(parking.items.every((i) => i.club)).toBe(true);
   });
 
   it("is satisfied by a fully ticked turn-off checkout", () => {

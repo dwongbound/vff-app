@@ -224,7 +224,8 @@ test("the walk ends with a 360 around the airplane", async ({ page }) => {
   await expect(
     page.getByText("Full 360 — anything that looks wrong")
   ).toBeVisible();
-  await expect(page.getByText(/Ground underneath/)).toBeVisible();
+  // One lap, not another list: the parts of it aren't spelled out as items.
+  await expect(page.getByText(/Ground underneath/)).toHaveCount(0);
 });
 
 test("the time box opens at the current time, and can be typed over", async ({

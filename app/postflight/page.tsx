@@ -48,6 +48,7 @@ import {
   type Values,
 } from "@/lib/checkouts";
 import { clubDateKey, formatDay, formatTime, formatTimeRange, toDateInputValue } from "@/lib/dates";
+import { endFollowsCard } from "@/lib/flightSession";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
 import {
   flightCostCents,
@@ -307,18 +308,25 @@ export default function PostflightPage() {
 
   // END: the two numbers the pilot just wrote on the shutdown item ARE the end
   // readings. Nothing else on the airplane knows them.
+  //
+  // An EMPTY end box always takes them, edited or not. "Edited" is there so a
+  // correction typed into the box stands; an empty box holds no correction, and
+  // leaving it blank under a card that has the reading is the one outcome
+  // nobody wants. It happened: a box typed in and cleared, or a restored draft
+  // that saved the box empty, latched `edited` and the meter card stayed blank
+  // with the reading sitting in the shutdown item above it.
   const recordedTach = turnoffValues["shutdown.tach.hours"];
   const recordedHobbs = turnoffValues["shutdown.tach.hobbs"];
   useEffect(() => {
-    if (typeof recordedTach === "number" && !edited.tachEnd) {
+    if (endFollowsCard(recordedTach, tachEnd, edited.tachEnd)) {
       setTachEnd(String(recordedTach));
     }
-  }, [recordedTach, edited.tachEnd]);
+  }, [recordedTach, tachEnd, edited.tachEnd]);
   useEffect(() => {
-    if (typeof recordedHobbs === "number" && !edited.hobbsEnd) {
+    if (endFollowsCard(recordedHobbs, hobbsEnd, edited.hobbsEnd)) {
       setHobbsEnd(String(recordedHobbs));
     }
-  }, [recordedHobbs, edited.hobbsEnd]);
+  }, [recordedHobbs, hobbsEnd, edited.hobbsEnd]);
 
   // The landing fee follows the airport you say you landed at, by the same
   // "mirrors until you type in it" rule as the meters above. It's a DEFAULT and
@@ -503,7 +511,8 @@ export default function PostflightPage() {
 
   function endHint(box: "tachEnd" | "hobbsEnd"): string | undefined {
     const recorded = box === "tachEnd" ? recordedTach : recordedHobbs;
-    if (edited[box]) return undefined;
+    const shown = box === "tachEnd" ? tachEnd : hobbsEnd;
+    if (edited[box] && shown !== String(recorded)) return undefined;
     if (typeof recorded === "number") return "from the turn-off checkout";
     return undefined;
   }

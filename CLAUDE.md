@@ -142,8 +142,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   and null forever on a card walked but never flown). `SetNull`, not Cascade:
   deleting a mis-filed log entry must not take the record of the walkaround
   with it — the walk happened. `answers` JSON `{ itemId: true }`
-  against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 7,
-  continuing the old checklist's v3; RUNWAY at 3; TURNOFF at 4);
+  against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 8,
+  continuing the old checklist's v3; RUNWAY at 4; TURNOFF at 5);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
   `withInstructor` (selects the third column of the operating rules) and
@@ -547,22 +547,30 @@ owns the only splash in the app.
   N8318B's two laminated cards, every item with a `why` for the (i) popover.
   `PREFLIGHT_CHECKOUT` = I'M SAFE + homework + consumables + cockpit + the walk
   (left wing → nose → right wing → fuselage/empennage) + the club's closing
-  360 (`walkaround` — step back from it, the only section with no list, for
-  the whole-airplane problems you can't see with your nose against a bracket)
+  360 (`walkaround` — ONE item, `walkaround.lap`: step back and do a slow lap,
+  for the whole-airplane problems you can't see with your nose against a
+  bracket. It had four lines once; the club cut the other three, because a lap
+  with a list is just another list)
   + standard briefing;
   `RUNWAY_CHECKOUT` = passengers → before start → pre-lube → start → runup →
-  pre-takeoff + 5 Ps; `TURNOFF_CHECKOUT` = after landing / shutdown / outside
+  pre-takeoff (the club's 5 Ps used to close it and were taken off in v4);
+  `TURNOFF_CHECKOUT` = after landing / shutdown / outside
   parking, answered on the post-flight form. Every helper takes a
   `CheckoutKind`: `parseAnswers`, `countChecked`, `isComplete`, `missingItems`,
   `totalItems`; plus `derivePutAway`. A SECTION may be `optional` (the
   cold-start pre-lube) and so may an ITEM (the card's IFR-only VOR/GPS line):
   stored when ticked, never counted toward sign-off. Items the club adds to the
   cards are flagged `club: true` and render a "club" chip. Three are whole
-  SECTIONS (I'M SAFE, the 5 Ps, the closing walkaround) and seven are single
-  lines inside a card's own section (the open-squawks review, the tach/Hobbs
-  reading, the tail controls moving freely, the starter crank at the end of the
-  cold-start pre-lube, the CO detector ON before the start and OFF after the
-  master, the cabin clean-out); a test asserts nothing else creeps in. Two of the airplane's own lines are deliberately NOT transcriptions any
+  SECTIONS (I'M SAFE, the closing walkaround, and the turn-off card's outside
+  parking — tie-downs, chocks, cover, and one row for the pitot/air-vent/
+  engine-inlet plugs; the control lock and cabin rows came off in TURNOFF v5,
+  so `derivePutAway` now always reports `cabinClean: true` and nothing nags
+  about the cabin) and seven are single lines inside a card's own section (the
+  open-squawks review, the tach/Hobbs reading, the tail controls moving freely,
+  the starter crank at the end of the cold-start pre-lube, the CO detector ON
+  before the start and OFF after the master, and the shutdown's dead-mag check,
+  "Magnetos — check OFF", which replaced the card's idle line); a test asserts
+  nothing else creeps in. Two of the airplane's own lines are deliberately NOT transcriptions any
   more: both brake items dropped "pads", because N8318B wears wheel fairings and
   a card asking for a check nobody can make is a line that gets ticked anyway. Two
   more rules about FIELDS: a `defaultNow` time field opens at the club's
@@ -593,7 +601,10 @@ owns the only splash in the app.
   is a gap rather than a zero-landing claim. ✅tested
 - `inflightReference.ts` — the card's takeoff/climb/cruise/descent phases and
   the KTOA (Zamperini Field, the club's home) frequency block, as read-only data. Deliberately NOT checkout items:
-  nothing ticked in the air, nothing blocking a sign-off. Airspeeds are MPH.
+  nothing ticked in the air, nothing blocking a sign-off. The climb's Vx / Vy /
+  cruise-climb come from `pohReference.ts` by id (`manualSpeed`, "60 MPH · 52
+  kt") rather than being retyped; the descent is the club's five lines (ATIS,
+  altimeter, GUMPS, primer, belts).
   Rendered at the foot of the RUNWAY page (it's the next thing you read).
 - `weightBalance.ts` — the loading stations and CG envelope as data, plus the
   sum. Arms are RECOVERED from the POH's own worked example (p.38) rather than

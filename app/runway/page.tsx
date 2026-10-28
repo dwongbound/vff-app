@@ -2,7 +2,7 @@
 // Startup & Runup checkout — the front of N8318B's in-cockpit card.
 //
 // Passengers, before starting, the cold-start pre-lube, starting, the runup and
-// pre-takeoff, bracketed at the end by the club's 5 Ps. It begins where the
+// and pre-takeoff — the card ends where the airplane's own does. It begins where the
 // preflight checkout ended (the cabin door) and stops at the hold-short line:
 // nothing past that point is tickable, because nothing gets ticked in the air.
 // Takeoff/climb/cruise/descent are the read-only card at the foot of this page.
