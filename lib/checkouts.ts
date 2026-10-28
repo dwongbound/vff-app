@@ -1183,30 +1183,28 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
     subtitle: "How the next member finds it",
     items: [
       {
-        id: "parking.control-lock",
-        label: "Control lock — in place",
-        why: "Wind slamming the controls against their stops on the ramp is slow damage that nobody sees happen.",
-      },
-      {
         id: "parking.tiedowns",
         label: "Tie-downs — secure",
+        club: true,
         why: "Both wings and the tail. This is the check the flight log records, because an untied airplane in an overnight gust is somebody else's problem by morning.",
       },
       {
         id: "parking.chocks",
         label: "Wheel chocks — in place",
+        club: true,
         why: "Belt and braces with the tie-downs, and the reason the airplane is still where you left it.",
       },
       {
         id: "parking.cover",
         label: "Cover — secure",
+        club: true,
         why: "A cover that comes loose flogs the paint all night and can end up wrapped somewhere worse.",
       },
       {
-        id: "parking.cabin",
-        label: "Cabin — trash and personal items removed",
-        why: "The club's own rule rather than the card's: loose items become projectiles for the next pilot, and nobody wants to find your coffee cup.",
+        id: "parking.plugs",
+        label: "Plugs — pitot, air vent and engine inlets in",
         club: true,
+        why: "Insects and birds nest in any opening left overnight. A wasp in the pitot tube is an airspeed indicator that reads zero on the takeoff roll, and the next preflight only catches it if somebody looks. Plugs in is what makes the next walkaround's \"remove the plugs\" true.",
       },
     ],
   },
@@ -1314,6 +1312,10 @@ export const TURNOFF_CHECKOUT: Checkout = {
   // retired and `shutdown.mag-check` takes its place; the master and the CO
   // detector move after the timer and the tach/Hobbs reading, so the meters
   // are read with the electrics still on. Same ids for everything that moved.
+  // Outside parking is the club's own list now: `parking.control-lock` and
+  // `parking.cabin` are retired, `parking.plugs` is new, and every item there
+  // carries the club chip. With no cabin item, `derivePutAway` has nothing to
+  // flag about the cabin.
   version: 5,
   sections: TURNOFF_SECTIONS,
 };
@@ -1540,6 +1542,8 @@ export function derivePutAway(turnoff: Answers): {
 } {
   return {
     tiedDown: Boolean(turnoff["parking.tiedowns"] && turnoff["parking.chocks"]),
-    cabinClean: Boolean(turnoff["parking.cabin"]),
+    // The card stopped asking about the cabin in TURNOFF v5, so there is
+    // nothing left to flag. The column stays for the rows that did answer it.
+    cabinClean: true,
   };
 }

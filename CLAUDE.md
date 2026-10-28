@@ -560,12 +560,17 @@ owns the only splash in the app.
   `totalItems`; plus `derivePutAway`. A SECTION may be `optional` (the
   cold-start pre-lube) and so may an ITEM (the card's IFR-only VOR/GPS line):
   stored when ticked, never counted toward sign-off. Items the club adds to the
-  cards are flagged `club: true` and render a "club" chip. Two are whole
-  SECTIONS (I'M SAFE, the closing walkaround) and seven are single
-  lines inside a card's own section (the open-squawks review, the tach/Hobbs
-  reading, the tail controls moving freely, the starter crank at the end of the
-  cold-start pre-lube, the CO detector ON before the start and OFF after the
-  master, the cabin clean-out); a test asserts nothing else creeps in. Two of the airplane's own lines are deliberately NOT transcriptions any
+  cards are flagged `club: true` and render a "club" chip. Three are whole
+  SECTIONS (I'M SAFE, the closing walkaround, and the turn-off card's outside
+  parking — tie-downs, chocks, cover, and one row for the pitot/air-vent/
+  engine-inlet plugs; the control lock and cabin rows came off in TURNOFF v5,
+  so `derivePutAway` now always reports `cabinClean: true` and nothing nags
+  about the cabin) and seven are single lines inside a card's own section (the
+  open-squawks review, the tach/Hobbs reading, the tail controls moving freely,
+  the starter crank at the end of the cold-start pre-lube, the CO detector ON
+  before the start and OFF after the master, and the shutdown's dead-mag check,
+  "Magnetos — check OFF", which replaced the card's idle line); a test asserts
+  nothing else creeps in. Two of the airplane's own lines are deliberately NOT transcriptions any
   more: both brake items dropped "pads", because N8318B wears wheel fairings and
   a card asking for a check nobody can make is a line that gets ticked anyway. Two
   more rules about FIELDS: a `defaultNow` time field opens at the club's

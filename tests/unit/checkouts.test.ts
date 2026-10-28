@@ -267,7 +267,8 @@ describe("the club's own additions", () => {
   it("marks them, and adds nothing else", () => {
     // Whole sections the club added, as opposed to single lines it slipped
     // into one of the airplane's own: I'M SAFE and the closing 360.
-    const clubSections = new Set(["imsafe", "walkaround"]);
+    // Outside parking became the club's own list in TURNOFF v5.
+    const clubSections = new Set(["imsafe", "walkaround", "parking"]);
     const extra = ALL.flatMap((c) =>
       c.sections.flatMap((s) =>
         clubSections.has(s.id) ? [] : s.items.filter((i) => i.club).map((i) => i.id)
@@ -290,7 +291,6 @@ describe("the club's own additions", () => {
       // The dead-mag check that replaced the card's idle line.
       "shutdown.mag-check",
       "shutdown.co-detector",
-      "parking.cabin",
     ]);
   });
 });
@@ -345,9 +345,20 @@ describe("derivePutAway", () => {
     ).toBe(true);
   });
 
-  it("reads the cabin from its own item", () => {
-    expect(derivePutAway({}).cabinClean).toBe(false);
-    expect(derivePutAway({ "parking.cabin": true }).cabinClean).toBe(true);
+  // The card no longer asks about the cabin, so it never raises a flag.
+  it("has nothing to say about the cabin", () => {
+    expect(derivePutAway({}).cabinClean).toBe(true);
+  });
+
+  it("parks with the club's own four items, all marked as the club's", () => {
+    const parking = TURNOFF_CHECKOUT.sections.find((s) => s.id === "parking")!;
+    expect(parking.items.map((i) => i.id)).toEqual([
+      "parking.tiedowns",
+      "parking.chocks",
+      "parking.cover",
+      "parking.plugs",
+    ]);
+    expect(parking.items.every((i) => i.club)).toBe(true);
   });
 
   it("is satisfied by a fully ticked turn-off checkout", () => {

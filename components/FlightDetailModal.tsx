@@ -702,11 +702,6 @@ export default function FlightDetailModal({
                     Tie-downs and chocks not confirmed
                   </li>
                 )}
-                {!flight.cabinClean && (
-                  <li className="text-amber-700 dark:text-amber-400">
-                    Cabin clean-out not confirmed
-                  </li>
-                )}
                 {flight.turnoffCheckoutVersion != null && (
                   <li className="text-gray-500 dark:text-gray-400">
                     Turn-off checkout: {countChecked("TURNOFF", flight.turnoffAnswers)}{" "}
