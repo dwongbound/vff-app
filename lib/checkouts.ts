@@ -648,7 +648,7 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
         label: "Full 360 — anything that looks wrong",
         detail: "From a few paces back, all the way round",
         club: true,
-        why: "The catch-all, and the only check on the card with no list. You have just spent twenty minutes looking at parts; this is the one look at the whole airplane. If something makes you pause here, it is worth the time to find out what it was.",
+        why: "The catch-all, and the only check on the card with no list. You have just spent twenty minutes looking at parts; this is the one look at the whole airplane: does it sit level, with struts and tires even? Is anything wet underneath? Is a tow bar, chock, fuel tester or cowl plug still on it? Is the way ahead clear to start and taxi? If something makes you pause, it is worth the time to find out what it was.",
       },
     ],
   },
@@ -1091,9 +1091,11 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
     subtitle: "On the spot, brakes set",
     items: [
       {
-        id: "shutdown.cool",
-        label: "Idle 600–800 RPM for 2–3 minutes",
-        why: "Lets the cylinder head temperatures come down evenly. Shutting down straight off a taxi is what cracks cylinders over a fleet's lifetime — and it's the club's engine.",
+        // Replaced the card's idle-for-2–3-minutes line at the club's request.
+        id: "shutdown.mag-check",
+        club: true,
+        label: "Magnetos — check OFF",
+        why: "At idle, flick the key to OFF for a moment and straight back to BOTH: the engine should stumble. If it keeps running, a magneto isn't grounding and the propeller is live even with the key out — squawk it before anyone touches the prop.",
       },
       {
         id: "shutdown.brakes",
@@ -1119,19 +1121,6 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
         id: "shutdown.mags",
         label: "Magnetos — OFF, key to dash",
         why: "Key out and visible on the dash is the club's convention: anyone walking up can see at a glance that the ignition is off.",
-      },
-      {
-        id: "shutdown.master",
-        label: "Master switch — OFF",
-        why: "Last thing off. A master left on overnight is a flat battery and a member's cancelled morning.",
-      },
-      {
-        // Straight after the master, which is the pair it belongs to: it went
-        // on with the electrics before the start, and comes off with them.
-        id: "shutdown.co-detector",
-        club: true,
-        label: "Turn off CO detector",
-        why: "It runs on its own battery, so nothing else in the airplane switches it off. Left on, it's flat by the time the flight that actually needs it comes round — which is the one where the exhaust has cracked since.",
       },
       {
         id: "shutdown.timer",
@@ -1167,6 +1156,19 @@ const TURNOFF_SECTIONS: CheckoutSection[] = [
         ],
         label: "Tach & Hobbs — record time in flight log",
         why: "The tach is what bills, and what the next pilot's start reading is checked against. Read both before you get out — they go straight into the log entry you're filling in right now, so the meter card below fills itself.",
+      },
+      {
+        id: "shutdown.master",
+        label: "Master switch — OFF",
+        why: "Off once the meters are read — the Hobbs runs off it. A master left on overnight is a flat battery and a member's cancelled morning.",
+      },
+      {
+        // Straight after the master, which is the pair it belongs to: it went
+        // on with the electrics before the start, and comes off with them.
+        id: "shutdown.co-detector",
+        club: true,
+        label: "Turn off CO detector",
+        why: "It runs on its own battery, so nothing else in the airplane switches it off. Left on, it's flat by the time the flight that actually needs it comes round — which is the one where the exhaust has cracked since.",
       },
       {
         id: "shutdown.flight-plan",
@@ -1307,7 +1309,12 @@ export const TURNOFF_CHECKOUT: Checkout = {
   // of the runway card's `start.co-detector`. Same reason for the bump: the
   // detector runs on its own battery, so "did anyone turn it off" is a question
   // a v3 run simply cannot answer.
-  version: 4,
+  //
+  // v5 is the club's shutdown order. `shutdown.cool` (idle 2–3 minutes) is
+  // retired and `shutdown.mag-check` takes its place; the master and the CO
+  // detector move after the timer and the tach/Hobbs reading, so the meters
+  // are read with the electrics still on. Same ids for everything that moved.
+  version: 5,
   sections: TURNOFF_SECTIONS,
 };
 

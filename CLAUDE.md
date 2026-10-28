@@ -143,7 +143,7 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   deleting a mis-filed log entry must not take the record of the walkaround
   with it — the walk happened. `answers` JSON `{ itemId: true }`
   against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 8,
-  continuing the old checklist's v3; RUNWAY at 4; TURNOFF at 4);
+  continuing the old checklist's v3; RUNWAY at 4; TURNOFF at 5);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
   `withInstructor` (selects the third column of the operating rules) and
