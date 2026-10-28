@@ -16,9 +16,8 @@
 // The cards are the spine; everything the club adds to them is marked
 // `club: true`, so it's obvious which items came off the airplane and which
 // came out of VFF-OR-A or out of the club's own practice: I'M SAFE at the top
-// of the preflight, the open squawks review beside it, the 5 Ps at the end of
-// the runup, the closing walkaround, the tach/Hobbs reading, the tail controls
-// moving freely, the starter crank that ends the cold-start pre-lube, the CO
+// of the preflight, the open squawks review beside it, the closing 360, the
+// tach/Hobbs reading, the tail controls moving freely, the starter crank that ends the cold-start pre-lube, the CO
 // detector going on before the start and off after the master, and the
 // housekeeping line at the parking end that sets the flight log's "cabin clean"
 // flag. Everything else is on a card.
@@ -52,7 +51,7 @@
 // check; that's what would silently rewrite history. Reusing one for the same
 // physical check reworded is fine, and is what the version stamp is for.
 import { clubTimeNow } from "./dates";
-import { FIVE_PS, IM_SAFE } from "./operatingRules";
+import { IM_SAFE } from "./operatingRules";
 
 /** Which card is being walked. Stored on the row; see prisma CheckoutKind. */
 export type CheckoutKind = "PREFLIGHT" | "RUNWAY" | "TURNOFF";
@@ -167,18 +166,6 @@ const IM_SAFE_SECTION: CheckoutSection = {
   subtitle: "Before you touch the airplane — are you fit to fly?",
   items: IM_SAFE.map((entry) => ({
     id: `imsafe.${entry.label.toLowerCase()}`,
-    label: entry.label,
-    why: entry.detail,
-    club: true,
-  })),
-};
-
-const FIVE_PS_SECTION: CheckoutSection = {
-  id: "fiveps",
-  title: "5 Ps",
-  subtitle: "Before you leave the runup",
-  items: FIVE_PS.map((entry) => ({
-    id: `fiveps.${entry.label.toLowerCase()}`,
     label: entry.label,
     why: entry.detail,
     club: true,
@@ -663,24 +650,6 @@ const PREFLIGHT_SECTIONS: CheckoutSection[] = [
         club: true,
         why: "The catch-all, and the only check on the card with no list. You have just spent twenty minutes looking at parts; this is the one look at the whole airplane. If something makes you pause here, it is worth the time to find out what it was.",
       },
-      {
-        id: "walkaround.stance",
-        label: "Stance — sits level, struts and tires even",
-        club: true,
-        why: "A soft tire or a flat strut is obvious from ten feet away and nearly invisible with your hand on it. An airplane that isn't sitting square is telling you something before you get in.",
-      },
-      {
-        id: "walkaround.ground",
-        label: "Ground underneath — no fresh fuel or oil, nothing left behind",
-        club: true,
-        why: "A wet patch under the airplane is the leak you didn't find, and it costs nothing to look. Same glance catches the tow bar, chocks, a fuel tester or a cowl plug still attached — every one of which has been flown with by somebody.",
-      },
-      {
-        id: "walkaround.clear",
-        label: "Around and above — clear to start and taxi",
-        club: true,
-        why: "Where the airplane is about to go, before anything is running: obstructions off the nose, other aircraft, the fuel truck, and anybody's cart parked behind a wing you're about to swing.",
-      },
     ],
   },
   {
@@ -1082,7 +1051,6 @@ const RUNWAY_SECTIONS: CheckoutSection[] = [
       },
     ],
   },
-  FIVE_PS_SECTION,
 ];
 
 // ── Turn-off checkout ──────────────────────────────────────────────────────
@@ -1277,7 +1245,12 @@ export const PREFLIGHT_CHECKOUT: Checkout = {
   // ids and the elevator id are unchanged: same physical checks, reworded, so
   // old runs keep their meaning. The bump is what discards half-walked drafts
   // written against a card with one item fewer.
-  version: 7,
+  //
+  // v8 cut the walkaround back to the one lap it was meant to be:
+  // `walkaround.stance`, `.ground` and `.clear` are retired (never to be
+  // reused), leaving `walkaround.lap`. Each was a part of the lap spelled out,
+  // and a lap with a list is just another list.
+  version: 8,
   sections: PREFLIGHT_SECTIONS,
 };
 
@@ -1312,7 +1285,11 @@ export const RUNWAY_CHECKOUT: Checkout = {
   // v3 adds `start.co-detector`, closing the before-start flow. The bump is
   // what stops a v2 sign-off — walked against a card that never mentioned the
   // detector — from reading as though the pilot had turned it on.
-  version: 3,
+  //
+  // v4 retires the club's 5 Ps section (`fiveps.*`) from the end of the card,
+  // at the club's request. The mnemonic itself still lives in
+  // lib/operatingRules.ts; it's just no longer a set of boxes to tick.
+  version: 4,
   sections: RUNWAY_SECTIONS,
 };
 
