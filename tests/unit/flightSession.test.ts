@@ -15,6 +15,7 @@ import {
   sortFlightLog,
   startFromPreflight,
   startFromRunway,
+  endFollowsCard,
 } from "@/lib/flightSession";
 import {
   PREFLIGHT_CHECKOUT,
@@ -329,5 +330,25 @@ describe("flightToFinish", () => {
 
   it("falls back to the day the walk opened it when no clock was read", () => {
     expect(flightToFinish([{ ...open, startedAt: null }], "/log", NOW)?.id).toBe("a");
+  });
+});
+
+describe("endFollowsCard", () => {
+  it("fills an untouched end box from the shutdown reading", () => {
+    expect(endFollowsCard(1556.2, "", false)).toBe(true);
+  });
+
+  it("refills a box the member typed in and then cleared", () => {
+    expect(endFollowsCard(1556.2, "", true)).toBe(true);
+  });
+
+  it("leaves a correction the member typed alone", () => {
+    expect(endFollowsCard(1556.2, "1556.4", true)).toBe(false);
+  });
+
+  it("does nothing until the card has a number, or when the box already agrees", () => {
+    expect(endFollowsCard(undefined, "", false)).toBe(false);
+    expect(endFollowsCard("1556.2", "", false)).toBe(false);
+    expect(endFollowsCard(1556.2, "1556.2", false)).toBe(false);
   });
 });
