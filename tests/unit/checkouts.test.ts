@@ -97,7 +97,6 @@ describe("card order", () => {
       "starting",
       "runup",
       "pretakeoff",
-      "fiveps",
     ]);
   });
 
@@ -109,12 +108,20 @@ describe("card order", () => {
     ]);
   });
 
-  // The club's operating rules put I'M SAFE before anyone touches the airplane
-  // and the 5 Ps at the runup, so the two mnemonics bracket the whole thing.
-  it("brackets the airplane's own checks with the club's mnemonics", () => {
+  // The club's operating rules put I'M SAFE before anyone touches the airplane.
+  // The runway card ends where the airplane's own card does, at pre-takeoff:
+  // the club took the 5 Ps off it.
+  it("opens the walk with I'M SAFE and ends the runup at pre-takeoff", () => {
     expect(PREFLIGHT_CHECKOUT.sections[0].id).toBe("imsafe");
     const runway = RUNWAY_CHECKOUT.sections;
-    expect(runway[runway.length - 1].id).toBe("fiveps");
+    expect(runway[runway.length - 1].id).toBe("pretakeoff");
+    expect(runway.some((s) => s.id === "fiveps")).toBe(false);
+  });
+
+  // The closing 360 is one look at the whole airplane, not another list.
+  it("keeps the walkaround to the single lap", () => {
+    const walkaround = PREFLIGHT_CHECKOUT.sections.find((s) => s.id === "walkaround");
+    expect(walkaround?.items.map((i) => i.id)).toEqual(["walkaround.lap"]);
   });
 
   // The version stamp is what keeps an old row interpretable. PREFLIGHT and
@@ -240,8 +247,8 @@ describe("optional items and sections", () => {
 describe("the club's own additions", () => {
   it("marks them, and adds nothing else", () => {
     // Whole sections the club added, as opposed to single lines it slipped
-    // into one of the airplane's own: I'M SAFE, the 5 Ps, and the closing 360.
-    const clubSections = new Set(["imsafe", "fiveps", "walkaround"]);
+    // into one of the airplane's own: I'M SAFE and the closing 360.
+    const clubSections = new Set(["imsafe", "walkaround"]);
     const extra = ALL.flatMap((c) =>
       c.sections.flatMap((s) =>
         clubSections.has(s.id) ? [] : s.items.filter((i) => i.club).map((i) => i.id)
