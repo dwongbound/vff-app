@@ -118,6 +118,25 @@ describe("card order", () => {
     expect(runway.some((s) => s.id === "fiveps")).toBe(false);
   });
 
+  // The club's shutdown order: the meters are read with the electrics still
+  // on, and the master and CO detector come off after them.
+  it("reads the meters before the master goes off", () => {
+    const shutdown = TURNOFF_CHECKOUT.sections.find((s) => s.id === "shutdown");
+    expect(shutdown?.items.map((i) => i.id)).toEqual([
+      "shutdown.mag-check",
+      "shutdown.brakes",
+      "shutdown.electrical",
+      "shutdown.transponder",
+      "shutdown.mixture",
+      "shutdown.mags",
+      "shutdown.timer",
+      "shutdown.tach",
+      "shutdown.master",
+      "shutdown.co-detector",
+      "shutdown.flight-plan",
+    ]);
+  });
+
   // The closing 360 is one look at the whole airplane, not another list.
   it("keeps the walkaround to the single lap", () => {
     const walkaround = PREFLIGHT_CHECKOUT.sections.find((s) => s.id === "walkaround");
@@ -268,6 +287,8 @@ describe("the club's own additions", () => {
       // The starter turn at the end of the cold-start pre-lube: the card's
       // hand pull moves oil off the cylinder walls, the crank works the pump.
       "prelube.crank",
+      // The dead-mag check that replaced the card's idle line.
+      "shutdown.mag-check",
       "shutdown.co-detector",
       "parking.cabin",
     ]);
