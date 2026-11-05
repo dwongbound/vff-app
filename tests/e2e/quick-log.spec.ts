@@ -164,11 +164,11 @@ test("the card toggle is visible up front and decides the reimbursement", async 
   // cannot quietly swallow money somebody is owed.
   await expect(toggle).toHaveAttribute("aria-checked", "false");
 
+  // Any two of the three fuel boxes fill in the third: gallons and the pump
+  // price give the total, which is the figure the club stores and credits.
   await main.getByLabel("Fuel added", { exact: true }).fill("20");
-  await main.getByLabel("Price per gallon", { exact: true }).fill("6.99");
-  // The total is worked out on the page as the member types, and it's the
-  // same sum the server stores and would credit.
-  await expect(main.getByText("= $139.80 total")).toBeVisible();
+  await main.getByLabel("Price per gallon", { exact: true }).fill("6");
+  await expect(main.getByLabel("Fuel total cost", { exact: true })).toHaveValue("120.00");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
 
@@ -183,12 +183,10 @@ test("the card toggle is visible up front and decides the reimbursement", async 
     page.getByRole("dialog").getByRole("button", { name: "File anyway" }).click(),
   ]);
   const flight = (await posted.json()) as {
-    fuelPricePerGalCents: number | null;
     fuelCostCents: number | null;
     fuelPaidPersonally: boolean;
   };
-  expect(flight.fuelPricePerGalCents).toBe(699);
-  expect(flight.fuelCostCents).toBe(13_980);
+  expect(flight.fuelCostCents).toBe(12_000);
   expect(flight.fuelPaidPersonally).toBe(false);
 
   // The club buying its own fuel owes nobody anything, so no credit is written.

@@ -1,95 +1,133 @@
 import { describe, expect, it } from "vitest";
-import { fuelSummary, fuelTotalCents, fuelTotalHint } from "@/lib/fuel";
-import { fuelFrom, fuelPatchFrom } from "@/lib/flights";
+import {
+  EMPTY_FUEL,
+  derivedField,
+  editFuel,
+  fuelEntryFor,
+  fuelPayload,
+  fuelSummary,
+  hasFuel,
+  restoreFuel,
+  type FuelEntry,
+  type FuelField,
+} from "@/lib/fuel";
 
-describe("fuelTotalCents", () => {
-  it("is gallons × price, to the cent", () => {
-    expect(fuelTotalCents(22.1, 699)).toBe(15448);
-    expect(fuelTotalCents(10, 699)).toBe(6990);
+/** Type into the boxes in order, as a member would. */
+function type(...edits: [FuelField, string][]): FuelEntry {
+  return edits.reduce((entry, [field, value]) => editFuel(entry, field, value), EMPTY_FUEL);
+}
+
+describe("editFuel", () => {
+  it("works out the total from gallons and a price", () => {
+    const entry = type(["gallons", "22.1"], ["price", "6.99"]);
+    expect(entry.total).toBe("154.48");
+    expect(derivedField(entry)).toBe("total");
   });
-  it("is unknown unless both halves are", () => {
-    expect(fuelTotalCents(null, 699)).toBeNull();
-    expect(fuelTotalCents(22.1, null)).toBeNull();
+
+  it("works out the price from gallons and a total", () => {
+    const entry = type(["gallons", "20"], ["total", "139.80"]);
+    expect(entry.price).toBe("6.99");
+    expect(derivedField(entry)).toBe("price");
+  });
+
+  it("works out the gallons from a price and a total", () => {
+    const entry = type(["price", "6.99"], ["total", "139.80"]);
+    expect(entry.gallons).toBe("20");
+    expect(derivedField(entry)).toBe("gallons");
+  });
+
+  it("asks for nothing but the total", () => {
+    const entry = type(["total", "154.48"]);
+    expect(fuelPayload(entry)).toEqual({ fuelAddedGal: null, fuelCostDollars: 154.48 });
+    expect(derivedField(entry)).toBeNull();
+    expect(entry.gallons).toBe("");
+    expect(entry.price).toBe("");
+  });
+
+  it("re-works the derived box as an input changes", () => {
+    const entry = editFuel(type(["gallons", "20"], ["price", "7"]), "gallons", "10");
+    expect(entry.total).toBe("70.00");
+  });
+
+  it("re-prices rather than rewriting a figure the club stores", () => {
+    // Gallons, then price (total is worked out) — now correct the total off
+    // the receipt. The gallons measured at the pump stand and the price gives
+    // way, because the price is the one figure nothing is stored from.
+    const entry = type(["gallons", "20"], ["price", "7"], ["total", "120"]);
+    expect(entry.price).toBe("6.00");
+    expect(entry.gallons).toBe("20");
+    expect(derivedField(entry)).toBe("price");
+  });
+
+  it("clears the derived box when an input is emptied", () => {
+    const entry = editFuel(type(["gallons", "20"], ["price", "7"]), "price", "");
+    expect(entry.total).toBe("");
+    expect(entry.gallons).toBe("20");
+    expect(derivedField(entry)).toBeNull();
+  });
+
+  it("keeps a half-typed number exactly as typed", () => {
+    // "6." is a state a member passes through on the way to 6.99, so the box
+    // holds their characters while the total follows what they mean so far.
+    const entry = type(["gallons", "20"], ["price", "6."]);
+    expect(entry.price).toBe("6.");
+    expect(entry.total).toBe("120.00");
+    expect(editFuel(entry, "price", "6.99").total).toBe("139.80");
+  });
+
+  it("derives nothing from a box holding only a decimal point", () => {
+    expect(type(["gallons", "20"], ["price", "."]).total).toBe("");
+  });
+
+  it("refuses to divide by zero", () => {
+    expect(type(["gallons", "0"], ["total", "50"]).price).toBe("");
+    expect(type(["price", "0"], ["total", "50"]).gallons).toBe("");
+  });
+
+  it("ignores a negative figure rather than deriving from it", () => {
+    expect(type(["gallons", "-5"], ["price", "7"]).total).toBe("");
+  });
+});
+
+describe("restoreFuel", () => {
+  it("keeps the two stored columns and re-derives the price", () => {
+    const entry = fuelEntryFor({ fuelAddedGal: 22.1, fuelCostCents: 15448 });
+    expect(entry).toMatchObject({ gallons: "22.1", total: "154.48", price: "6.99" });
+    expect(derivedField(entry)).toBe("price");
+    // Correcting the gallons re-prices it and leaves the receipt total — the
+    // figure the club credits — exactly as it was filed.
+    const fixed = editFuel(entry, "gallons", "10");
+    expect(fixed.total).toBe("154.48");
+    expect(fixed.price).toBe("15.45");
+  });
+
+  it("restores a draft of all three boxes without changing what it holds", () => {
+    const entry = restoreFuel({ gallons: "20", price: "6.99", total: "139.80" });
+    expect(entry).toMatchObject({ gallons: "20", price: "6.99", total: "139.80" });
+  });
+
+  it("leaves a total-only row alone", () => {
+    const entry = fuelEntryFor({ fuelAddedGal: null, fuelCostCents: 15448 });
+    expect(entry).toMatchObject({ gallons: "", price: "", total: "154.48" });
+    expect(hasFuel(entry)).toBe(true);
+  });
+
+  it("is empty for a row with no fuel on it", () => {
+    expect(hasFuel(fuelEntryFor({ fuelAddedGal: null, fuelCostCents: null }))).toBe(false);
   });
 });
 
 describe("fuelSummary", () => {
-  it("gives the three pieces of gal × price = total", () => {
-    expect(
-      fuelSummary({ fuelAddedGal: 22.1, fuelPricePerGalCents: 699, fuelCostCents: 15448 })
-    ).toEqual({ gallons: "22.1 gal", price: "$6.99", total: "$154.48" });
+  it("prices a fill-up from the two stored figures", () => {
+    expect(fuelSummary({ fuelAddedGal: 22.1, fuelCostCents: 15448 })).toEqual({
+      gallons: "22.1 gal",
+      price: "$6.99",
+      total: "$154.48",
+    });
   });
-  it("leaves an older total-only row without a price", () => {
-    expect(
-      fuelSummary({ fuelAddedGal: 21.4, fuelPricePerGalCents: null, fuelCostCents: 15301 }).price
-    ).toBeNull();
-  });
-});
 
-describe("fuelTotalHint", () => {
-  it("shows the live total once both boxes parse", () => {
-    expect(fuelTotalHint("22.1", "6.99")).toBe("= $154.48 total");
-  });
-  it("stays quiet on a half-filled form", () => {
-    expect(fuelTotalHint("", "6.99")).toBeNull();
-    expect(fuelTotalHint("22.1", "")).toBeNull();
-    expect(fuelTotalHint("22.1", "-1")).toBeNull();
-  });
-});
-
-describe("fuelFrom (a new row)", () => {
-  it("multiplies a price out to the total that gets credited", () => {
-    expect(fuelFrom({ fuelPricePerGalDollars: 6.99 }, 22.1)).toEqual({
-      fuelPricePerGalCents: 699,
-      fuelCostCents: 15448,
-    });
-  });
-  it("records a price with no gallons, but no total", () => {
-    expect(fuelFrom({ fuelPricePerGalDollars: 6.99 }, null)).toEqual({
-      fuelPricePerGalCents: 699,
-      fuelCostCents: null,
-    });
-  });
-  it("still takes a total sent outright, as an older client's queued job does", () => {
-    expect(fuelFrom({ fuelCostDollars: 88.4 }, 12)).toEqual({
-      fuelPricePerGalCents: null,
-      fuelCostCents: 8840,
-    });
-  });
-  it("drops a negative price", () => {
-    expect(fuelFrom({ fuelPricePerGalDollars: -6.99 }, 10).fuelPricePerGalCents).toBeNull();
-  });
-});
-
-describe("fuelPatchFrom (a correction)", () => {
-  const priced = { fuelPricePerGalCents: 699 };
-  const older = { fuelPricePerGalCents: null };
-
-  it("re-works the total from a new price", () => {
-    expect(fuelPatchFrom({ fuelPricePerGalCents: 650 }, 20, priced)).toEqual({
-      fuelPricePerGalCents: 650,
-      fuelCostCents: 13000,
-    });
-  });
-  it("clearing the price clears the total with it", () => {
-    expect(fuelPatchFrom({ fuelPricePerGalCents: null }, 20, priced)).toEqual({
-      fuelPricePerGalCents: null,
-      fuelCostCents: null,
-    });
-  });
-  it("re-works a priced row's total when only the gallons change", () => {
-    expect(fuelPatchFrom({ fuelAddedGal: 10 }, 10, priced)).toEqual({ fuelCostCents: 6990 });
-  });
-  it("leaves an older row's total alone when only the gallons change", () => {
-    expect(fuelPatchFrom({ fuelAddedGal: 10 }, 10, older)).toEqual({});
-  });
-  it("a total sent outright replaces the price, so the sum can't disagree", () => {
-    expect(fuelPatchFrom({ fuelCostCents: 5000 }, 10, priced)).toEqual({
-      fuelPricePerGalCents: null,
-      fuelCostCents: 5000,
-    });
-  });
-  it("touches nothing it wasn't asked about", () => {
-    expect(fuelPatchFrom({ notes: "x" }, 10, priced)).toEqual({});
+  it("gives no price when there are no gallons to divide by", () => {
+    expect(fuelSummary({ fuelAddedGal: 0, fuelCostCents: 15448 }).price).toBeNull();
+    expect(fuelSummary({ fuelAddedGal: null, fuelCostCents: 15448 }).price).toBeNull();
   });
 });

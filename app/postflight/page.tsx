@@ -38,7 +38,8 @@ import type { PostflightForm } from "@/lib/postflightDraft";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray } from "@/lib/api";
-import { fuelTotalHint } from "@/lib/fuel";
+import FuelFields from "@/components/FuelFields";
+import { EMPTY_FUEL, editFuel, fuelPayload, restoreFuel, type FuelField } from "@/lib/fuel";
 import { QUEUED_NOTICE } from "@/lib/offline";
 import { flightJob, hasPending } from "@/lib/outbox";
 import {
@@ -102,8 +103,11 @@ export default function PostflightPage() {
   const [departure, setDeparture] = useState("");
   const [arrival, setArrival] = useState("");
   const [route, setRoute] = useState("");
-  const [fuelAdded, setFuelAdded] = useState("");
-  const [fuelPrice, setFuelPrice] = useState("");
+  // Gallons, price per gallon and the total in one state: type any two and
+  // lib/fuel.ts works out the third. Only the total is really needed.
+  const [fuel, setFuel] = useState(EMPTY_FUEL);
+  const setFuelField = (field: FuelField, value: string) =>
+    setFuel((current) => editFuel(current, field, value));
   // Whose card the fuel went on. Defaults to the member's own — the case that
   // needs paying back, and what recording a cost has always meant here. NOT in
   // the device draft: it's one radio pair with a safe default, and adding a
@@ -373,8 +377,9 @@ export default function PostflightPage() {
       departure,
       arrival,
       route,
-      fuelAdded,
-      fuelPrice,
+      fuelAdded: fuel.gallons,
+      fuelPrice: fuel.price,
+      fuelCost: fuel.total,
       oilAdded,
       landingFee,
       notes,
@@ -405,8 +410,7 @@ export default function PostflightPage() {
       departure,
       arrival,
       route,
-      fuelAdded,
-      fuelPrice,
+      fuel,
       oilAdded,
       landingFee,
       notes,
@@ -437,8 +441,13 @@ export default function PostflightPage() {
       setDeparture(stored.departure);
       setArrival(stored.arrival);
       setRoute(stored.route);
-      setFuelAdded(stored.fuelAdded);
-      setFuelPrice(stored.fuelPrice);
+      setFuel(
+        restoreFuel({
+          gallons: stored.fuelAdded,
+          price: stored.fuelPrice,
+          total: stored.fuelCost,
+        })
+      );
       setOilAdded(stored.oilAdded);
       setLandingFee(stored.landingFee);
       setNotes(stored.notes);
@@ -483,8 +492,7 @@ export default function PostflightPage() {
     setDeparture("");
     setArrival("");
     setRoute("");
-    setFuelAdded("");
-    setFuelPrice("");
+    setFuel(EMPTY_FUEL);
     setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
@@ -590,8 +598,9 @@ export default function PostflightPage() {
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
-      fuelAddedGal: fuelAdded === "" ? null : Number(fuelAdded),
-      fuelPricePerGalDollars: fuelPrice === "" ? null : Number(fuelPrice),
+      // Gallons and the TOTAL — the two columns the club stores. The price
+      // per gallon is a way of arriving at the total, not a thing to keep.
+      ...fuelPayload(fuel),
       fuelPaidPersonally,
       oilAddedQts: oilAdded === "" ? null : Number(oilAdded),
       landingFeeDollars: landingFee === "" ? null : Number(landingFee),
@@ -667,8 +676,7 @@ export default function PostflightPage() {
     setDeparture("");
     setArrival("");
     setRoute("");
-    setFuelAdded("");
-    setFuelPrice("");
+    setFuel(EMPTY_FUEL);
     setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
@@ -1035,32 +1043,15 @@ export default function PostflightPage() {
         index={FORM_SECTION_INDEX.servicing}
         title="Servicing"
         subtitle="What went back into the airplane"
-        meta={fuelAdded ? `${fuelAdded} gal` : undefined}
+        meta={fuel.gallons ? `${fuel.gallons} gal` : undefined}
         open={openSection === "form.servicing"}
         onToggle={() => toggleFormSection("form.servicing")}
       >
         <div className="space-y-4 p-4">
+        {/* Fuel on its own row — three boxes, any two of which fill the
+            third — with oil under it rather than squeezed in beside them. */}
+        <FuelFields entry={fuel} onChange={setFuelField} className="grid grid-cols-3 gap-3" />
         <div className="grid grid-cols-3 gap-3">
-          <Input
-            label="Fuel added"
-            type="number"
-            inputMode="decimal"
-            step="0.1"
-            min="0"
-            value={fuelAdded}
-            onChange={(e) => setFuelAdded(e.target.value)}
-            hint="gallons"
-          />
-          <Input
-            label="Price per gallon"
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0"
-            value={fuelPrice}
-            onChange={(e) => setFuelPrice(e.target.value)}
-            hint={fuelTotalHint(fuelAdded, fuelPrice) ?? "dollars"}
-          />
           <Input
             label="Oil added"
             type="number"

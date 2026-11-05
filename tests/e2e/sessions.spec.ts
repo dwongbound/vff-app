@@ -265,36 +265,39 @@ test("a pilot writes up their own flight, and it survives a reload", async ({
   expect((await reread.json()).logEntry).toContain("Left turn was better");
 });
 
-test("an unfinished flight is pointed out on every other page until it's filed", async ({
-  page,
-}) => {
+test("an unfinished flight is one tap from wherever the member is", async ({ page }) => {
   await clearOpenSessions(page);
   const aircraft = await fleet(page);
-  const tachStart = Number(((aircraft.lastTach ?? 1000) + 0.1).toFixed(2));
-
   await completeCard(page, aircraft.id, "PREFLIGHT", {
-    "cockpit.meters.tach": tachStart,
-    "cockpit.time.at": "09:15",
+    "cockpit.meters.tach": Number(((aircraft.lastTach ?? 1000) + 0.1).toFixed(2)),
+    "cockpit.time.at": "10:05",
   });
 
-  // Anywhere else in the app, the airplane being out is news.
+  // Anywhere else in the app, the banner points at the next card. It lives in
+  // the top bar, not in <main>, so it's found on the page.
   await gotoTab(page, "/reservations", "Reservations");
-  await expect(page.getByText("Finished with your flight?")).toBeVisible({
+  const banner = page.getByRole("link", { name: /is out with you/ });
+  await expect(banner).toContainText(aircraft.tailNumber, { timeout: 60_000 });
+  await expect(banner).toContainText("continue: runway card");
+  await banner.click();
+  await expect(page).toHaveURL(/\/runway$/);
+  // Not drawn on the page it links to.
+  await expect(banner).toHaveCount(0);
+
+  // Runway card done: what's left is filing it, on the form that says it's
+  // closing out this flight rather than starting another.
+  await completeCard(page, aircraft.id, "RUNWAY", { "starting.timer.at": "10:31" });
+  await gotoTab(page, "/log", "Flight log");
+  await expect(banner).toContainText("continue: finish and file it", { timeout: 60_000 });
+  await banner.click();
+  await expect(page).toHaveURL(/\/postflight$/);
+  await expect(page.getByRole("main").getByText(/Closing out the flight you opened/)).toBeVisible({
     timeout: 60_000,
   });
 
-  // The button goes to the form that finishes it, where the banner would only
-  // repeat what the form's own line already says.
-  await page.getByRole("link", { name: "Finish" }).click();
-  await expect(page).toHaveURL(/\/postflight/);
-  const main = page.getByRole("main");
-  await expect(main.getByText(/Closing out the flight you opened/)).toBeVisible({
-    timeout: 60_000,
-  });
-  await expect(page.getByText("Finished with your flight?")).toHaveCount(0);
-
-  // Once the entry is no longer open, the reminder goes with it.
+  // Once the entry is no longer open, the banner goes with it — and left open,
+  // it would sit over every later spec's pages.
   await clearOpenSessions(page);
   await gotoTab(page, "/log", "Flight log");
-  await expect(page.getByText("Finished with your flight?")).toHaveCount(0);
+  await expect(banner).toHaveCount(0);
 });

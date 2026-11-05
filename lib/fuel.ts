@@ -1,56 +1,167 @@
-// Fuel money: a price per gallon in, a total out.
+// Fuel money: three boxes, any two of which give the third.
 //
-// Members are asked for the PUMP PRICE, because that's the number on the pump
-// and on the receipt's top line, and because "Fuel cost: dollars" was read
-// both ways — a member filed 22.1 gal at "$6.99" and was credited $6.99 for
-// $154 of fuel. The TOTAL is still what's stored in `fuelCostCents` and what
-// `fuelCredit` pays back, so it's worked out here, once, on the server.
+// A fill-up is gallons × price per gallon = total, and members arrive holding
+// different halves of it — the receipt's total, the pump's price, the gallons
+// off the meter. So the forms offer all three and work out whichever one the
+// member didn't type. Only the TOTAL matters to the club: it's what
+// `fuelCostCents` stores and what `fuelCredit` pays back. Gallons are stored
+// too (`fuelAddedGal`); the price is never stored, only shown, because it is
+// always total ÷ gallons.
 //
-// Rows from before the price existed carry a total and no price. They're not
-// wrong, just older, and they're shown as a total rather than with a price
-// back-derived from it — total ÷ gallons rarely multiplies back to the cent,
-// and a sum on screen that doesn't add up is worse than no sum.
+// Which box is worked out is decided by what the member typed MOST RECENTLY:
+// the two latest typed boxes are the inputs and the third follows them. Type
+// into the worked-out one and it becomes an input, and the oldest input is the
+// one that gets worked out instead. Clear a box and the worked-out one clears
+// with it, since there's nothing left to work it out from.
+//
+// Every value is the STRING the input holds — a half-typed "6." is a state the
+// member is entitled to be in, and the drafts keep strings for the same reason.
 import { formatMoney } from "./finance";
 
-/** Gallons × price, to the cent. Null unless both are known. */
-export function fuelTotalCents(
-  gallons: number | null | undefined,
-  pricePerGalCents: number | null | undefined
-): number | null {
-  if (gallons == null || pricePerGalCents == null) return null;
-  return Math.round(gallons * pricePerGalCents);
+export type FuelField = "gallons" | "price" | "total";
+
+export interface FuelEntry {
+  gallons: string;
+  price: string;
+  total: string;
+  /** The boxes the member typed, oldest first — at most two. */
+  typed: FuelField[];
+}
+
+export const EMPTY_FUEL: FuelEntry = { gallons: "", price: "", total: "", typed: [] };
+
+const FIELDS: FuelField[] = ["gallons", "price", "total"];
+
+function parse(value: string): number | null {
+  if (value.trim() === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Two decimals, trailing zeros dropped — "21.1", not "21.10". */
+function gallonsText(n: number): string {
+  return String(Math.round(n * 100) / 100);
+}
+
+function moneyText(n: number): string {
+  return (Math.round(n * 100) / 100).toFixed(2);
+}
+
+/** The third box, from the other two. "" when they don't give one. */
+function derive(entry: FuelEntry, field: FuelField): string {
+  const gallons = parse(entry.gallons);
+  const price = parse(entry.price);
+  const total = parse(entry.total);
+  switch (field) {
+    case "total":
+      return gallons != null && price != null ? moneyText(gallons * price) : "";
+    case "price":
+      return gallons != null && gallons > 0 && total != null ? moneyText(total / gallons) : "";
+    case "gallons":
+      return price != null && price > 0 && total != null ? gallonsText(total / price) : "";
+  }
+}
+
+/** Fill in (or clear) every box the member didn't type. */
+function settle(entry: FuelEntry): FuelEntry {
+  const next = { ...entry };
+  for (const field of FIELDS) {
+    if (entry.typed.includes(field)) continue;
+    next[field] = entry.typed.length === 2 ? derive(entry, field) : "";
+  }
+  return next;
+}
+
+/**
+ * The member typed `value` into `field`.
+ *
+ * Typing into the worked-out box makes it an input, and one of the other two
+ * has to give way. PRICE goes first: it's the only one of the three the club
+ * doesn't store, so it's the safest number to let the app move. Correcting the
+ * gallons on a receipt therefore re-prices the fill-up rather than quietly
+ * rewriting the total the member is owed. With no price to drop, the box
+ * typed longest ago gives way.
+ */
+export function editFuel(entry: FuelEntry, field: FuelField, value: string): FuelEntry {
+  const others = entry.typed.filter((f) => f !== field);
+  if (value.trim() === "") return settle({ ...entry, [field]: value, typed: others });
+  const kept =
+    others.length < 2
+      ? others
+      : others.includes("price")
+        ? others.filter((f) => f !== "price")
+        : others.slice(1);
+  return settle({ ...entry, [field]: value, typed: [...kept, field] });
+}
+
+/** The box the app filled in, if any — the form marks it as worked out. */
+export function derivedField(entry: FuelEntry): FuelField | null {
+  if (entry.typed.length !== 2) return null;
+  return FIELDS.find((f) => !entry.typed.includes(f)) ?? null;
+}
+
+/**
+ * Rebuild the boxes from stored strings — a draft, or a saved row's two
+ * columns. Every non-empty box counts as typed, and when all three are full the
+ * PRICE is the one treated as worked out: gallons and total are what the club
+ * stores, so they're the pair a reload should keep.
+ */
+export function restoreFuel(values: { gallons?: string; price?: string; total?: string }): FuelEntry {
+  const entry: FuelEntry = {
+    gallons: values.gallons ?? "",
+    price: values.price ?? "",
+    total: values.total ?? "",
+    typed: [],
+  };
+  // Gallons and total are the stored pair, so they're the two a reload keeps;
+  // a price beside them is treated as the worked-out one.
+  entry.typed = (["price", "gallons", "total"] as FuelField[])
+    .filter((f) => entry[f].trim() !== "")
+    .slice(-2);
+  return settle(entry);
+}
+
+/** The boxes for a saved row: its gallons and total, price worked out. */
+export function fuelEntryFor(f: { fuelAddedGal: number | null; fuelCostCents: number | null }): FuelEntry {
+  return restoreFuel({
+    gallons: f.fuelAddedGal != null ? String(f.fuelAddedGal) : "",
+    total: f.fuelCostCents != null ? (f.fuelCostCents / 100).toFixed(2) : "",
+  });
+}
+
+/** What goes on the wire: the two numbers the club stores. */
+export function fuelPayload(entry: FuelEntry): {
+  fuelAddedGal: number | null;
+  fuelCostDollars: number | null;
+} {
+  return { fuelAddedGal: parse(entry.gallons), fuelCostDollars: parse(entry.total) };
+}
+
+/** Has the member put anything in the fuel boxes? */
+export function hasFuel(entry: FuelEntry): boolean {
+  return FIELDS.some((f) => entry[f].trim() !== "");
 }
 
 export interface FuelRecord {
   fuelAddedGal: number | null;
-  fuelPricePerGalCents: number | null;
   fuelCostCents: number | null;
 }
 
 /**
- * The pieces of "22.1 gal × $6.99 = $154.48", each null when unknown, so the
- * caller can bold the total. With no price (an older row) there's no `price`
- * and the total stands alone.
+ * The pieces of "22.1 gal × $6.99 = $154.48", each null when unknown. The
+ * price is worked out from the two stored columns, and only when there are
+ * gallons to divide by.
  */
 export function fuelSummary(f: FuelRecord): {
   gallons: string | null;
   price: string | null;
   total: string | null;
 } {
+  const g = f.fuelAddedGal;
+  const total = f.fuelCostCents;
   return {
-    gallons: f.fuelAddedGal != null ? `${f.fuelAddedGal} gal` : null,
-    price: f.fuelPricePerGalCents != null ? formatMoney(f.fuelPricePerGalCents) : null,
-    total: f.fuelCostCents != null ? formatMoney(f.fuelCostCents) : null,
+    gallons: g != null ? `${g} gal` : null,
+    price: g != null && g > 0 && total != null ? formatMoney(Math.round(total / g)) : null,
+    total: total != null ? formatMoney(total) : null,
   };
-}
-
-/**
- * The live "= $154.48 total" under a form's price box, off the two STRINGS the
- * inputs hold. Null until both parse — a half-typed form shows the plain hint.
- */
-export function fuelTotalHint(gallons: string, pricePerGal: string): string | null {
-  const g = gallons.trim() === "" ? NaN : Number(gallons);
-  const p = pricePerGal.trim() === "" ? NaN : Number(pricePerGal);
-  if (!Number.isFinite(g) || !Number.isFinite(p) || g < 0 || p < 0) return null;
-  return `= ${formatMoney(Math.round(g * Math.round(p * 100)))} total`;
 }

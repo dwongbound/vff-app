@@ -28,7 +28,7 @@ import {
   FLIGHT_DETAIL_INCLUDE,
   FLIGHT_LIST_ORDER,
   FLIGHT_LIST_SELECT,
-  fuelFrom,
+  fuelCostCentsFrom,
   landingFeeCentsFrom,
 } from "@/lib/flights";
 import { validateMeters } from "@/lib/hours";
@@ -383,8 +383,7 @@ export async function POST(req: Request) {
     arrival: body.arrival ? String(body.arrival).trim().toUpperCase() : null,
     route: body.route ? String(body.route).trim() : null,
     fuelAddedGal: num(body.fuelAddedGal),
-    // The pump price as typed, and the total (gallons × price) that's credited.
-    ...fuelFrom(body, num(body.fuelAddedGal)),
+    fuelCostCents: fuelCostCentsFrom(body),
     // Whose card, and it defaults to the MEMBER's when the client says
     // nothing. That's the column's own default and it's the compatible
     // answer: every form that predates the toggle meant "pay me back",
