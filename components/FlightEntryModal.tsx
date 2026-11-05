@@ -22,7 +22,8 @@ import Modal from "@/components/common/Modal";
 import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
 import { fetchJsonArray, sendJson } from "@/lib/api";
-import { fuelTotalHint } from "@/lib/fuel";
+import FuelFields from "@/components/FuelFields";
+import { EMPTY_FUEL, editFuel, fuelPayload } from "@/lib/fuel";
 import { toDateInputValue } from "@/lib/dates";
 import { formatHours, tachHours, validateMeters } from "@/lib/hours";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
@@ -85,8 +86,8 @@ export default function FlightEntryModal({
   const [departure, setDeparture] = useState("");
   const [arrival, setArrival] = useState("");
   const [route, setRoute] = useState("");
-  const [fuelAddedGal, setFuelAddedGal] = useState("");
-  const [fuelPriceDollars, setFuelPriceDollars] = useState("");
+  // Gallons, price and total — any two give the third (lib/fuel.ts).
+  const [fuel, setFuel] = useState(EMPTY_FUEL);
   const [oilAddedQts, setOilAddedQts] = useState("");
   const [landingFeeDollars, setLandingFeeDollars] = useState("");
   // Same "mirrors the airport until you type in it" rule the post-flight form
@@ -161,8 +162,7 @@ export default function FlightEntryModal({
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
-      fuelAddedGal: numeric(fuelAddedGal),
-      fuelPricePerGalDollars: numeric(fuelPriceDollars),
+      ...fuelPayload(fuel),
       oilAddedQts: numeric(oilAddedQts),
       landingFeeDollars: numeric(landingFeeDollars),
       notes: notes.trim() || null,
@@ -371,32 +371,11 @@ export default function FlightEntryModal({
           placeholder="KTOA → KCMA → KTOA"
         />
 
+        <FuelFields
+          entry={fuel}
+          onChange={(field, value) => setFuel((current) => editFuel(current, field, value))}
+        />
         <div className="grid gap-3 sm:grid-cols-3">
-          <Input
-            label="Fuel added"
-            type="number"
-            inputMode="decimal"
-            step="0.1"
-            min="0"
-            value={fuelAddedGal}
-            onChange={(e) => setFuelAddedGal(e.target.value)}
-            hint="Gallons"
-          />
-          {/* The pump price in dollars; the server multiplies it out to the
-              total it credits (lib/fuel.ts), so the form does no money
-              arithmetic it would have to agree with. */}
-          <Input
-            label="Price per gallon"
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0"
-            value={fuelPriceDollars}
-            onChange={(e) => setFuelPriceDollars(e.target.value)}
-            hint={
-              fuelTotalHint(fuelAddedGal, fuelPriceDollars) ?? "Total is credited back to you"
-            }
-          />
           <Input
             label="Oil added"
             type="number"

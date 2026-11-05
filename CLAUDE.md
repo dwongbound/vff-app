@@ -293,11 +293,8 @@ Airworthy badge reads), then the squawks' line (`squawkBanner` in
 lib/squawks.ts: red for a grounding and nothing else; otherwise ONE amber line
 joining in work · unreviewed · reviewed-okay-to-fly — `newSquawkCount` /
 `okToFlySquawkCount` on the aircraft — → Squawks). A banner is NOT drawn on the tab it
-links to. The Navbar also carries the member's own FINISH-YOUR-FLIGHT line
-(amber, "Finished with your flight?" + Finish → `/postflight`) while they have
-an open session on the selected airplane inside `SESSION_WINDOW_HOURS` —
-`flightToFinish` in lib/flightSession.ts, re-asked on every navigation and
-hidden on the cards and the two forms that finish a flight. Both are true of the AIRPLANE rather than of a view, so every child
+links to. The Navbar also carries the member's own unfinished-flight line —
+`ActiveFlightBanner`, see Components. Both are true of the AIRPLANE rather than of a view, so every child
 tab gets them. The squawk cards and maintenance rows lay out by the CARD's
 width (`@container` / `@xl:` container queries), not the screen's: the
 control (status picker, Mark done) goes under the text until the card is
@@ -476,6 +473,9 @@ owns the only splash in the app.
   open it inserts, which is the post-flight-without-preflight entry. Requires
   `tachEnd` and not `tachStart`. Also advances the aircraft's meters; both
   routes read `turnoffAnswers` and re-derive the put-away flags) ·
+  `flights/active` (GET — the caller's newest OPEN session on any airplane,
+  inside `SESSION_WINDOW_HOURS`, with the cards signed against it; feeds
+  `ActiveFlightBanner`) ·
   `flights/[id]` (PATCH stamps `editedAt` — except on a write-up-only edit, see
   the gotcha; reads every meter and time through `in body` so they can be
   CLEARED as well as set; `{ filed: true }` closes out an open session from the
@@ -726,15 +726,17 @@ owns the only splash in the app.
   reports what it cost),
   `flightCharge`/`fuelCredit`, `ruleAppliesTo`/`membersBilledBy`,
   money parsing/formatting. ✅tested
-- `fuel.ts` — fuel money. Every form asks for the PUMP PRICE per gallon
-  (`fuelPricePerGalCents`, as typed) and the server multiplies it out to
-  `fuelCostCents`, which stays the TOTAL — the number `fuelCredit` pays back
-  and the only one rows predating the price carry. Such a row shows as
-  "22.1 gal · $153.01" rather than with a price back-derived from it (that
-  rarely multiplies back to the cent). The body readers are `fuelFrom` /
-  `fuelPatchFrom` in `flights.ts`, shared by both flight routes and
-  servicing; a total sent outright is still accepted, because an outbox job
-  frozen before the price box existed sends one. ✅tested
+- `fuel.ts` — fuel money as THREE boxes, any two of which give the third:
+  gallons × price per gallon = total. Every fuel form draws them through
+  `components/FuelFields.tsx` (Quick Log, post-flight, Add Fuel, both flight
+  modals); all three are optional, so a member who lost the receipt can give
+  just a total, or nothing. The two most recently TYPED boxes are the inputs
+  (`editFuel`) and the third is "Worked out for you"; typing into the worked-
+  out one drops the PRICE first, because it's the one figure nothing stores.
+  Only gallons and the TOTAL reach the server (`fuelPayload` →
+  `fuelAddedGal` + `fuelCostDollars`); there is no price column — it's always
+  total ÷ gallons, which is how the log shows "22.1 gal × $6.99 = **$154.48**"
+  (`fuelSummary` / `FuelSummary`). Drafts keep all three strings. ✅tested
 - `landingFees.ts` — what a field charges to land: the fee TABLE (KTOA $6) and
   `landingFeeFor` / `landingFeeInputFor`. Only a DEFAULT — what the club bills is
   `Flight.landingFeeCents`, the figure the pilot left in the box, because rates
@@ -907,6 +909,15 @@ touched, and on a five-tab bar "centred" is a different tab entirely; while
 one is open the page is FROZEN — `useScrollLock`, see below — and a
 backdrop above everything but the pill takes the first outside tap and only
 closes it),
+`ActiveFlightBanner` (in the top bar under the grounded banner: "N8318B is out
+with you since 10:05 AM — continue: runway card →" whenever the member has an
+unfiled session. Where it goes is `resumePoint` in lib/flightSession.ts — runway
+card signed ⇒ the post-flight form, else the runway card — and tapping it
+SELECTS that airplane first, since the cards act on the selected one. Off on
+the pages that are the way to finish (`showsResumeBanner`: runway, post-flight,
+Quick Log), off while that flight is queued in the outbox, re-asked on every
+navigation, on returning to the foreground and when the outbox lands
+something; ✕ hides it for the visit only),
 `SwipePager`/`SwipeProvider`
 (touch tab swipe, PHONES ONLY — off from the `md` breakpoint up, where the rail
 is there to tap (`swipeEnabledAt`); the page never moves sideways; a clearly

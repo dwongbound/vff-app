@@ -25,7 +25,9 @@ export interface QuickLogForm {
   hobbsEnd: string;
   airports: string;
   fuelAdded: string;
+  /** Price per gallon and the total, as the boxes hold them — see lib/fuel.ts. */
   fuelPrice: string;
+  fuelCost: string;
   oilAdded: string;
   paidPersonally: boolean;
   /** The flight type, as the select holds it ("" = not set). */
@@ -62,7 +64,7 @@ export function quickLogDraftKey({
  * forward), and saving that would greet every visit with a "draft" nobody wrote.
  */
 export function quickLogHasProgress(form: QuickLogForm): boolean {
-  return [form.tachEnd, form.hobbsEnd, form.airports, form.fuelAdded, form.fuelPrice, form.oilAdded]
+  return [form.tachEnd, form.hobbsEnd, form.airports, form.fuelAdded, form.fuelPrice, form.fuelCost, form.oilAdded]
     .some((value) => value.trim() !== "");
 }
 
@@ -75,6 +77,7 @@ const STRING_FIELDS = [
   "airports",
   "fuelAdded",
   "fuelPrice",
+  "fuelCost",
   "oilAdded",
 ] as const;
 
