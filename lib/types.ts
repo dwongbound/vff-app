@@ -557,3 +557,18 @@ export interface ApiInvoiceSendResult {
   skipped: { memberId: string; name: string; reason: string }[];
   failed: { memberId: string; name: string; error: string }[];
 }
+
+/** A personal access key as the profile lists it — no part of the key itself. */
+export interface ApiAccessKey {
+  id: string;
+  name: string;
+  /** May also book, cancel the member's bookings and file their flights. */
+  canWrite: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** POST /api/access-keys: the new key, shown once. */
+export interface ApiNewAccessKey extends ApiAccessKey {
+  key: string;
+}
