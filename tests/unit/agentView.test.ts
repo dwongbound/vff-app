@@ -57,6 +57,7 @@ describe("agentAircraft", () => {
 
 describe("agentBooking", () => {
   const row = {
+    id: "b1",
     startsAt: now,
     endsAt: new Date(now.getTime() + 7_200_000),
     allDay: false,

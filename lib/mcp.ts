@@ -5,9 +5,10 @@
 //
 // What it is: a STATELESS "Streamable HTTP" server with tools only. Each POST
 // carries one JSON-RPC message (or a batch) and gets a plain JSON reply — no
-// sessions, no server-sent events, no prompts or resources. Every tool is
-// read-only and takes no arguments; each returns one section of the access
-// key's snapshot (lib/agentSnapshot.ts).
+// sessions, no server-sent events, no prompts or resources. Reading tools take
+// no arguments and return a section of the access key's snapshot
+// (lib/agentSnapshot.ts); a key made "can book and file" also gets three
+// writing tools, which declare their arguments as JSON Schema.
 
 export const SUPPORTED_PROTOCOL_VERSIONS = [
   "2025-11-25",
@@ -21,7 +22,15 @@ export interface McpTool {
   name: string;
   title: string;
   description: string;
+  /** JSON Schema for the arguments. Absent = the tool takes none. */
+  inputSchema?: Record<string, unknown>;
+  /** False for a tool that changes something. Absent = read-only. */
+  readOnly?: boolean;
+  /** True for a tool that undoes something (cancelling a booking). */
+  destructive?: boolean;
 }
+
+const NO_ARGUMENTS = { type: "object", properties: {}, additionalProperties: false };
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -46,8 +55,12 @@ export interface McpServer {
   /** Shown to the model once, at initialize: what this server is for. */
   instructions: string;
   tools: McpTool[];
-  /** Runs a tool the client named; its result is sent back as JSON text. */
-  callTool: (name: string) => Promise<unknown>;
+  /**
+   * Runs a tool the client named with the arguments it sent (always an object,
+   * {} when none came); its result is sent back as JSON text. A throw becomes
+   * a tool error the model reads, with the thrown message as its text.
+   */
+  callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
 }
 
 /**
@@ -95,8 +108,12 @@ async function handleOne(server: McpServer, message: unknown): Promise<JsonRpcRe
           name: t.name,
           title: t.title,
           description: t.description,
-          inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          annotations: { readOnlyHint: true, openWorldHint: false },
+          inputSchema: t.inputSchema ?? NO_ARGUMENTS,
+          annotations: {
+            readOnlyHint: t.readOnly !== false,
+            destructiveHint: t.destructive === true,
+            openWorldHint: false,
+          },
         })),
       });
     case "tools/call": {
@@ -105,7 +122,12 @@ async function handleOne(server: McpServer, message: unknown): Promise<JsonRpcRe
         return errorReply(id, INVALID_PARAMS, `Unknown tool: ${String(name)}`);
       }
       try {
-        const data = await server.callTool(name);
+        const raw = message.params?.arguments;
+        const args =
+          typeof raw === "object" && raw !== null && !Array.isArray(raw)
+            ? (raw as Record<string, unknown>)
+            : {};
+        const data = await server.callTool(name, args);
         return reply(id, {
           content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
           isError: false,

@@ -4,6 +4,7 @@ CREATE TABLE "access_keys" (
     "userId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "keyHash" TEXT NOT NULL,
+    "canWrite" BOOLEAN NOT NULL DEFAULT false,
     "lastUsedAt" TIMESTAMP(3),
     "revokedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

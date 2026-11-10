@@ -66,19 +66,27 @@ describe("shouldTouchLastUsed", () => {
 
 describe("a key on the wire", () => {
   it("carries no part of the key or its hash", () => {
-    const row = { id: "k1", name: "Jarvis", createdAt: new Date(), lastUsedAt: null, keyHash: "abc" };
+    const row = {
+      id: "k1",
+      name: "Jarvis",
+      canWrite: false,
+      createdAt: new Date(),
+      lastUsedAt: null,
+      keyHash: "abc",
+    };
     expect(Object.keys(serializeAccessKey(row)).sort()).toEqual(
-      ["createdAt", "id", "lastUsedAt", "name"].sort()
+      ["canWrite", "createdAt", "id", "lastUsedAt", "name"].sort()
     );
   });
-  it("says when it was made and last used", () => {
+  it("says what it may do, when it was made and when it was last used", () => {
     const now = new Date("2026-11-10T20:00:00Z");
-    expect(accessKeyLine({ createdAt: now.toISOString(), lastUsedAt: null }, now)).toMatch(
-      /^Made .+ · never used$/
+    const made = now.toISOString();
+    expect(accessKeyLine({ canWrite: false, createdAt: made, lastUsedAt: null }, now)).toMatch(
+      /^Read-only · made .+ · never used$/
     );
     const used = new Date(now.getTime() - 3 * 3_600_000).toISOString();
-    expect(accessKeyLine({ createdAt: now.toISOString(), lastUsedAt: used }, now)).toMatch(
-      /last used 3 hours ago$/
+    expect(accessKeyLine({ canWrite: true, createdAt: made, lastUsedAt: used }, now)).toMatch(
+      /^Can book and file · .+ · last used 3 hours ago$/
     );
   });
 });

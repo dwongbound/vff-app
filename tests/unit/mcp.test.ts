@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { handleMcp, type McpServer } from "@/lib/mcp";
-import { AGENT_SECTIONS, AGENT_TOOLS } from "@/lib/agentTools";
+import {
+  AGENT_SECTIONS,
+  AGENT_TOOLS,
+  AGENT_WRITE_TOOLS,
+  agentInstructions,
+  agentToolsFor,
+} from "@/lib/agentTools";
 
 const server: McpServer = {
   name: "vff-app",
@@ -70,6 +76,50 @@ describe("handleMcp", () => {
     expect(await handleMcp(server, { hello: "world" })).toMatchObject({ error: { code: -32600 } });
   });
 
+  it("lists a writing tool with its arguments and hints, and passes the arguments on", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const writer: McpServer = {
+      ...server,
+      tools: [
+        {
+          name: "cancel_booking",
+          title: "Cancel",
+          description: "Cancel one.",
+          readOnly: false,
+          destructive: true,
+          inputSchema: { type: "object", properties: { bookingId: { type: "string" } } },
+        },
+      ],
+      callTool: async (_name, args) => {
+        seen.push(args);
+        return { cancelled: true };
+      },
+    };
+    const list = (await handleMcp(writer, rpc("tools/list"))) as {
+      result: { tools: { inputSchema: unknown; annotations: Record<string, boolean> }[] };
+    };
+    expect(list.result.tools[0].inputSchema).toMatchObject({ properties: { bookingId: {} } });
+    expect(list.result.tools[0].annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+
+    await handleMcp(writer, rpc("tools/call", { name: "cancel_booking", arguments: { bookingId: "b1" } }));
+    // Missing or non-object arguments arrive as {}.
+    await handleMcp(writer, rpc("tools/call", { name: "cancel_booking", arguments: [1] }));
+    expect(seen).toEqual([{ bookingId: "b1" }, {}]);
+  });
+
+  it("returns a tool that threw as a readable error result", async () => {
+    const failing: McpServer = {
+      ...server,
+      callTool: async () => {
+        throw new Error("N8318B is already booked then.");
+      },
+    };
+    const r = (await handleMcp(failing, rpc("tools/call", { name: "get_my_balance" }))) as {
+      result: { content: { text: string }[]; isError: boolean };
+    };
+    expect(r.result).toEqual({ content: [{ type: "text", text: "N8318B is already booked then." }], isError: true });
+  });
+
   it("answers a batch, minus its notifications", async () => {
     const r = await handleMcp(server, [rpc("ping", undefined, 7), rpc("notifications/x", undefined, null)]);
     expect(r).toEqual([{ jsonrpc: "2.0", id: 7, result: {} }]);
@@ -84,5 +134,26 @@ describe("the access key's tools", () => {
   });
   it("are all reads", () => {
     for (const t of AGENT_TOOLS) expect(t.name).toMatch(/^get_/);
+  });
+});
+
+describe("a key that may write", () => {
+  it("gets the three writing tools; a read-only key doesn't", () => {
+    expect(agentToolsFor(false).map((t) => t.name)).toEqual(AGENT_TOOLS.map((t) => t.name));
+    expect(agentToolsFor(true).map((t) => t.name)).toEqual([
+      ...AGENT_TOOLS.map((t) => t.name),
+      "book_airplane",
+      "cancel_booking",
+      "file_flight",
+    ]);
+  });
+  it("marks every writer as not read-only, and only cancelling as destructive", () => {
+    for (const t of AGENT_WRITE_TOOLS) expect(t.readOnly).toBe(false);
+    expect(AGENT_WRITE_TOOLS.filter((t) => t.destructive).map((t) => t.name)).toEqual(["cancel_booking"]);
+  });
+  it("is told what its key may do", () => {
+    expect(agentInstructions(false)).toMatch(/read-only/);
+    expect(agentInstructions(true)).toMatch(/book the airplane/);
+    expect(agentInstructions(true)).toMatch(/can pay/);
   });
 });

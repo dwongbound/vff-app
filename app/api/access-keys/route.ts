@@ -1,6 +1,8 @@
 // The signed-in member's own personal access keys (Profile → Personal access
-// keys). GET lists them, POST makes one and returns it ONCE. Session only: a
-// key can't make more keys.
+// keys). GET lists them, POST `{ name, canWrite? }` makes one and returns it
+// ONCE. Session only: a key can't make more keys. `canWrite` is fixed for the
+// key's life — to change what an assistant may do, make a new key and revoke
+// the old one, so a key never quietly gains a power after it was handed out.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -40,7 +42,13 @@ export async function POST(req: Request) {
 
   const key = generateAccessKey();
   const row = await prisma.accessKey.create({
-    data: { userId: user.id, name: name.value, keyHash: hashAccessKey(key) },
+    data: {
+      userId: user.id,
+      name: name.value,
+      keyHash: hashAccessKey(key),
+      // Only an explicit true: anything else is the read-only default.
+      canWrite: body?.canWrite === true,
+    },
     select: ACCESS_KEY_SELECT,
   });
   // The only time the key itself ever leaves the server.

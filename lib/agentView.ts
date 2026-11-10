@@ -85,6 +85,7 @@ export function agentAircraft(row: AgentAircraftRow, now: Date = new Date()) {
 // ── Bookings ───────────────────────────────────────────────────────────────
 
 export interface AgentBookingRow {
+  id: string;
   startsAt: Date;
   endsAt: Date;
   allDay: boolean;
@@ -101,6 +102,8 @@ export interface AgentBookingRow {
 /** One booking, saying whether it's the key holder's own (or their lesson to teach). */
 export function agentBooking(row: AgentBookingRow, meId: string) {
   return {
+    // What cancel_booking takes, for a key that may write.
+    id: row.id,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     allDay: row.allDay,

@@ -1,6 +1,6 @@
 // Everything an access key reads, in ONE answer: the db half of agentView.ts.
 // GET /api/agent returns it whole, and the MCP endpoint hands out its sections
-// as tools. Read-only: no Google sync, no dues materialised, no sweeps — a read
+// as tools. Reading is read-only: no Google sync, no dues materialised, no sweeps — a read
 // through a key changes nothing but the key's own "last used".
 //
 // What the member SEES is the rule for what's here: the fleet, every open
@@ -81,6 +81,7 @@ async function readBookings(user: KeyUser, now: Date) {
     where: { status: { not: "CANCELED" }, endsAt: { gt: now }, startsAt: { lt: until } },
     orderBy: { startsAt: "asc" },
     select: {
+      id: true,
       startsAt: true,
       endsAt: true,
       allDay: true,

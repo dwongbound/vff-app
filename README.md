@@ -356,13 +356,22 @@ after it changes, and the line under the title says Saving… / Saved.
 A member can let an assistant of their own read the club through a **personal
 access key**, made on **Profile → Personal access keys**. A key sees what its
 member sees: the airplanes' status, squawks and maintenance, the next 30 days
-of bookings, their own flight log and currency, and their own balance. It is
-**read-only**: only two routes accept a key, and neither writes.
+of bookings, their own flight log and currency, and their own balance. A key
+is **read-only** unless the member ticks **"Also let this key book, cancel my
+bookings and file my flights"** when making it; that choice is fixed for the
+key's life (make a new key to change it). A key that may write acts as a
+plain member, never as an admin or officer, even on an admin's account, and
+nothing through a key can pay or change anything else.
 
 - **As an MCP server:** `POST https://<your site>/api/mcp` with the header
   `Authorization: Bearer vff_…`. Stateless Streamable HTTP, tools only:
   `get_club_snapshot`, `get_aircraft_status`, `get_bookings`,
-  `get_my_flying`, `get_my_balance`. For the Claude Agent SDK, for example:
+  `get_my_flying`, `get_my_balance`, plus `book_airplane`, `cancel_booking`
+  and `file_flight` for a key that may write. The writers call the app's own
+  booking and filing routes, so the club's booking rules, the conflict check,
+  the Google Calendar write and the bill are exactly what the app does.
+  Times are club time (`"2026-11-14T09:00"`). For the Claude Agent SDK, for
+  example:
 
   ```ts
   mcpServers: {
@@ -379,8 +388,10 @@ of bookings, their own flight log and currency, and their own balance. It is
 
 The key is shown once when it's made; the server keeps only its SHA-256, and
 no part of it is shown again. Revoking it on the profile stops it on the next
-request. A browser session is not accepted on either route. Nothing to
-configure: no environment variables.
+request. A browser session is not accepted on `/api/agent` or `/api/mcp`; a
+write key is also accepted by `POST /api/reservations`,
+`DELETE /api/reservations/[id]` and `POST /api/flights`. Nothing to configure:
+no environment variables.
 
 ## Gotchas
 

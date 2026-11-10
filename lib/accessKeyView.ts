@@ -5,6 +5,7 @@ import type { ApiAccessKey } from "./types";
 export const ACCESS_KEY_SELECT = {
   id: true,
   name: true,
+  canWrite: true,
   createdAt: true,
   lastUsedAt: true,
 } as const;
@@ -12,27 +13,33 @@ export const ACCESS_KEY_SELECT = {
 export function serializeAccessKey(row: {
   id: string;
   name: string;
+  canWrite: boolean;
   createdAt: Date;
   lastUsedAt: Date | null;
 }): ApiAccessKey {
   return {
     id: row.id,
     name: row.name,
+    canWrite: row.canWrite,
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
   };
 }
 
-/** "Made Nov 10 · last used 4 min ago" — the line under a key's name. */
+/**
+ * "Can book and file · made Nov 10 · last used 4 min ago" — the line under a
+ * key's name. What the key may DO leads, since that's the thing to check.
+ */
 export function accessKeyLine(
-  key: Pick<ApiAccessKey, "createdAt" | "lastUsedAt">,
+  key: Pick<ApiAccessKey, "canWrite" | "createdAt" | "lastUsedAt">,
   now: Date = new Date()
 ): string {
   const made = new Date(key.createdAt).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
-  return `Made ${made} · ${key.lastUsedAt ? `last used ${ago(key.lastUsedAt, now)}` : "never used"}`;
+  const scope = key.canWrite ? "Can book and file" : "Read-only";
+  return `${scope} · made ${made} · ${key.lastUsedAt ? `last used ${ago(key.lastUsedAt, now)}` : "never used"}`;
 }
 
 /** Rough and friendly; "last used" is only written every few minutes anyway. */

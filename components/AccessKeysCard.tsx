@@ -1,6 +1,8 @@
 "use client";
 // /profile's "Personal access keys" card: let an assistant of the member's own
-// (Jarvis) READ what they can see here, through /api/mcp or /api/agent.
+// (Jarvis) read what they can see here, through /api/mcp or /api/agent — and,
+// for a key made with the box ticked, book, cancel their bookings and file
+// their flights as them.
 //
 // Not part of the page's form: making and revoking a key happen on the spot,
 // through their own routes. A new key is shown ONCE, right after it's made —
@@ -21,6 +23,8 @@ export default function AccessKeysCard() {
   const [keys, setKeys] = useState<ApiAccessKey[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [name, setName] = useState("");
+  // Off by default: a key reads unless the member says otherwise.
+  const [canWrite, setCanWrite] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The key just made, until the member closes it. Never stored anywhere.
@@ -41,7 +45,10 @@ export default function AccessKeysCard() {
   async function create() {
     setError(null);
     setCreating(true);
-    const result = await sendJson<ApiNewAccessKey>("/api/access-keys", "POST", { name });
+    const result = await sendJson<ApiNewAccessKey>("/api/access-keys", "POST", {
+      name,
+      canWrite,
+    });
     setCreating(false);
     if (!result.ok || !result.data) {
       setError(result.error ?? "Couldn't make the key.");
@@ -52,6 +59,7 @@ export default function AccessKeysCard() {
     setFresh(result.data);
     setCopied(false);
     setName("");
+    setCanWrite(false);
   }
 
   async function copy(text: string) {
@@ -88,8 +96,9 @@ export default function AccessKeysCard() {
         <h2 className="text-sm font-semibold">Personal access keys</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Let an assistant of yours, like Jarvis, read your bookings, flight log, the
-          airplane&rsquo;s squawks and maintenance, and your balance. Read-only: a key can&rsquo;t
-          book, file or pay anything. Revoke it here any time.
+          airplane&rsquo;s squawks and maintenance, and your balance. Turn on booking and filing
+          for a key if you want it to do those for you, as you. No key can pay or change anything
+          else. Revoke it here any time.
         </p>
       </div>
 
@@ -148,6 +157,18 @@ export default function AccessKeysCard() {
             </li>
           ))}
         </ul>
+      )}
+
+      {keys && (
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+          <input
+            type="checkbox"
+            className="h-5 w-5 shrink-0 accent-indigo-600"
+            checked={canWrite}
+            onChange={(e) => setCanWrite(e.target.checked)}
+          />
+          Also let this key book, cancel my bookings and file my flights
+        </label>
       )}
 
       {keys && (

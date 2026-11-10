@@ -562,6 +562,8 @@ export interface ApiInvoiceSendResult {
 export interface ApiAccessKey {
   id: string;
   name: string;
+  /** May also book, cancel the member's bookings and file their flights. */
+  canWrite: boolean;
   createdAt: string;
   lastUsedAt: string | null;
 }

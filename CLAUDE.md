@@ -235,8 +235,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   lines free to repeat.
 - **AccessKey** — a member's personal access key for their own assistant
   (Jarvis): `name`, `keyHash` (SHA-256, unique — the key is 256 random bits,
-  so no slow hash), `lastUsedAt` (written at most every 5 min), `revokedAt`
-  (revoke stamps rather than deletes). NO part of the key is stored or shown
+  so no slow hash), `canWrite` (may also book, cancel its member's bookings
+  and file their flights; set at creation only, default false), `lastUsedAt`
+  (written at most every 5 min), `revokedAt` (revoke stamps rather than
+  deletes). NO part of the key is stored or shown
   again after creation, not even a prefix (Dylan, 2026-11-10).
 - **InvoiceSend** — one invoice emailed to one member (`scope` = "YYYY-MM"
   or "all", `amountCents`, `sentTo`, `sentBy`). A record only, never money:
@@ -491,9 +493,18 @@ owns the only splash in the app.
 - `access-keys` (GET the caller's live keys, POST `{ name }` → the key ONCE,
   at most `MAX_ACCESS_KEYS`) · `access-keys/[id]` (DELETE = revoke your own).
   Session only: a key can't make keys.
-- `agent` (GET) and `mcp` (POST) — the ONLY two routes that take
-  `Authorization: Bearer vff_…` (`getKeyUser` in lib/accessKeyAuth.ts), and the
-  only two that take NOTHING ELSE: a browser session gets 401 there. Both read
+- `agent` (GET) and `mcp` (POST) take `Authorization: Bearer vff_…`
+  (`getKeyUser` in lib/accessKeyAuth.ts) and NOTHING ELSE: a browser session
+  gets 401 there. A `canWrite` key is ALSO taken by exactly three routes —
+  `POST /api/reservations`, `DELETE /api/reservations/[id]`, `POST /api/flights`
+  — through `getActingUser` (session first, else a write key), which hands the
+  route the member stripped of `isAdmin` and positions, so a key on an admin's
+  account still cancels only its own bookings. The MCP writers
+  (`book_airplane`, `cancel_booking`, `file_flight`, listed only for a write
+  key) call those route handlers in-process with the same key header, so every
+  rule is the route's; `lib/agentWrites.ts` only parses arguments (club-time
+  strings via `clubInstant`, never the server's zone) and matches tail number /
+  CFI name. Both read
   `agentSnapshot` (lib/agentSnapshot.ts): fleet + squawks + maintenance, the
   next 30 days of bookings, the KEY HOLDER's own log/currency and own unpaid
   lines. Read-only by construction — no Google sync, no dues materialised, so
@@ -886,6 +897,8 @@ owns the only splash in the app.
 - `accessKeys.ts` — key generation, hashing, `bearerKey` (only `vff_` keys are
   even looked up), names, the last-used throttle. `accessKeyView.ts` — the
   wire shape (no key, no hash) and the card's "Made … · last used …" line.
+  `agentWrites.ts` — the writing tools' arguments → route bodies, plus
+  `pickAircraft` / `pickInstructor` (ambiguity is an error, never a guess).
   `agentView.ts` — the pure shaping of what a key reads (status in words:
   AIRWORTHY / IN_MAINTENANCE / GROUNDED with reasons, the same grounding rules
   as Plane Status). `mcp.ts` — JSON-RPC: initialize (version negotiation),
