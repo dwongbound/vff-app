@@ -243,6 +243,7 @@ model User {
   recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
   recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
   googleConnections       GoogleConnection[]
+  accessKeys              AccessKey[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1069,4 +1070,28 @@ model InvoiceSend {
 
   @@index([memberId, scope])
   @@map("invoice_sends")
+}
+
+// A member's PERSONAL ACCESS KEY: lets one app of theirs (Jarvis) READ what
+// they can already see in the app, through GET /api/agent and the MCP endpoint
+// /api/mcp — nothing else accepts one, and neither route writes. Only the
+// SHA-256 of the key is stored (it's 256 random bits, so a slow hash buys
+// nothing), and no part of the key is kept for display: the member sees it
+// once, at creation. Revoking stamps `revokedAt` rather than deleting, so
+// "last used" stays readable; a revoked key is refused at once.
+model AccessKey {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  /// The member's own label ("Jarvis").
+  name    String
+  keyHash String @unique
+
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("access_keys")
 }

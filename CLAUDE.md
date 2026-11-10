@@ -233,6 +233,11 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   idempotent — `(memberId, recurringChargeId, period)` and `(flightId, kind)` —
   and rely on Postgres treating NULLs as distinct, which leaves hand-entered
   lines free to repeat.
+- **AccessKey** — a member's personal access key for their own assistant
+  (Jarvis): `name`, `keyHash` (SHA-256, unique — the key is 256 random bits,
+  so no slow hash), `lastUsedAt` (written at most every 5 min), `revokedAt`
+  (revoke stamps rather than deletes). NO part of the key is stored or shown
+  again after creation, not even a prefix (Dylan, 2026-11-10).
 - **InvoiceSend** — one invoice emailed to one member (`scope` = "YYYY-MM"
   or "all", `amountCents`, `sentTo`, `sentBy`). A record only, never money:
   it's what lets the Send invoices window say "Sent Oct 3" beside a name so a
@@ -263,6 +268,7 @@ PATCH a moment after typing stops, one request in flight at a time, and the
 seeded from `me` ONCE, since re-seeding from each save's reply would overwrite
 what's being typed. A blank name, non-number total time or half-typed invite
 address is held back client-side, not sent) ·
+`profile` (ends with `AccessKeysCard`, outside the form: keys are made and revoked on the spot) ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
 its Google Calendar link, then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
@@ -482,6 +488,18 @@ owns the only splash in the app.
   through the club's `calendar/callback` (one registered redirect URI), told
   apart by the state's `me.` prefix (`MEMBER_STATE_PREFIX`), and lands on
   `/profile?calendarPicker=connected|denied|error`.
+- `access-keys` (GET the caller's live keys, POST `{ name }` → the key ONCE,
+  at most `MAX_ACCESS_KEYS`) · `access-keys/[id]` (DELETE = revoke your own).
+  Session only: a key can't make keys.
+- `agent` (GET) and `mcp` (POST) — the ONLY two routes that take
+  `Authorization: Bearer vff_…` (`getKeyUser` in lib/accessKeyAuth.ts), and the
+  only two that take NOTHING ELSE: a browser session gets 401 there. Both read
+  `agentSnapshot` (lib/agentSnapshot.ts): fleet + squawks + maintenance, the
+  next 30 days of bookings, the KEY HOLDER's own log/currency and own unpaid
+  lines. Read-only by construction — no Google sync, no dues materialised, so
+  money is what's already on the books. `mcp` is a stateless Streamable HTTP
+  MCP server written by hand (lib/mcp.ts, tools in lib/agentTools.ts); GET is
+  405 because it never streams.
 - `calendar` (GET status + the connected account's writable calendars, DELETE
   disconnect — both admin). The calendar LIST, and PUT-ing a calendar from it,
   belong to the admin who CONNECTED the account alone (`canPick`): it's their
@@ -865,6 +883,13 @@ owns the only splash in the app.
   The club account is the organiser of every event, so a member needs no
   access to the airplane's calendar to book.
   ✅tested
+- `accessKeys.ts` — key generation, hashing, `bearerKey` (only `vff_` keys are
+  even looked up), names, the last-used throttle. `accessKeyView.ts` — the
+  wire shape (no key, no hash) and the card's "Made … · last used …" line.
+  `agentView.ts` — the pure shaping of what a key reads (status in words:
+  AIRWORTHY / IN_MAINTENANCE / GROUNDED with reasons, the same grounding rules
+  as Plane Status). `mcp.ts` — JSON-RPC: initialize (version negotiation),
+  ping, tools/list, tools/call, batches, notifications → 202. ✅tested
 - `googleCalendar.ts` — OAuth + Calendar REST by hand with fetch, same reasoning
   as `storage/s3.ts`. Reuses the sign-in OAuth client through its OWN consent
   flow. `googleCalendarSync.ts` — the db half: `syncAircraftCalendar`

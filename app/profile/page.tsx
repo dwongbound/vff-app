@@ -4,6 +4,7 @@
 // Every field saves itself as it changes; there is no Save button.
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import AccessKeysCard from "@/components/AccessKeysCard";
 import Badge from "@/components/common/Badge";
 import AutosaveStatus from "@/components/AutosaveStatus";
 import CalendarInvitesCard from "@/components/CalendarInvitesCard";
@@ -264,6 +265,8 @@ export default function ProfilePage() {
         inviteError={inviteError}
       />
 
+      {/* Not part of the form above: keys are made and revoked on the spot. */}
+      <AccessKeysCard />
     </div>
   );
 }

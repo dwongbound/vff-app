@@ -351,6 +351,37 @@ so declaring it triggers no review.
 The profile page has **no Save button**: every field saves itself a moment
 after it changes, and the line under the title says Saving… / Saved.
 
+## Personal access keys (Jarvis, or any assistant)
+
+A member can let an assistant of their own read the club through a **personal
+access key**, made on **Profile → Personal access keys**. A key sees what its
+member sees: the airplanes' status, squawks and maintenance, the next 30 days
+of bookings, their own flight log and currency, and their own balance. It is
+**read-only**: only two routes accept a key, and neither writes.
+
+- **As an MCP server:** `POST https://<your site>/api/mcp` with the header
+  `Authorization: Bearer vff_…`. Stateless Streamable HTTP, tools only:
+  `get_club_snapshot`, `get_aircraft_status`, `get_bookings`,
+  `get_my_flying`, `get_my_balance`. For the Claude Agent SDK, for example:
+
+  ```ts
+  mcpServers: {
+    vff: {
+      type: "http",
+      url: "https://www.vardafreeflyers.com/api/mcp",
+      headers: { Authorization: `Bearer ${process.env.VFF_ACCESS_KEY}` },
+    },
+  }
+  ```
+
+- **As one HTTP call:** `GET /api/agent` with the same header returns the
+  whole snapshot as JSON.
+
+The key is shown once when it's made; the server keeps only its SHA-256, and
+no part of it is shown again. Revoking it on the profile stops it on the next
+request. A browser session is not accepted on either route. Nothing to
+configure: no environment variables.
+
 ## Gotchas
 
 - Reservation times are stored as UTC instants and rendered in the server's
