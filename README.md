@@ -339,6 +339,18 @@ see no "unverified app" warning and it needs no verification. It comes back
 through the same `/api/calendar/callback` redirect, so there's nothing new to
 add in Google Cloud.
 
+A member who signs in with **Continue with Google** is asked for the same
+calendar-list permission on that sign-in's consent screen, so the picker is
+ready the moment they open their profile, with no second trip. (Google shows
+that screen once; later sign-ins skip it and the kept permission stays. If
+they untick the calendar box, sign-in still works and the picker offers the
+button instead.) For tidiness, add `calendar.calendarlist.readonly` to the
+OAuth consent screen's declared scopes in Google Cloud; it is non-sensitive,
+so declaring it triggers no review.
+
+The profile page has **no Save button**: every field saves itself a moment
+after it changes, and the line under the title says Saving… / Saved.
+
 ## Gotchas
 
 - Reservation times are stored as UTC instants and rendered in the server's

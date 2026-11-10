@@ -22,7 +22,7 @@
 //
 // An airplane with no calendar linked behaves exactly as before any of this.
 import { prisma } from "./prisma";
-import { openBox } from "./secretBox";
+import { openBox, sealBox } from "./secretBox";
 import { inviteAddress, staleInviteAddresses, type InvitePrefs } from "./calendarInvites";
 import {
   appEventProps,
@@ -41,6 +41,7 @@ import {
   insertEvent,
   listEventsPage,
   patchEvent,
+  revokeToken,
 } from "./googleCalendar";
 import type { Purpose } from "./constants";
 
@@ -57,6 +58,27 @@ export interface CalendarLink {
 /** The secret the refresh token is sealed under (lib/secretBox.ts). */
 export function tokenSecret(): string {
   return process.env.NEXTAUTH_SECRET ?? "";
+}
+
+/**
+ * Keep a member's OWN calendar-list token (the /profile picker's), sealed.
+ * Two ways in: the picker's consent trip (calendar/callback) and Google
+ * sign-in (lib/auth.ts). A new token replaces the old one, which is let go at
+ * Google too rather than left as a live credential nobody uses.
+ */
+export async function storeMemberListToken(userId: string, refreshToken: string): Promise<void> {
+  const previous = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { googleListTokenEnc: true },
+  });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { googleListTokenEnc: sealBox(refreshToken, tokenSecret()) },
+  });
+  const old = previous?.googleListTokenEnc
+    ? openBox(previous.googleListTokenEnc, tokenSecret())
+    : null;
+  if (old && old !== refreshToken) await revokeToken(old);
 }
 
 /** The club's refresh token, or a GoogleError saying why there isn't one. */

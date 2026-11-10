@@ -38,6 +38,31 @@ const MEMBER_LIST_SCOPES = ["openid", "email", LIST_SCOPE];
 
 const EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
+/**
+ * What "Continue with Google" asks for. Sign-in itself needs only openid +
+ * email + profile; the calendar LIST rides along so a member who signs in with
+ * Google gets the /profile picker straight away, with no second consent trip.
+ * It's the same non-sensitive scope the picker's own trip asks for, so sign-in
+ * gains no warning. `access_type: offline` is what makes Google hand back a
+ * refresh token the first time the member agrees to it (Google sends one only
+ * on a consent screen, so a later sign-in leaves the stored one in place).
+ * No `prompt: consent` here: that would show the consent screen at EVERY
+ * sign-in.
+ */
+export const GOOGLE_SIGN_IN_PARAMS = {
+  scope: ["openid", "email", "profile", LIST_SCOPE].join(" "),
+  access_type: "offline",
+  include_granted_scopes: "true",
+} as const;
+
+/**
+ * Whether a token Google issued at sign-in carries the calendar list. Google
+ * lets a person untick the box, and the sign-in still has to work if they do.
+ */
+export function grantsListScope(scope: string | null | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(LIST_SCOPE);
+}
+
 /** The one-time OAuth `state`, between ./connect and ./callback. */
 export const STATE_COOKIE = "vff-calendar-oauth-state";
 

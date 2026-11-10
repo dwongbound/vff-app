@@ -64,6 +64,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   PATCH drops, so a change lands on each booking the next time it's written
   (no re-sync of existing bookings). `googleListTokenEnc` is the member's OWN
   sealed `calendar.calendarlist.readonly` token for the picker — never events.
+  It arrives two ways, both through `storeMemberListToken`: the picker's own
+  consent trip, or Google SIGN-IN, which asks for the same scope
+  (`GOOGLE_SIGN_IN_PARAMS`, no forced consent) so a Google member's picker
+  works straight away.
 - **Aircraft** — tail number, model, `hourlyRateCents`, `fuelCapacityGal`,
   `homeBase`, plus `lastTach`/`lastHobbs` advanced by each filed flight.
   Everything else is keyed by aircraft, so a second airplane is a row.
@@ -253,7 +257,12 @@ DOM. Money is added through ONE dashed "+" panel →
 `components/finances/AddMoneyModal.tsx`: a member gets only "Claim a
 reimbursement"; an officer gets Reimburse / Charge members / Club funds /
 Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
-`profile` ·
+`profile` (AUTOSAVES — no Save button: `lib/autosave.ts` queues edits into one
+PATCH a moment after typing stops, one request in flight at a time, and the
+`AutosaveStatus` line says "Saved" only once nothing is pending; the form is
+seeded from `me` ONCE, since re-seeding from each save's reply would overwrite
+what's being typed. A blank name, non-number total time or half-typed invite
+address is held back client-side, not sent) ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
 its Google Calendar link, then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the

@@ -9,7 +9,12 @@ import {
   staleInviteAddresses,
 } from "@/lib/calendarInvites";
 import { bookingAttendees } from "@/lib/calendarEvents";
-import { LIST_SCOPE, consentUrl } from "@/lib/googleCalendar";
+import {
+  GOOGLE_SIGN_IN_PARAMS,
+  LIST_SCOPE,
+  consentUrl,
+  grantsListScope,
+} from "@/lib/googleCalendar";
 
 const FLYING = "abc123@group.calendar.google.com";
 const member = (over: Partial<Parameters<typeof inviteAddress>[0] & object> = {}) => ({
@@ -148,5 +153,22 @@ describe("the member's picker consent", () => {
     expect(scopes.some((s) => s.includes("calendar.events"))).toBe(false);
     // The same registered redirect as the club's connection.
     expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:3001/api/calendar/callback");
+  });
+});
+
+describe("Google sign-in", () => {
+  it("asks for the calendar list too, so the picker works without a second trip", () => {
+    const scopes = GOOGLE_SIGN_IN_PARAMS.scope.split(" ");
+    expect(scopes).toEqual(expect.arrayContaining(["openid", "email", "profile", LIST_SCOPE]));
+    expect(scopes.some((s) => s.includes("calendar.events"))).toBe(false);
+    expect(GOOGLE_SIGN_IN_PARAMS.access_type).toBe("offline");
+    // No forced consent screen on every sign-in.
+    expect(GOOGLE_SIGN_IN_PARAMS).not.toHaveProperty("prompt");
+  });
+
+  it("keeps the token only when the member left the calendar box ticked", () => {
+    expect(grantsListScope(`openid email ${LIST_SCOPE}`)).toBe(true);
+    expect(grantsListScope("openid email profile")).toBe(false);
+    expect(grantsListScope(undefined)).toBe(false);
   });
 });

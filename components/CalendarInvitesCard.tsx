@@ -4,8 +4,8 @@
 // The same two answers TapWorship's profile asks, for the same reasons — see
 // lib/calendarInvites.ts.
 //
-// CONTROLLED: the page owns the two values and saves them with its one Save
-// button, like every other field on it. What this card owns is the picker's
+// CONTROLLED: the page owns the two values and saves them as they change,
+// like every other field on it (the profile autosaves). What this card owns is the picker's
 // own state — the member's calendar list, read from Google with their own
 // permission (GET /api/calendar/mine), and whether the address box is open.
 import { useEffect, useState } from "react";
@@ -30,6 +30,8 @@ export default function CalendarInvitesCard({
   onInvitesChange,
   inviteEmail,
   onInviteEmailChange,
+  onInviteEmailBlur,
+  inviteError,
 }: {
   accountEmail: string;
   googleConfigured: boolean;
@@ -37,7 +39,11 @@ export default function CalendarInvitesCard({
   onInvitesChange: (next: boolean) => void;
   /** The address box's text; "" = the account email. */
   inviteEmail: string;
-  onInviteEmailChange: (next: string) => void;
+  /** `typed`: from the address box (still being typed) rather than the list. */
+  onInviteEmailChange: (next: string, typed: boolean) => void;
+  onInviteEmailBlur: () => void;
+  /** Why the typed address can't be used yet, once the box is left. */
+  inviteError: string | null;
 }) {
   // null until asked; [] = asked, and they have none to offer.
   const [calendars, setCalendars] = useState<PickerCalendar[] | null>(null);
@@ -101,7 +107,7 @@ export default function CalendarInvitesCard({
       return;
     }
     setOther(false);
-    onInviteEmailChange(value);
+    onInviteEmailChange(value, false);
   }
 
   const options = inviteOptions(calendars ?? [], accountEmail, inviteEmail || null);
@@ -166,7 +172,9 @@ export default function CalendarInvitesCard({
               inputMode="email"
               autoComplete="off"
               value={inviteEmail}
-              onChange={(e) => onInviteEmailChange(e.target.value)}
+              onChange={(e) => onInviteEmailChange(e.target.value, true)}
+              onBlur={onInviteEmailBlur}
+              error={inviteError}
               placeholder={accountEmail}
             />
           )}

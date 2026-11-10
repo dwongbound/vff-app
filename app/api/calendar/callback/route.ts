@@ -19,8 +19,8 @@ import {
   exchangeCode,
   revokeToken,
 } from "@/lib/googleCalendar";
-import { clubRefreshToken, tokenSecret } from "@/lib/googleCalendarSync";
-import { openBox, sealBox } from "@/lib/secretBox";
+import { clubRefreshToken, storeMemberListToken, tokenSecret } from "@/lib/googleCalendarSync";
+import { sealBox } from "@/lib/secretBox";
 
 /** The state cookie's value off a request, if any. */
 function stateCookie(req: Request): string | undefined {
@@ -59,17 +59,7 @@ async function memberCallback(req: Request, url: URL): Promise<NextResponse> {
     // Most often the member unticked the calendar box on the consent screen.
     return done("denied");
   }
-  const previous = await prisma.user.findUnique({
-    where: { id: me.id },
-    select: { googleListTokenEnc: true },
-  });
-  await prisma.user.update({
-    where: { id: me.id },
-    data: { googleListTokenEnc: sealBox(granted.refreshToken, tokenSecret()) },
-  });
-  // A second trip replaces the first; let go of the old token at Google too.
-  const old = previous?.googleListTokenEnc ? openBox(previous.googleListTokenEnc, tokenSecret()) : null;
-  if (old && old !== granted.refreshToken) await revokeToken(old);
+  await storeMemberListToken(me.id, granted.refreshToken);
   return done("connected");
 }
 
