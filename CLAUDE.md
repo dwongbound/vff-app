@@ -55,6 +55,19 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   what gates booking and the Finances tab (`reservation:book` /
   `finance:read-own` in `lib/positions.ts`). Admin-only, from the same Members
   tab; defaults true, which is what every pre-instructor account was.
+  `calendarInvites` (default true) / `calendarInviteEmail` (null = `email`)
+  are the member's own answers on /profile's Calendar invites card, mirroring
+  TapWorship: off drops them from bookings' GUEST LISTS only; the address is
+  the only choice of calendar (Google files an invite by the address it was
+  sent to; a secondary calendar's id IS one). `lib/calendarInvites.ts`
+  `inviteAddress` is the one reading, and `staleInviteAddresses` is what a
+  PATCH drops, so a change lands on each booking the next time it's written
+  (no re-sync of existing bookings). `googleListTokenEnc` is the member's OWN
+  sealed `calendar.calendarlist.readonly` token for the picker — never events.
+  It arrives two ways, both through `storeMemberListToken`: the picker's own
+  consent trip, or Google SIGN-IN, which asks for the same scope
+  (`GOOGLE_SIGN_IN_PARAMS`, no forced consent) so a Google member's picker
+  works straight away.
 - **Aircraft** — tail number, model, `hourlyRateCents`, `fuelCapacityGal`,
   `homeBase`, plus `lastTach`/`lastHobbs` advanced by each filed flight.
   Everything else is keyed by aircraft, so a second airplane is a row.
@@ -244,7 +257,12 @@ DOM. Money is added through ONE dashed "+" panel →
 `components/finances/AddMoneyModal.tsx`: a member gets only "Claim a
 reimbursement"; an officer gets Reimburse / Charge members / Club funds /
 Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
-`profile` ·
+`profile` (AUTOSAVES — no Save button: `lib/autosave.ts` queues edits into one
+PATCH a moment after typing stops, one request in flight at a time, and the
+`AutosaveStatus` line says "Saved" only once nothing is pending; the form is
+seeded from `me` ONCE, since re-seeding from each save's reply would overwrite
+what's being typed. A blank name, non-number total time or half-typed invite
+address is held back client-side, not sent) ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
 its Google Calendar link, then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
@@ -458,6 +476,12 @@ owns the only splash in the app.
   HAVE, not the one it had. For a Google-linked airplane GET syncs first
   (throttled), and POST/PATCH force a sync before the conflict check and write
   to Google BEFORE the row — a Google refusal is a 502 and nothing changed.
+- `calendar/mine` (GET, any member) — the member's OWN calendars for the
+  /profile invite picker: `{calendars}` or `{needsConsent}`; `?connect=1` is
+  the consent trip, asking `calendar.calendarlist.readonly` alone. It returns
+  through the club's `calendar/callback` (one registered redirect URI), told
+  apart by the state's `me.` prefix (`MEMBER_STATE_PREFIX`), and lands on
+  `/profile?calendarPicker=connected|denied|error`.
 - `calendar` (GET status + the connected account's writable calendars, DELETE
   disconnect — both admin). The calendar LIST, and PUT-ing a calendar from it,
   belong to the admin who CONNECTED the account alone (`canPick`): it's their
@@ -1054,7 +1078,7 @@ it at every state, the minimums and the reasoning are behind the disclosure / `R
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
 ConfirmModal DateTimeField Dropdown InfoTip Input Modal MoneyInput RichText
-Select Textarea Toggle LoadingDots LoadingScreen`. `Badge` takes an optional
+Select SwitchRow Textarea Toggle LoadingDots LoadingScreen`. `Badge` takes an optional
 `className` for LAYOUT only (the type chip's truncation). `MoneyInput` is a dollar
 box: a fixed "$", digits and one decimal point only, and the cents filled in
 on blur ("590" → "590.00") — its value is the box's string, parsed with
@@ -1065,9 +1089,9 @@ stakes; refusals show inside it. `Button` has a `success` (green) variant for
 "settled/confirmed" actions. `Toggle` is a switch with a label on EACH side
 ("My card ( o) Club card") — for a binary choice where both sides deserve a
 name, which a checkbox can't do (it has a label and an unlabelled opposite) and
-a radio pair needs four lines and a legend for. The post-flight page keeps its
-own `SwitchRow` for the other shape: one switch, one label, an on/off assertion
-whose opposite doesn't want a word. Prefer extending these. `RichText` is two exports:
+a radio pair needs four lines and a legend for. `SwitchRow` is the other shape
+(the post-flight page's, shared now that /profile's invites switch uses it):
+one switch, one label, an on/off assertion whose opposite doesn't want a word. Prefer extending these. `RichText` is two exports:
 `RichTextEditor` (a formatting toolbar over a plain textarea — deliberately not
 a contenteditable, see the file) and `RichTextView` (the renderer, and the ONLY
 sanctioned `dangerouslySetInnerHTML` in the app). Its `applyTool` is exported

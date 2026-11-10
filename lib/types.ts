@@ -349,6 +349,19 @@ export interface ApiMe {
   flightReviewOn: string | null;
   /** When they finished or skipped the guided tour; null = never shown. */
   tourSeenAt: string | null;
+  /** Invited to their bookings' calendar events (lib/calendarInvites.ts). */
+  calendarInvites: boolean;
+  /** Where those invites go; null = `email`. */
+  calendarInviteEmail: string | null;
+  /** Whether this server can talk to Google at all — gates the picker button. */
+  googleConfigured: boolean;
+}
+
+/** GET /api/calendar/mine — the member's own calendars, for the invite picker. */
+export interface ApiMyCalendars {
+  configured: boolean;
+  needsConsent?: boolean;
+  calendars?: { id: string; name: string; primary: boolean }[];
 }
 
 /**

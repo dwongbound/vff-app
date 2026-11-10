@@ -22,7 +22,8 @@
 //
 // An airplane with no calendar linked behaves exactly as before any of this.
 import { prisma } from "./prisma";
-import { openBox } from "./secretBox";
+import { openBox, sealBox } from "./secretBox";
+import { inviteAddress, staleInviteAddresses, type InvitePrefs } from "./calendarInvites";
 import {
   appEventProps,
   appEventTitle,
@@ -40,6 +41,7 @@ import {
   insertEvent,
   listEventsPage,
   patchEvent,
+  revokeToken,
 } from "./googleCalendar";
 import type { Purpose } from "./constants";
 
@@ -56,6 +58,27 @@ export interface CalendarLink {
 /** The secret the refresh token is sealed under (lib/secretBox.ts). */
 export function tokenSecret(): string {
   return process.env.NEXTAUTH_SECRET ?? "";
+}
+
+/**
+ * Keep a member's OWN calendar-list token (the /profile picker's), sealed.
+ * Two ways in: the picker's consent trip (calendar/callback) and Google
+ * sign-in (lib/auth.ts). A new token replaces the old one, which is let go at
+ * Google too rather than left as a live credential nobody uses.
+ */
+export async function storeMemberListToken(userId: string, refreshToken: string): Promise<void> {
+  const previous = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { googleListTokenEnc: true },
+  });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { googleListTokenEnc: sealBox(refreshToken, tokenSecret()) },
+  });
+  const old = previous?.googleListTokenEnc
+    ? openBox(previous.googleListTokenEnc, tokenSecret())
+    : null;
+  if (old && old !== refreshToken) await revokeToken(old);
 }
 
 /** The club's refresh token, or a GoogleError saying why there isn't one. */
@@ -153,11 +176,22 @@ async function nameOf(userId: string | null): Promise<string | null> {
   return user?.name ?? null;
 }
 
-/** A member's email — what Google invites them by. */
-async function emailOf(userId: string | null): Promise<string | null> {
+/**
+ * A member's invite preferences (lib/calendarInvites.ts): their email, whether
+ * they want invites at all, and the calendar address they asked for them to go
+ * to. Every guest list below is built from `inviteAddress` over these.
+ */
+async function invitePrefsOf(userId: string | null): Promise<InvitePrefs | null> {
   if (!userId) return null;
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-  return user?.email ?? null;
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, calendarInvites: true, calendarInviteEmail: true },
+  });
+}
+
+/** Every address the app may have invited a member at — for uninviting them. */
+function everyAddressOf(user: InvitePrefs | null): (string | null)[] {
+  return user ? [user.email, user.calendarInviteEmail] : [];
 }
 
 export type SyncResult = { ok: true } | { ok: false; error: string };
@@ -267,9 +301,11 @@ export async function insertCalendarBooking(
   // The member and their CFI are invited, so the booking lands in their own
   // calendars. The club account stays the organiser, which is what lets any
   // member book without needing access to the airplane's calendar themselves.
+  // Each is invited at the address THEY chose, or not at all if they opted out
+  // (`inviteAddress`).
   const attendees = bookingAttendees(
     [],
-    [await emailOf(b.userId), await emailOf(b.instructorId)]
+    [inviteAddress(await invitePrefsOf(b.userId)), inviteAddress(await invitePrefsOf(b.instructorId))]
   );
   return insertEvent<GoogleEvent>(
     link.refreshToken,
@@ -322,10 +358,20 @@ export async function patchCalendarBooking(
   // before the app sent invites, the first time it's edited.
   const current = await getEvent<GoogleEvent>(link.refreshToken, link.calendarId, googleEventId);
   const previous = b.previousInstructorId !== b.instructorId ? b.previousInstructorId : null;
+  const [member, cfi, oldCfi] = await Promise.all([
+    invitePrefsOf(b.userId),
+    invitePrefsOf(b.instructorId),
+    invitePrefsOf(previous),
+  ]);
+  // Dropped: the CFI the lesson USED to be with, at any address we know for
+  // them, and the member's and CFI's own addresses they no longer want invites
+  // at — switched off, or pointed at another calendar since the event was
+  // written. So a change of preference lands on each booking the next time it
+  // is edited.
   const attendees = bookingAttendees(
     current.attendees,
-    [await emailOf(b.userId), await emailOf(b.instructorId)],
-    [await emailOf(previous)]
+    [inviteAddress(member), inviteAddress(cfi)],
+    [...everyAddressOf(oldCfi), ...staleInviteAddresses(member), ...staleInviteAddresses(cfi)]
   );
   // Guests hear about the changes that matter to them — a new time, or being
   // added or taken off — and not about a reworded note.

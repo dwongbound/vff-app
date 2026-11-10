@@ -365,16 +365,16 @@ export async function expectFormsFitTouchScreen(page: Page) {
   };
   const main = page.getByRole("main");
 
-  for (const [path, ready] of [
-    ["/quick-log", "File"],
-    ["/profile", "Save"],
-  ] as const) {
-    await page.goto(path);
-    await expect(main.getByRole("button", { name: ready, exact: true }).first()).toBeVisible({
-      timeout: 60_000,
-    });
-    await check(path);
-  }
+  await page.goto("/quick-log");
+  await expect(main.getByRole("button", { name: "File", exact: true }).first()).toBeVisible({
+    timeout: 60_000,
+  });
+  await check("/quick-log");
+
+  // The profile saves itself, so its status line (not a button) says it's up.
+  await page.goto("/profile");
+  await expect(main.getByTestId("autosave-status")).toBeVisible({ timeout: 60_000 });
+  await check("/profile");
 
   await page.goto("/tools/weight-balance");
   await expect(main.locator("input").first()).toBeVisible({ timeout: 60_000 });
