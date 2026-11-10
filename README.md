@@ -304,7 +304,8 @@ calendar.
 2. **In the app**, as an admin: avatar menu → **Club settings → Google
    Calendar → Connect Google**, and sign in with a Google account that can
    **edit** the airplane's calendar. Only the admin sees this consent screen;
-   members sign in exactly as before.
+   members sign in exactly as before (the only Google screen a member ever
+   sees is the optional one under *Calendar invites* below).
 3. Pick each airplane's calendar from the list. The first sync copies the
    whole calendar in; after that, only changes are fetched.
 
@@ -312,6 +313,31 @@ Sync errors are shown under the airplane in Club settings, with a **Sync now**
 button. If the connecting account loses access to the calendar, or someone
 revokes the app in their Google account, Club settings shows the error and
 an admin reconnects.
+
+### Calendar invites (each member's own setting)
+
+Every booking the app writes to Google invites the member who booked it and,
+for a lesson, their CFI. On **Profile → Calendar invites** each member can:
+
+- **Switch invites off.** They're taken off the guest list only; the booking
+  still shows on the airplane's calendar and in the app. On by default.
+- **Choose which calendar they land on.** Google puts an invite on the default
+  calendar of the address it was sent to, and a guest can't move an invited
+  event, so the choice is an address. "Choose from my calendars" lists the
+  member's own Google calendars (a secondary calendar's id is its address);
+  the address box underneath covers anything the list can't offer. Blank =
+  the account email.
+
+A change applies to each booking **the next time that booking is written**
+(made, moved, or edited), which is also when the member is taken off the old
+address. Bookings already on a calendar stay where they are until then.
+
+The list is read with the MEMBER's own permission, asked once on Google's
+consent screen. It requests `calendar.calendarlist.readonly` only (calendar
+names, never events), which Google does not class as sensitive, so members
+see no "unverified app" warning and it needs no verification. It comes back
+through the same `/api/calendar/callback` redirect, so there's nothing new to
+add in Google Cloud.
 
 ## Gotchas
 

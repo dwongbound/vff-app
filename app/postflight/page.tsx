@@ -66,6 +66,7 @@ import type {
   ApiReservation,
 } from "@/lib/types";
 import { FlightTypeSelect } from "@/components/FlightType";
+import SwitchRow from "@/components/common/SwitchRow";
 import { isPurpose, type Purpose } from "@/lib/constants";
 
 /**
@@ -1178,47 +1179,5 @@ export default function PostflightPage() {
         onAdd={(draft) => setSquawkDrafts((rows) => [...rows, draft])}
       />
     </div>
-  );
-}
-
-// Big switch-style checkbox — the two put-away questions are answered with a
-// thumb, not a pointer.
-/**
- * A bordered row with a switch and ONE label — an on/off assertion about this
- * flight ("flown with an instructor").
- *
- * Deliberately not `common/Toggle`, which names BOTH sides and is for a choice
- * between two things. Here there is no second thing to name: the opposite of
- * "flown with an instructor" is the ordinary case and doesn't want a word.
- */
-function SwitchRow({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      aria-pressed={checked}
-      className="flex w-full items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-left text-sm transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
-    >
-      <span
-        className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${
-          checked ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"
-        }`}
-      >
-        <span
-          className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? "translate-x-5" : ""
-          }`}
-        />
-      </span>
-      <span className={checked ? "" : "text-gray-500 dark:text-gray-400"}>{label}</span>
-    </button>
   );
 }

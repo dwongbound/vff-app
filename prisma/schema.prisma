@@ -196,6 +196,27 @@ model User {
   // flight log. Null = treated as the lower-experience column.
   totalTimeHours Float?
 
+  // Whether this member is invited to their bookings' events on the airplane's
+  // Google Calendar (lib/googleCalendarSync.ts) — the booking they made, and
+  // a lesson they're the CFI on. Opt-out only, on by default, which is what
+  // the app did before the switch existed. Off takes them off the GUEST LIST
+  // only: the booking is theirs, it's on the airplane's calendar and in the
+  // app exactly as before.
+  calendarInvites Boolean @default(true)
+  // Where those invites are sent, when the account email isn't the right
+  // place. Google puts an invite on the default calendar of whatever address
+  // it was sent to, and a guest can't move an invited event afterwards — but a
+  // secondary Google calendar has an address of its own (its id), so pointing
+  // this at one puts the bookings on that calendar, where it can be coloured
+  // and hidden like any other. Null = `email`. `inviteAddress` in
+  // lib/calendarInvites.ts is the one reading of the pair.
+  calendarInviteEmail String?
+  // The member's OWN Google permission to list their calendars, for the
+  // /profile picker — a refresh token SEALED with lib/secretBox.ts, like the
+  // club's. Scope is `calendar.calendarlist.readonly` alone: names and ids,
+  // never an event. Null = never asked, or Google stopped honouring it.
+  googleListTokenEnc String?
+
   reservations    Reservation[]
   flights         Flight[]
   checkouts       Checkout[]

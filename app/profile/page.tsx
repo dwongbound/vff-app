@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
+import CalendarInvitesCard from "@/components/CalendarInvitesCard";
 import Card from "@/components/common/Card";
 import DateTimeField from "@/components/common/DateTimeField";
 import Input from "@/components/common/Input";
@@ -25,6 +26,9 @@ export default function ProfilePage() {
   const [totalTime, setTotalTime] = useState("");
   const [medical, setMedical] = useState("");
   const [review, setReview] = useState("");
+  // Calendar invites: the switch, and where they go ("" = account email).
+  const [calendarInvites, setCalendarInvites] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -40,6 +44,8 @@ export default function ProfilePage() {
     setTotalTime(me.totalTimeHours == null ? "" : String(me.totalTimeHours));
     setMedical(me.medicalExpiresOn ? toDateInputValue(new Date(me.medicalExpiresOn)) : "");
     setReview(me.flightReviewOn ? toDateInputValue(new Date(me.flightReviewOn)) : "");
+    setCalendarInvites(me.calendarInvites);
+    setInviteEmail(me.calendarInviteEmail ?? "");
   }, [me]);
 
   async function save() {
@@ -53,6 +59,8 @@ export default function ProfilePage() {
       totalTimeHours: totalTime === "" ? null : Number(totalTime),
       medicalExpiresOn: medical || null,
       flightReviewOn: review || null,
+      calendarInvites,
+      calendarInviteEmail: inviteEmail.trim() || null,
     });
     setBusy(false);
     if (!result.ok || !result.data) {
@@ -163,6 +171,15 @@ export default function ProfilePage() {
           )}
         </div>
       </Card>
+
+      <CalendarInvitesCard
+        accountEmail={me.email ?? ""}
+        googleConfigured={me.googleConfigured}
+        invites={calendarInvites}
+        onInvitesChange={setCalendarInvites}
+        inviteEmail={inviteEmail}
+        onInviteEmailChange={setInviteEmail}
+      />
 
       <div className="space-y-2 pb-2">
         {error && (

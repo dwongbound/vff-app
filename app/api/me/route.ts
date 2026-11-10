@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { capabilitiesFor, type Position } from "@/lib/positions";
 import { prisma } from "@/lib/prisma";
+import { parseInviteEmail } from "@/lib/calendarInvites";
+import { googleConfigured } from "@/lib/googleCalendar";
 import type { ApiMe } from "@/lib/types";
 
 function toApi(u: {
@@ -20,6 +22,8 @@ function toApi(u: {
   medicalExpiresOn: Date | null;
   flightReviewOn: Date | null;
   tourSeenAt: Date | null;
+  calendarInvites: boolean;
+  calendarInviteEmail: string | null;
 }): ApiMe {
   const positions = u.positions as Position[];
   return {
@@ -46,6 +50,9 @@ function toApi(u: {
     medicalExpiresOn: u.medicalExpiresOn?.toISOString() ?? null,
     flightReviewOn: u.flightReviewOn?.toISOString() ?? null,
     tourSeenAt: u.tourSeenAt?.toISOString() ?? null,
+    calendarInvites: u.calendarInvites,
+    calendarInviteEmail: u.calendarInviteEmail,
+    googleConfigured: googleConfigured(),
   };
 }
 
@@ -62,6 +69,8 @@ const SELECT = {
   medicalExpiresOn: true,
   flightReviewOn: true,
   tourSeenAt: true,
+  calendarInvites: true,
+  calendarInviteEmail: true,
 } as const;
 
 export async function GET() {
@@ -109,6 +118,25 @@ export async function PATCH(req: Request) {
   // clears it, which is what "show me the tour again" does.
   if ("tourSeen" in body) {
     data.tourSeenAt = body.tourSeen ? new Date() : null;
+  }
+
+  // Calendar invites: the switch, and where they go. Both apply from the next
+  // time each booking's event is written — see googleCalendarSync.ts, which
+  // also takes the member off the old address then.
+  if ("calendarInvites" in body) {
+    if (typeof body.calendarInvites !== "boolean") {
+      return NextResponse.json({ error: "Invalid calendar invite setting." }, { status: 400 });
+    }
+    data.calendarInvites = body.calendarInvites;
+  }
+  if ("calendarInviteEmail" in body) {
+    const account = await prisma.user.findUnique({
+      where: { id: session.id },
+      select: { email: true },
+    });
+    const parsed = parseInviteEmail(body.calendarInviteEmail, account?.email ?? null);
+    if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    data.calendarInviteEmail = parsed.value;
   }
 
   // Date-only fields arrive as "YYYY-MM-DD" from <input type="date">.
