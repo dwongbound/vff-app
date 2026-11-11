@@ -143,6 +143,11 @@
        its own `overflow-x-auto` box. */
     overflow-x: hidden;
     overscroll-behavior: contain;
+    /* An open overlay freezes this box with `overflow: hidden`
+       (lib/scrollLock.ts). With a classic scrollbar (Windows, or "always show
+       scroll bars" on a Mac) that takes the bar away and the whole page jumps
+       sideways by its width; reserving the gutter keeps it still. */
+    scrollbar-gutter: stable;
   }
 
   /* Meter readings, tail numbers, and tach times are compared column-to-column

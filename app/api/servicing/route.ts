@@ -12,7 +12,6 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { syncServicingCharges } from "@/lib/ledger";
 import { serializeServicing } from "@/lib/serialize";
-import { fuelFrom } from "@/lib/flights";
 
 const INCLUDE = {
   aircraft: { select: { id: true, tailNumber: true } },
@@ -24,6 +23,15 @@ function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Dollars on the receipt, cents in the column — the same deal /api/flights makes. */
+function fuelCostCents(body: Record<string, unknown>): number | null {
+  const cents = num(body.fuelCostCents);
+  if (cents != null) return Math.round(cents);
+  const dollars = num(body.fuelCostDollars);
+  if (dollars != null) return Math.round(dollars * 100);
+  return null;
 }
 
 export async function GET(req: Request) {
@@ -66,9 +74,7 @@ export async function POST(req: Request) {
 
   const fuelAddedGal = num(body.fuelAddedGal);
   const oilAddedQts = num(body.oilAddedQts);
-  // Price per gallon in, total out — the same deal /api/flights makes.
-  const fuel = fuelFrom(body, fuelAddedGal);
-  const cost = fuel.fuelCostCents;
+  const cost = fuelCostCents(body);
 
   // A row that records nothing is worse than no row: it appears in the
   // servicing list saying an event happened and refuses to say what.
@@ -78,20 +84,9 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  // `fuelPriceCentsFrom` drops a negative price, so a price that was SENT but
-  // didn't survive is the same typo as a negative gallon count.
-  const sentPrice = num(body.fuelPricePerGalDollars) ?? num(body.fuelPricePerGalCents);
-  const priceRefused = sentPrice != null && fuel.fuelPricePerGalCents == null;
-  if ((fuelAddedGal ?? 0) < 0 || (oilAddedQts ?? 0) < 0 || (cost ?? 0) < 0 || priceRefused) {
+  if ((fuelAddedGal ?? 0) < 0 || (oilAddedQts ?? 0) < 0 || (cost ?? 0) < 0) {
     return NextResponse.json(
       { error: "Fuel, oil and cost can't be negative." },
-      { status: 400 }
-    );
-  }
-  // A price with no gallons multiplies to nothing, and nothing is credited.
-  if (fuel.fuelPricePerGalCents != null && fuelAddedGal == null) {
-    return NextResponse.json(
-      { error: "Enter the gallons too, so the total can be worked out." },
       { status: 400 }
     );
   }
@@ -107,7 +102,7 @@ export async function POST(req: Request) {
       userId: user.id,
       servicedAt,
       fuelAddedGal,
-      ...fuel,
+      fuelCostCents: cost,
       oilAddedQts,
       // Absent means the member's own card — the default that can't quietly
       // swallow money somebody is owed. Only an explicit `false` says the club

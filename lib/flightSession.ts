@@ -58,38 +58,6 @@ export function isOpenSession(flight: SessionLike): boolean {
 }
 
 /**
- * Pages where the "finish your flight" banner would be noise rather than news:
- * the cards themselves (preflight → runway is the flight STARTING, and asking
- * "are you finished?" there is the wrong question) and the two forms that
- * finish it, which already say so in their own line above the form.
- */
-export const FINISH_NUDGE_HIDDEN_ON = ["/preflight", "/runway", "/postflight", "/quick-log"];
-
-/**
- * The open session the app should remind its pilot to finish, if any.
- *
- * Same 24-hour window as `findOpenSession`, and for the same reason: the
- * post-flight form can only close out a session the server will still join,
- * so nudging toward an older one would send the member to a form that files a
- * NEW entry beside it. An older open entry stays where it is in the log, marked
- * unfinished, for closing out or deleting by hand. Timed off the walk's own
- * clock (`startedAt`), falling back to the day it was opened.
- */
-export function flightToFinish<
-  F extends { filedAt: string | null; startedAt: string | null; flownOn: string },
->(openFlights: F[], pathname: string, now: Date = new Date()): F | null {
-  if (FINISH_NUDGE_HIDDEN_ON.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    return null;
-  }
-  const since = now.getTime() - SESSION_WINDOW_HOURS * 3_600_000;
-  return (
-    openFlights.find(
-      (f) => isOpenSession(f) && new Date(f.startedAt ?? f.flownOn).getTime() >= since
-    ) ?? null
-  );
-}
-
-/**
  * A FILED entry with a meter reading missing — a record with a gap in it.
  *
  * Deliberately a different question from `isOpenSession`, and the difference
@@ -213,6 +181,24 @@ export function endFromTurnoff(values: Values, day: string): SessionEnd {
 }
 
 /**
+ * Should the post-flight form's meter END box take the shutdown card's reading?
+ *
+ * Yes while the member hasn't typed in the box, and ALSO whenever the box is
+ * empty: "edited" protects a correction, and an empty box holds none. Without
+ * the second half, a box typed in and cleared (or restored empty from a draft)
+ * stayed blank under a card that had the reading.
+ */
+export function endFollowsCard(
+  recorded: number | string | undefined,
+  box: string,
+  edited: boolean
+): recorded is number {
+  if (typeof recorded !== "number") return false;
+  if (box === String(recorded)) return false;
+  return !edited || box === "";
+}
+
+/**
  * The out/in times of one entry, with an overnight leg handled.
  *
  * A flight that departs at 22:00 and shuts down at 00:30 has both clock
@@ -323,4 +309,35 @@ export function sortFlightLog<
       return (ordered || b.index - a.index) * sign;
     })
     .map(({ flight }) => flight);
+}
+
+// ── Picking up an unfinished flight ─────────────────────────────────────────
+//
+// The app-wide "you have the airplane out" banner. A session opens when the
+// preflight is signed off (or the runway card, when the preflight was
+// skipped), so what's left is the runway card and then the post-flight form —
+// and which is next is read off the cards the session already has, never
+// guessed from the clock.
+
+export interface ResumePoint {
+  href: "/runway" | "/postflight";
+  /** What tapping the banner takes you to, in a few words. */
+  next: string;
+}
+
+export function resumePoint(cards: readonly string[]): ResumePoint {
+  return cards.includes("RUNWAY")
+    ? { href: "/postflight", next: "finish and file it" }
+    : { href: "/runway", next: "runway card" };
+}
+
+/**
+ * Pages that are themselves the way to finish a flight, so the banner pointing
+ * at them stays off. Quick Log is one: it closes out the open session rather
+ * than starting another (see the quick-log page).
+ */
+const RESUME_PAGES = ["/runway", "/postflight", "/quick-log", "/login"];
+
+export function showsResumeBanner(pathname: string): boolean {
+  return !RESUME_PAGES.includes(pathname);
 }

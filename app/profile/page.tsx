@@ -1,23 +1,39 @@
 "use client";
 // Member profile: how to reach you, and the paperwork the club needs to know
 // is current. Nothing here is enforced — the app reminds, the pilot decides.
-import { useEffect, useState } from "react";
+// Every field saves itself as it changes; there is no Save button.
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import AccessKeysCard from "@/components/AccessKeysCard";
 import Badge from "@/components/common/Badge";
-import Button from "@/components/common/Button";
+import AutosaveStatus from "@/components/AutosaveStatus";
+import CalendarInvitesCard from "@/components/CalendarInvitesCard";
 import Card from "@/components/common/Card";
 import DateTimeField from "@/components/common/DateTimeField";
 import Input from "@/components/common/Input";
-import LoadingDots from "@/components/common/LoadingDots";
 import { useMe } from "@/components/MeProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
+import { useAutosave } from "@/components/useAutosave";
 import { sendJson } from "@/lib/api";
+import { parseInviteEmail } from "@/lib/calendarInvites";
 import { FLIGHT_REVIEW_MONTHS } from "@/lib/constants";
 import { calendarMonthsFrom, formatFullDate, toDateInputValue } from "@/lib/dates";
 import type { ApiMe } from "@/lib/types";
 
+/** What /api/me PATCH takes from this page — any subset of it. */
+interface ProfilePatch {
+  name: string;
+  phone: string | null;
+  certificate: string | null;
+  totalTimeHours: number | null;
+  medicalExpiresOn: string | null;
+  flightReviewOn: string | null;
+  calendarInvites: boolean;
+  calendarInviteEmail: string | null;
+}
+
 export default function ProfilePage() {
-  const { me, setMe, refreshMe } = useMe();
+  const { me, setMe } = useMe();
   const { update: updateSession } = useSession();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -25,46 +41,98 @@ export default function ProfilePage() {
   const [totalTime, setTotalTime] = useState("");
   const [medical, setMedical] = useState("");
   const [review, setReview] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  // Calendar invites: the switch, and where they go ("" = account email).
+  const [calendarInvites, setCalendarInvites] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState("");
+  // Field problems the page catches itself, so a half-typed value is never
+  // sent: a blank name, a total time that isn't hours, a half-typed address.
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [totalTimeError, setTotalTimeError] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  // The form is seeded from `me` ONCE. Every save hands back a fresh `me`, and
+  // re-seeding from it would overwrite whatever was typed while it was in flight.
+  const seeded = useRef(false);
 
   usePageLoading(me === null);
 
-  // Seed the form from the shared profile once it lands.
   useEffect(() => {
-    if (!me) return;
+    if (!me || seeded.current) return;
+    seeded.current = true;
     setName(me.name);
     setPhone(me.phone ?? "");
     setCertificate(me.certificate ?? "");
     setTotalTime(me.totalTimeHours == null ? "" : String(me.totalTimeHours));
     setMedical(me.medicalExpiresOn ? toDateInputValue(new Date(me.medicalExpiresOn)) : "");
     setReview(me.flightReviewOn ? toDateInputValue(new Date(me.flightReviewOn)) : "");
+    setCalendarInvites(me.calendarInvites);
+    setInviteEmail(me.calendarInviteEmail ?? "");
   }, [me]);
 
-  async function save() {
-    setError(null);
-    setSaved(false);
-    setBusy(true);
-    const result = await sendJson<ApiMe>("/api/me", "PATCH", {
-      name: name.trim(),
-      phone: phone.trim() || null,
-      certificate: certificate.trim() || null,
-      totalTimeHours: totalTime === "" ? null : Number(totalTime),
-      medicalExpiresOn: medical || null,
-      flightReviewOn: review || null,
-    });
-    setBusy(false);
-    if (!result.ok || !result.data) {
-      setError(result.error ?? "Could not save your profile.");
+  // There is no Save button: every field saves itself (lib/autosave.ts).
+  const autosave = useAutosave<ProfilePatch>(
+    async (patch) => {
+      const result = await sendJson<ApiMe>("/api/me", "PATCH", patch);
+      if (!result.ok || !result.data) {
+        return { ok: false, error: result.error ?? "Couldn't save that change." };
+      }
+      setMe(result.data);
+      // Push a new name onto the session so the navbar shows it without a
+      // re-login.
+      if ("name" in patch) await updateSession({ name: result.data.name });
+      return { ok: true };
+    },
+    {
+      // Closing the tab mid-edit: keepalive outlives the page.
+      beacon: (patch) => {
+        void fetch("/api/me", {
+          method: "PATCH",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        }).catch(() => undefined);
+      },
+    }
+  );
+
+  /** Name: never blank, so a cleared box waits rather than saving. */
+  function changeName(value: string) {
+    setName(value);
+    if (!value.trim()) {
+      setNameError("Your name can't be blank.");
       return;
     }
-    setMe(result.data);
-    setSaved(true);
-    // Push the new name onto the session so the navbar updates without a
-    // re-login.
-    await updateSession({ name: result.data.name });
-    await refreshMe();
+    setNameError(null);
+    autosave.queue({ name: value.trim() });
+  }
+
+  /** Total time: blank clears it; anything else has to be hours. */
+  function changeTotalTime(value: string) {
+    setTotalTime(value);
+    const hours = Number(value);
+    if (value !== "" && (!Number.isFinite(hours) || hours < 0)) {
+      setTotalTimeError("Total time has to be a number of hours.");
+      return;
+    }
+    setTotalTimeError(null);
+    autosave.queue({ totalTimeHours: value === "" ? null : hours });
+  }
+
+  /**
+   * The invite address. A pick from the list saves straight away; a typed one
+   * saves once it's an address (or blank, which means the account email) —
+   * until then nothing is sent, and leaving the box says why.
+   */
+  function changeInviteEmail(value: string, typed: boolean) {
+    setInviteEmail(value);
+    const parsed = parseInviteEmail(value, me?.email ?? null);
+    if ("error" in parsed) return;
+    setInviteError(null);
+    autosave.queue({ calendarInviteEmail: parsed.value }, { immediate: !typed });
+  }
+
+  function leaveInviteEmail() {
+    const parsed = parseInviteEmail(inviteEmail, me?.email ?? null);
+    setInviteError("error" in parsed ? parsed.error : null);
   }
 
   if (!me) return null;
@@ -90,16 +158,25 @@ export default function ProfilePage() {
             </>
           )}
         </p>
+        <AutosaveStatus state={autosave.state} />
       </header>
 
       <Card className="space-y-4">
         <h2 className="text-sm font-semibold">Contact</h2>
-        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input
+          label="Name"
+          value={name}
+          onChange={(e) => changeName(e.target.value)}
+          error={nameError}
+        />
         <Input
           label="Phone"
           type="tel"
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          onChange={(e) => {
+            setPhone(e.target.value);
+            autosave.queue({ phone: e.target.value.trim() || null });
+          }}
           hint="Shown to other members on your bookings, so they can reach you about a swap."
         />
       </Card>
@@ -109,7 +186,10 @@ export default function ProfilePage() {
         <Input
           label="Certificate"
           value={certificate}
-          onChange={(e) => setCertificate(e.target.value)}
+          onChange={(e) => {
+            setCertificate(e.target.value);
+            autosave.queue({ certificate: e.target.value.trim() || null });
+          }}
           placeholder="Private Pilot ASEL"
         />
         <Input
@@ -119,14 +199,18 @@ export default function ProfilePage() {
           min="0"
           step="0.1"
           value={totalTime}
-          onChange={(e) => setTotalTime(e.target.value)}
+          onChange={(e) => changeTotalTime(e.target.value)}
+          error={totalTimeError}
           hint="Hours from your own logbook. The club can't see it, and it decides which column of the operating rules applies to you."
         />
         <DateTimeField
           label="Medical expires"
           mode="date"
           value={medical}
-          onChange={setMedical}
+          onChange={(value) => {
+            setMedical(value);
+            autosave.queue({ medicalExpiresOn: value || null }, { immediate: true });
+          }}
           hint={
             medicalDate
               ? medicalDate < now
@@ -141,7 +225,10 @@ export default function ProfilePage() {
           // A review you took in the future isn't a review.
           max={toDateInputValue(new Date())}
           value={review}
-          onChange={setReview}
+          onChange={(value) => {
+            setReview(value);
+            autosave.queue({ flightReviewOn: value || null }, { immediate: true });
+          }}
           hint={
             reviewDueOn
               ? `Current through ${formatFullDate(reviewDueOn)} (${FLIGHT_REVIEW_MONTHS} calendar months).`
@@ -164,21 +251,22 @@ export default function ProfilePage() {
         </div>
       </Card>
 
-      <div className="space-y-2 pb-2">
-        {error && (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
-            {error}
-          </p>
-        )}
-        {saved && (
-          <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300">
-            Saved.
-          </p>
-        )}
-        <Button size="lg" onClick={save} disabled={busy} className="w-full sm:w-auto">
-          {busy ? <LoadingDots size="sm" /> : "Save"}
-        </Button>
-      </div>
+      <CalendarInvitesCard
+        accountEmail={me.email ?? ""}
+        googleConfigured={me.googleConfigured}
+        invites={calendarInvites}
+        onInvitesChange={(next) => {
+          setCalendarInvites(next);
+          autosave.queue({ calendarInvites: next }, { immediate: true });
+        }}
+        inviteEmail={inviteEmail}
+        onInviteEmailChange={changeInviteEmail}
+        onInviteEmailBlur={leaveInviteEmail}
+        inviteError={inviteError}
+      />
+
+      {/* Not part of the form above: keys are made and revoked on the spot. */}
+      <AccessKeysCard />
     </div>
   );
 }

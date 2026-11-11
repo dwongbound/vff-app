@@ -258,9 +258,9 @@ interface SeedFlight {
   /**
    * The turn-off checkout, as answered on the post-flight form.
    *
-   * "all" is the pilot who worked the whole card; "partial" leaves the cabin
-   * clean-out unticked, which is what `derivePutAway` turns into
-   * `cabinClean: false` and what the flight log nags about. Absent means the
+   * "all" is the pilot who worked the whole card; "partial" leaves the
+   * tie-downs unticked, which is what `derivePutAway` turns into
+   * `tiedDown: false` and what the flight log nags about. Absent means the
    * flight was filed without the card being answered at all — the third state,
    * and the one every row in the club's transcribed sheet is in.
    */
@@ -532,8 +532,8 @@ const RECENT_FLIGHTS: (SeedFlight & { daysAgo: number })[] = [
     // post-flight form (Servicing rows are the no-flight case; this is the
     // common one, and until now no seeded flight used the column).
     oilQts: 1,
-    // Tied down and chocked, cabin left for the morning — the state the flight
-    // log's put-away nag exists to show, and an honest one at 10pm.
+    // Chocked, covered and plugged, tie-downs never confirmed — the state the flight
+    // log's put-away nag exists to show.
     turnoff: "partial",
     note: "Night currency — three to a full stop.",
   },
@@ -1079,7 +1079,7 @@ async function main() {
       entry.turnoff === "all"
         ? everyItem("TURNOFF")
         : entry.turnoff === "partial"
-          ? withoutItems(everyItem("TURNOFF"), ["parking.cabin"])
+          ? withoutItems(everyItem("TURNOFF"), ["parking.tiedowns"])
           : null;
 
     const flight = await prisma.flight.create({
@@ -1279,7 +1279,7 @@ async function main() {
   //
   // The turn-off card is NOT here: it lives on the Flight it belongs to, and
   // `fileFlight` writes it from each entry's `turnoff` (see SeedFlight), which
-  // is also how one of the recent flights ends up with `cabinClean: false`.
+  // is also how one of the recent flights ends up with `tiedDown: false`.
   /** The completed runs this seed created, so a squawk can point at one. */
   const seededRuns: { pic: string; kind: string; id: string }[] = [];
   if (existingCheckouts === 0) {

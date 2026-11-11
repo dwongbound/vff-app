@@ -387,7 +387,6 @@ interface FlightRow {
   arrival: string | null;
   route: string | null;
   fuelAddedGal: number | null;
-  fuelPricePerGalCents: number | null;
   fuelCostCents: number | null;
   fuelPaidPersonally: boolean;
   landingFeeCents: number | null;
@@ -436,7 +435,6 @@ function serializeFlightFields(
     arrival: f.arrival,
     route: f.route,
     fuelAddedGal: f.fuelAddedGal,
-    fuelPricePerGalCents: f.fuelPricePerGalCents,
     fuelCostCents: f.fuelCostCents,
     fuelPaidPersonally: f.fuelPaidPersonally,
     landingFeeCents: f.landingFeeCents,
@@ -498,7 +496,6 @@ interface ServicingRow {
   userId: string;
   servicedAt: Date;
   fuelAddedGal: number | null;
-  fuelPricePerGalCents: number | null;
   fuelCostCents: number | null;
   oilAddedQts: number | null;
   paidPersonally: boolean;
@@ -516,7 +513,6 @@ export function serializeServicing(
     user: serializeUser(s.user),
     servicedAt: s.servicedAt.toISOString(),
     fuelAddedGal: s.fuelAddedGal,
-    fuelPricePerGalCents: s.fuelPricePerGalCents,
     fuelCostCents: s.fuelCostCents,
     oilAddedQts: s.oilAddedQts,
     paidPersonally: s.paidPersonally,

@@ -22,13 +22,14 @@
 // written. See lib/flightSession.ts.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { getActingUser } from "@/lib/accessKeyAuth";
 import { prisma } from "@/lib/prisma";
 import { serializeFlight, serializeFlightSummary } from "@/lib/serialize";
 import {
   FLIGHT_DETAIL_INCLUDE,
   FLIGHT_LIST_ORDER,
   FLIGHT_LIST_SELECT,
-  fuelFrom,
+  fuelCostCentsFrom,
   landingFeeCentsFrom,
 } from "@/lib/flights";
 import { validateMeters } from "@/lib/hours";
@@ -187,7 +188,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const user = await getSessionUser();
+  // A session, or a key made "can book and file" (lib/accessKeyAuth.ts).
+  const user = await getActingUser(req);
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const body = await req.json().catch(() => null);
@@ -383,8 +385,7 @@ export async function POST(req: Request) {
     arrival: body.arrival ? String(body.arrival).trim().toUpperCase() : null,
     route: body.route ? String(body.route).trim() : null,
     fuelAddedGal: num(body.fuelAddedGal),
-    // The pump price as typed, and the total (gallons × price) that's credited.
-    ...fuelFrom(body, num(body.fuelAddedGal)),
+    fuelCostCents: fuelCostCentsFrom(body),
     // Whose card, and it defaults to the MEMBER's when the client says
     // nothing. That's the column's own default and it's the compatible
     // answer: every form that predates the toggle meant "pay me back",

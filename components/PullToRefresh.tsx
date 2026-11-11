@@ -14,6 +14,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAppScroller } from "@/lib/appScroll";
 import { holdPageBusy } from "./pageBusy";
+import { isScrollLocked } from "./useScrollLock";
 import { hapticTap } from "@/lib/haptics";
 import {
   REVEAL_PX,
@@ -88,8 +89,9 @@ export default function PullToRefresh() {
       mode = "none";
       if (!handler || e.touches.length !== 1) return;
       if (window.location.pathname === "/login") return;
-      // A sheet's own scroll and drag win while one is open.
-      if (document.querySelector('[role="dialog"]')) return;
+      // A sheet's own scroll and drag win while one is open, and the page is
+      // frozen under any open overlay — a pull would move it all the same.
+      if (isScrollLocked() || document.querySelector('[role="dialog"]')) return;
       // Only from the very top: anywhere else, pulling down is scrolling up.
       if ((getAppScroller()?.scrollTop ?? 0) > 0) return;
       content = getAppScroller()?.querySelector("main") ?? null;

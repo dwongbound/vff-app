@@ -84,7 +84,7 @@ export default function InflightReference() {
           </div>
 
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Airspeeds are MPH, as marked on this airplane's ASI.
+            Airspeeds are the manual's MPH, with knots converted for the dial.
           </p>
         </div>
       )}

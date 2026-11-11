@@ -33,19 +33,17 @@ import { signOut, useSession } from "next-auth/react";
 import { forgetOfflineDataOnSignOut } from "@/lib/serviceWorker";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Banner from "./common/Banner";
+import ActiveFlightBanner from "./ActiveFlightBanner";
 import Dropdown, { useLatchDropdown } from "./common/Dropdown";
 import Logo from "./Logo";
 import { useAircraft } from "./AircraftProvider";
 import { useMe } from "./MeProvider";
 import { useKeepInViewport } from "./useKeepInViewport";
+import { useScrollLock } from "./useScrollLock";
 import { useBeginNavigation } from "./LoadingProvider";
 import { useSwipe } from "./SwipeProvider";
-import { fetchJsonArray, sendJson } from "@/lib/api";
-import { formatTime } from "@/lib/dates";
-import { flightToFinish } from "@/lib/flightSession";
-import type { ApiFlightSummary } from "@/lib/types";
-import { useOutboxSent } from "./OutboxProvider";
-import { appScrollTop, getAppScroller } from "@/lib/appScroll";
+import { sendJson } from "@/lib/api";
+import { appScrollTop } from "@/lib/appScroll";
 import { setNavDirection } from "@/lib/navDirection";
 import { applyTheme, getStoredTheme, storeTheme, type Theme } from "@/lib/theme";
 import { CLUB_NAME, CLUB_SHORT_NAME } from "@/lib/constants";
@@ -304,30 +302,6 @@ export default function Navbar() {
   // waiting for `pathname` to update after the new page mounts.
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [groundedDismissed, setGroundedDismissed] = useState(false);
-  // The member's own flights still in progress on this airplane — a preflight
-  // signed off and no post-flight filed. Re-asked on every navigation, so the
-  // banner goes the moment the form that finishes the flight is filed.
-  const [openFlights, setOpenFlights] = useState<ApiFlightSummary[]>([]);
-  const [finishDismissed, setFinishDismissed] = useState<string | null>(null);
-  const signedIn = Boolean(session?.user);
-  const aircraftId = selected?.id;
-  const [outboxTick, setOutboxTick] = useState(0);
-  useOutboxSent(() => setOutboxTick((n) => n + 1));
-  useEffect(() => {
-    if (!signedIn || !aircraftId) {
-      setOpenFlights([]);
-      return;
-    }
-    let live = true;
-    fetchJsonArray<ApiFlightSummary>(
-      `/api/flights?aircraftId=${aircraftId}&mine=1&open=1&limit=5`
-    )
-      .then((rows) => live && setOpenFlights(rows))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [signedIn, aircraftId, pathname, outboxTick]);
   // The phone-only group sheet (a group can't hover on touch). Holds the LABEL
   // of the open group rather than a boolean: there is more than one group in
   // the pill now, and a shared boolean would open both at once.
@@ -337,19 +311,14 @@ export default function Navbar() {
   // and a tap anywhere outside the sheet only closes it (the backdrop below
   // catches it) rather than also pressing whatever was underneath. Escape
   // closes it too, for a phone with a keyboard attached.
+  useScrollLock(openSheet !== null);
   useEffect(() => {
     if (openSheet === null) return;
-    const scroller = getAppScroller();
-    const previousOverflow = scroller?.style.overflow ?? "";
-    if (scroller) scroller.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpenSheet(null);
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      if (scroller) scroller.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [openSheet]);
   // Rail sub-lists the member has explicitly opened or collapsed, by group
   // label. Absent = "not touched", and the DEFAULT is then derived from where
@@ -462,7 +431,6 @@ export default function Navbar() {
   };
 
   const grounded = selected?.groundingSquawks ?? [];
-  const toFinish = flightToFinish(openFlights, pathname);
 
   // The nav this member actually gets. While `me` is still loading we show the
   // full set: a tab that appears a beat after the rest is a flicker, whereas
@@ -800,21 +768,11 @@ export default function Navbar() {
             signed off.
           </Banner>
         )}
-        {/* A preflight opens the flight's log entry; this is the reminder that
-            it's still open. Dismissing hides it for this entry only. */}
-        {toFinish && finishDismissed !== toFinish.id && (
-          <Banner
-            tone="amber"
-            href="/postflight"
-            linkLabel="Finish"
-            onLinkClick={() => handleTabClick("/postflight")}
-            onDismiss={() => setFinishDismissed(toFinish.id)}
-          >
-            <span className="font-semibold">Finished with your flight?</span>{" "}
-            {toFinish.aircraft.tailNumber} has been out
-            {toFinish.startedAt ? ` since ${formatTime(toFinish.startedAt)}` : " since your preflight"}.
-          </Banner>
-        )}
+
+        {/* A flight this member opened and hasn't filed: the way back to it,
+            from any page, on any device. Below the grounding on purpose —
+            "don't fly" outranks "finish flying". */}
+        <ActiveFlightBanner onNavigate={handleTabClick} />
       </header>
 
       {/* Phone-only bottom bar: an app-style floating pill fixed above the

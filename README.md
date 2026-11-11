@@ -304,7 +304,8 @@ calendar.
 2. **In the app**, as an admin: avatar menu → **Club settings → Google
    Calendar → Connect Google**, and sign in with a Google account that can
    **edit** the airplane's calendar. Only the admin sees this consent screen;
-   members sign in exactly as before.
+   members sign in exactly as before (the only Google screen a member ever
+   sees is the optional one under *Calendar invites* below).
 3. Pick each airplane's calendar from the list. The first sync copies the
    whole calendar in; after that, only changes are fetched.
 
@@ -312,6 +313,85 @@ Sync errors are shown under the airplane in Club settings, with a **Sync now**
 button. If the connecting account loses access to the calendar, or someone
 revokes the app in their Google account, Club settings shows the error and
 an admin reconnects.
+
+### Calendar invites (each member's own setting)
+
+Every booking the app writes to Google invites the member who booked it and,
+for a lesson, their CFI. On **Profile → Calendar invites** each member can:
+
+- **Switch invites off.** They're taken off the guest list only; the booking
+  still shows on the airplane's calendar and in the app. On by default.
+- **Choose which calendar they land on.** Google puts an invite on the default
+  calendar of the address it was sent to, and a guest can't move an invited
+  event, so the choice is an address. "Choose from my calendars" lists the
+  member's own Google calendars (a secondary calendar's id is its address);
+  the address box underneath covers anything the list can't offer. Blank =
+  the account email.
+
+A change applies to each booking **the next time that booking is written**
+(made, moved, or edited), which is also when the member is taken off the old
+address. Bookings already on a calendar stay where they are until then.
+
+The list is read with the MEMBER's own permission, asked once on Google's
+consent screen. It requests `calendar.calendarlist.readonly` only (calendar
+names, never events), which Google does not class as sensitive, so members
+see no "unverified app" warning and it needs no verification. It comes back
+through the same `/api/calendar/callback` redirect, so there's nothing new to
+add in Google Cloud.
+
+A member who signs in with **Continue with Google** is asked for the same
+calendar-list permission on that sign-in's consent screen, so the picker is
+ready the moment they open their profile, with no second trip. (Google shows
+that screen once; later sign-ins skip it and the kept permission stays. If
+they untick the calendar box, sign-in still works and the picker offers the
+button instead.) For tidiness, add `calendar.calendarlist.readonly` to the
+OAuth consent screen's declared scopes in Google Cloud; it is non-sensitive,
+so declaring it triggers no review.
+
+The profile page has **no Save button**: every field saves itself a moment
+after it changes, and the line under the title says Saving… / Saved.
+
+## Personal access keys (Jarvis, or any assistant)
+
+A member can let an assistant of their own read the club through a **personal
+access key**, made on **Profile → Personal access keys**. A key sees what its
+member sees: the airplanes' status, squawks and maintenance, the next 30 days
+of bookings, their own flight log and currency, and their own balance. A key
+is **read-only** unless the member ticks **"Also let this key book, cancel my
+bookings and file my flights"** when making it; that choice is fixed for the
+key's life (make a new key to change it). A key that may write acts as a
+plain member, never as an admin or officer, even on an admin's account, and
+nothing through a key can pay or change anything else.
+
+- **As an MCP server:** `POST https://<your site>/api/mcp` with the header
+  `Authorization: Bearer vff_…`. Stateless Streamable HTTP, tools only:
+  `get_club_snapshot`, `get_aircraft_status`, `get_bookings`,
+  `get_my_flying`, `get_my_balance`, plus `book_airplane`, `cancel_booking`
+  and `file_flight` for a key that may write. The writers call the app's own
+  booking and filing routes, so the club's booking rules, the conflict check,
+  the Google Calendar write and the bill are exactly what the app does.
+  Times are club time (`"2026-11-14T09:00"`). For the Claude Agent SDK, for
+  example:
+
+  ```ts
+  mcpServers: {
+    vff: {
+      type: "http",
+      url: "https://www.vardafreeflyers.com/api/mcp",
+      headers: { Authorization: `Bearer ${process.env.VFF_ACCESS_KEY}` },
+    },
+  }
+  ```
+
+- **As one HTTP call:** `GET /api/agent` with the same header returns the
+  whole snapshot as JSON.
+
+The key is shown once when it's made; the server keeps only its SHA-256, and
+no part of it is shown again. Revoking it on the profile stops it on the next
+request. A browser session is not accepted on `/api/agent` or `/api/mcp`; a
+write key is also accepted by `POST /api/reservations`,
+`DELETE /api/reservations/[id]` and `POST /api/flights`. Nothing to configure:
+no environment variables.
 
 ## Gotchas
 

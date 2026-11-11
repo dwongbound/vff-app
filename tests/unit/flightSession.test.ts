@@ -6,15 +6,17 @@ import {
   canEditFlight,
   canEditLogEntry,
   endFromTurnoff,
-  flightToFinish,
   isIncompleteEntry,
   isOpenSession,
   missingMeters,
   resolveTimes,
+  resumePoint,
   sessionState,
+  showsResumeBanner,
   sortFlightLog,
   startFromPreflight,
   startFromRunway,
+  endFollowsCard,
 } from "@/lib/flightSession";
 import {
   PREFLIGHT_CHECKOUT,
@@ -293,41 +295,46 @@ describe("sortFlightLog", () => {
   });
 });
 
-describe("flightToFinish", () => {
-  const NOW = new Date("2026-08-21T20:00:00Z");
-  const open = {
-    id: "a",
-    filedAt: null,
-    startedAt: "2026-08-21T17:00:00Z",
-    flownOn: "2026-08-21T07:00:00Z",
-  };
-
-  it("names a flight the pilot opened with a preflight and never filed", () => {
-    expect(flightToFinish([open], "/reservations", NOW)?.id).toBe("a");
+describe("endFollowsCard", () => {
+  it("fills an untouched end box from the shutdown reading", () => {
+    expect(endFollowsCard(1556.2, "", false)).toBe(true);
   });
 
-  it("stays quiet on the cards and the forms that finish the flight", () => {
-    for (const path of ["/preflight", "/runway", "/postflight", "/quick-log"]) {
-      expect(flightToFinish([open], path, NOW)).toBeNull();
+  it("refills a box the member typed in and then cleared", () => {
+    expect(endFollowsCard(1556.2, "", true)).toBe(true);
+  });
+
+  it("leaves a correction the member typed alone", () => {
+    expect(endFollowsCard(1556.2, "1556.4", true)).toBe(false);
+  });
+
+  it("does nothing until the card has a number, or when the box already agrees", () => {
+    expect(endFollowsCard(undefined, "", false)).toBe(false);
+    expect(endFollowsCard("1556.2", "", false)).toBe(false);
+    expect(endFollowsCard(1556.2, "1556.2", false)).toBe(false);
+  });
+});
+
+describe("resumePoint", () => {
+  it("sends a walked-but-not-started flight to the runway card", () => {
+    expect(resumePoint(["PREFLIGHT"])).toEqual({ href: "/runway", next: "runway card" });
+  });
+  it("sends a flight past the runway card to the post-flight form", () => {
+    expect(resumePoint(["PREFLIGHT", "RUNWAY"]).href).toBe("/postflight");
+    // The runway card can open a session on its own, preflight skipped.
+    expect(resumePoint(["RUNWAY"]).href).toBe("/postflight");
+  });
+});
+
+describe("showsResumeBanner", () => {
+  it("stays off the pages that are themselves the way to finish", () => {
+    for (const page of ["/runway", "/postflight", "/quick-log", "/login"]) {
+      expect(showsResumeBanner(page)).toBe(false);
     }
-    // A prefix of a hidden page is not that page.
-    expect(flightToFinish([open], "/log", NOW)?.id).toBe("a");
   });
-
-  it("ignores a filed entry, even one missing its tach end", () => {
-    expect(
-      flightToFinish([{ ...open, filedAt: "2026-08-21T19:00:00Z" }], "/log", NOW)
-    ).toBeNull();
-  });
-
-  it("leaves an entry older than the session window to the log", () => {
-    // The post-flight form would file a NEW entry beside this one, so the
-    // banner must not send anybody there for it.
-    const stale = { ...open, startedAt: "2026-08-19T17:00:00Z" };
-    expect(flightToFinish([stale], "/log", NOW)).toBeNull();
-  });
-
-  it("falls back to the day the walk opened it when no clock was read", () => {
-    expect(flightToFinish([{ ...open, startedAt: null }], "/log", NOW)?.id).toBe("a");
+  it("shows everywhere else", () => {
+    for (const page of ["/reservations", "/status", "/preflight", "/log"]) {
+      expect(showsResumeBanner(page)).toBe(true);
+    }
   });
 });

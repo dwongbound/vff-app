@@ -38,7 +38,8 @@ import type { PostflightForm } from "@/lib/postflightDraft";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray } from "@/lib/api";
-import { fuelTotalHint } from "@/lib/fuel";
+import FuelFields from "@/components/FuelFields";
+import { EMPTY_FUEL, editFuel, fuelPayload, restoreFuel, type FuelField } from "@/lib/fuel";
 import { QUEUED_NOTICE } from "@/lib/offline";
 import { flightJob, hasPending } from "@/lib/outbox";
 import {
@@ -48,6 +49,7 @@ import {
   type Values,
 } from "@/lib/checkouts";
 import { clubDateKey, formatDay, formatTime, formatTimeRange, toDateInputValue } from "@/lib/dates";
+import { endFollowsCard } from "@/lib/flightSession";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
 import {
   flightCostCents,
@@ -64,6 +66,7 @@ import type {
   ApiReservation,
 } from "@/lib/types";
 import { FlightTypeSelect } from "@/components/FlightType";
+import SwitchRow from "@/components/common/SwitchRow";
 import { isPurpose, type Purpose } from "@/lib/constants";
 
 /**
@@ -101,8 +104,11 @@ export default function PostflightPage() {
   const [departure, setDeparture] = useState("");
   const [arrival, setArrival] = useState("");
   const [route, setRoute] = useState("");
-  const [fuelAdded, setFuelAdded] = useState("");
-  const [fuelPrice, setFuelPrice] = useState("");
+  // Gallons, price per gallon and the total in one state: type any two and
+  // lib/fuel.ts works out the third. Only the total is really needed.
+  const [fuel, setFuel] = useState(EMPTY_FUEL);
+  const setFuelField = (field: FuelField, value: string) =>
+    setFuel((current) => editFuel(current, field, value));
   // Whose card the fuel went on. Defaults to the member's own — the case that
   // needs paying back, and what recording a cost has always meant here. NOT in
   // the device draft: it's one radio pair with a safe default, and adding a
@@ -307,17 +313,30 @@ export default function PostflightPage() {
 
   // END: the two numbers the pilot just wrote on the shutdown item ARE the end
   // readings. Nothing else on the airplane knows them.
+  //
+  // An EMPTY end box always takes them, edited or not. "Edited" is there so a
+  // correction typed into the box stands; an empty box holds no correction, and
+  // leaving it blank under a card that has the reading is the one outcome
+  // nobody wants. It happened: a box typed in and cleared, or a restored draft
+  // that saved the box empty, latched `edited` and the meter card stayed blank
+  // with the reading sitting in the shutdown item above it.
+  //
+  // The box's own value is deliberately NOT a dependency: it is checked when
+  // the card's reading changes, never on every keystroke, or backspacing the
+  // box to type a correction would refill it under the member's thumb.
   const recordedTach = turnoffValues["shutdown.tach.hours"];
   const recordedHobbs = turnoffValues["shutdown.tach.hobbs"];
   useEffect(() => {
-    if (typeof recordedTach === "number" && !edited.tachEnd) {
+    if (endFollowsCard(recordedTach, tachEnd, edited.tachEnd)) {
       setTachEnd(String(recordedTach));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordedTach, edited.tachEnd]);
   useEffect(() => {
-    if (typeof recordedHobbs === "number" && !edited.hobbsEnd) {
+    if (endFollowsCard(recordedHobbs, hobbsEnd, edited.hobbsEnd)) {
       setHobbsEnd(String(recordedHobbs));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordedHobbs, edited.hobbsEnd]);
 
   // The landing fee follows the airport you say you landed at, by the same
@@ -359,8 +378,9 @@ export default function PostflightPage() {
       departure,
       arrival,
       route,
-      fuelAdded,
-      fuelPrice,
+      fuelAdded: fuel.gallons,
+      fuelPrice: fuel.price,
+      fuelCost: fuel.total,
       oilAdded,
       landingFee,
       notes,
@@ -391,8 +411,7 @@ export default function PostflightPage() {
       departure,
       arrival,
       route,
-      fuelAdded,
-      fuelPrice,
+      fuel,
       oilAdded,
       landingFee,
       notes,
@@ -423,8 +442,13 @@ export default function PostflightPage() {
       setDeparture(stored.departure);
       setArrival(stored.arrival);
       setRoute(stored.route);
-      setFuelAdded(stored.fuelAdded);
-      setFuelPrice(stored.fuelPrice);
+      setFuel(
+        restoreFuel({
+          gallons: stored.fuelAdded,
+          price: stored.fuelPrice,
+          total: stored.fuelCost,
+        })
+      );
       setOilAdded(stored.oilAdded);
       setLandingFee(stored.landingFee);
       setNotes(stored.notes);
@@ -469,8 +493,7 @@ export default function PostflightPage() {
     setDeparture("");
     setArrival("");
     setRoute("");
-    setFuelAdded("");
-    setFuelPrice("");
+    setFuel(EMPTY_FUEL);
     setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
@@ -503,7 +526,8 @@ export default function PostflightPage() {
 
   function endHint(box: "tachEnd" | "hobbsEnd"): string | undefined {
     const recorded = box === "tachEnd" ? recordedTach : recordedHobbs;
-    if (edited[box]) return undefined;
+    const shown = box === "tachEnd" ? tachEnd : hobbsEnd;
+    if (edited[box] && shown !== String(recorded)) return undefined;
     if (typeof recorded === "number") return "from the turn-off checkout";
     return undefined;
   }
@@ -575,8 +599,9 @@ export default function PostflightPage() {
       departure: departure.trim() || null,
       arrival: arrival.trim() || null,
       route: route.trim() || null,
-      fuelAddedGal: fuelAdded === "" ? null : Number(fuelAdded),
-      fuelPricePerGalDollars: fuelPrice === "" ? null : Number(fuelPrice),
+      // Gallons and the TOTAL — the two columns the club stores. The price
+      // per gallon is a way of arriving at the total, not a thing to keep.
+      ...fuelPayload(fuel),
       fuelPaidPersonally,
       oilAddedQts: oilAdded === "" ? null : Number(oilAdded),
       landingFeeDollars: landingFee === "" ? null : Number(landingFee),
@@ -652,8 +677,7 @@ export default function PostflightPage() {
     setDeparture("");
     setArrival("");
     setRoute("");
-    setFuelAdded("");
-    setFuelPrice("");
+    setFuel(EMPTY_FUEL);
     setFuelPaidPersonally(true);
     setOilAdded("");
     setLandingFee("");
@@ -1020,32 +1044,15 @@ export default function PostflightPage() {
         index={FORM_SECTION_INDEX.servicing}
         title="Servicing"
         subtitle="What went back into the airplane"
-        meta={fuelAdded ? `${fuelAdded} gal` : undefined}
+        meta={fuel.gallons ? `${fuel.gallons} gal` : undefined}
         open={openSection === "form.servicing"}
         onToggle={() => toggleFormSection("form.servicing")}
       >
         <div className="space-y-4 p-4">
+        {/* Fuel on its own row — three boxes, any two of which fill the
+            third — with oil under it rather than squeezed in beside them. */}
+        <FuelFields entry={fuel} onChange={setFuelField} className="grid grid-cols-3 gap-3" />
         <div className="grid grid-cols-3 gap-3">
-          <Input
-            label="Fuel added"
-            type="number"
-            inputMode="decimal"
-            step="0.1"
-            min="0"
-            value={fuelAdded}
-            onChange={(e) => setFuelAdded(e.target.value)}
-            hint="gallons"
-          />
-          <Input
-            label="Price per gallon"
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0"
-            value={fuelPrice}
-            onChange={(e) => setFuelPrice(e.target.value)}
-            hint={fuelTotalHint(fuelAdded, fuelPrice) ?? "dollars"}
-          />
           <Input
             label="Oil added"
             type="number"
@@ -1172,47 +1179,5 @@ export default function PostflightPage() {
         onAdd={(draft) => setSquawkDrafts((rows) => [...rows, draft])}
       />
     </div>
-  );
-}
-
-// Big switch-style checkbox — the two put-away questions are answered with a
-// thumb, not a pointer.
-/**
- * A bordered row with a switch and ONE label — an on/off assertion about this
- * flight ("flown with an instructor").
- *
- * Deliberately not `common/Toggle`, which names BOTH sides and is for a choice
- * between two things. Here there is no second thing to name: the opposite of
- * "flown with an instructor" is the ordinary case and doesn't want a word.
- */
-function SwitchRow({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      aria-pressed={checked}
-      className="flex w-full items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-left text-sm transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
-    >
-      <span
-        className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${
-          checked ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"
-        }`}
-      >
-        <span
-          className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? "translate-x-5" : ""
-          }`}
-        />
-      </span>
-      <span className={checked ? "" : "text-gray-500 dark:text-gray-400"}>{label}</span>
-    </button>
   );
 }

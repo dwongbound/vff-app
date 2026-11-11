@@ -18,6 +18,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import Badge, { type BadgeTone } from "./Badge";
 import InfoTip from "./InfoTip";
 import { useKeepInViewport } from "../useKeepInViewport";
+import { useScrollLock } from "../useScrollLock";
 
 export interface ChipOption<T extends string> {
   value: T;
@@ -53,6 +54,8 @@ export default function ChipSelect<T extends string>({
   // The listbox hangs from the button's right edge and grows leftward to fit
   // its longest option; on a narrow screen that can run off the left side.
   const listRef = useKeepInViewport<HTMLUListElement>(open);
+  // The page doesn't scroll out from under the open list.
+  useScrollLock(open);
   const ref = useRef<HTMLDivElement>(null);
   const labelId = useId();
   const valueId = useId();

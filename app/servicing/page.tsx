@@ -20,11 +20,13 @@ import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
 import Textarea from "@/components/common/Textarea";
 import { useAircraft } from "@/components/AircraftProvider";
-import FuelSummary from "@/components/FuelSummary";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { fetchJsonArray, sendJson } from "@/lib/api";
+import FuelFields from "@/components/FuelFields";
+import FuelSummary from "@/components/FuelSummary";
 import { formatDay, toDateInputValue } from "@/lib/dates";
-import { fuelTotalHint } from "@/lib/fuel";
+import { EMPTY_FUEL, editFuel, fuelPayload, hasFuel, type FuelField } from "@/lib/fuel";
+import { formatCents } from "@/lib/hours";
 import type { ApiServicing } from "@/lib/types";
 
 export default function ServicingPage() {
@@ -33,8 +35,10 @@ export default function ServicingPage() {
 
   const [recent, setRecent] = useState<ApiServicing[] | null>(null);
   const [servicedAt, setServicedAt] = useState(() => toDateInputValue(new Date()));
-  const [fuelAddedGal, setFuelAddedGal] = useState("");
-  const [fuelPriceDollars, setFuelPriceDollars] = useState("");
+  // Three boxes, any two of which give the third — see lib/fuel.ts.
+  const [fuel, setFuel] = useState(EMPTY_FUEL);
+  const setFuelField = (field: FuelField, value: string) =>
+    setFuel((current) => editFuel(current, field, value));
   const [oilAddedQts, setOilAddedQts] = useState("");
   const [paidPersonally, setPaidPersonally] = useState(true);
   const [notes, setNotes] = useState("");
@@ -58,10 +62,7 @@ export default function ServicingPage() {
   }, [refresh]);
 
   const numeric = (v: string) => (v.trim() === "" ? null : Number(v));
-  const nothingRecorded =
-    numeric(fuelAddedGal) == null &&
-    numeric(oilAddedQts) == null &&
-    numeric(fuelPriceDollars) == null;
+  const nothingRecorded = !hasFuel(fuel) && numeric(oilAddedQts) == null;
 
   async function file() {
     if (!selected) return;
@@ -74,9 +75,9 @@ export default function ServicingPage() {
       // Noon, not midnight — a calendar date read back in another zone would
       // otherwise slide to the day before.
       servicedAt: `${servicedAt}T12:00:00`,
-      fuelAddedGal: numeric(fuelAddedGal),
-      // The pump price; the server multiplies it out to the total it credits.
-      fuelPricePerGalDollars: numeric(fuelPriceDollars),
+      // Gallons and the total; the price per gallon is only a way of
+      // arriving at the total, so nothing stores it.
+      ...fuelPayload(fuel),
       oilAddedQts: numeric(oilAddedQts),
       paidPersonally,
       notes: notes.trim() || null,
@@ -89,12 +90,11 @@ export default function ServicingPage() {
     }
 
     setSaved(
-      paidPersonally && numeric(fuelPriceDollars) != null
+      paidPersonally && fuel.total.trim() !== ""
         ? "Recorded — the cost is credited back to you on this month's statement."
         : "Recorded."
     );
-    setFuelAddedGal("");
-    setFuelPriceDollars("");
+    setFuel(EMPTY_FUEL);
     setOilAddedQts("");
     setNotes("");
     await refresh();
@@ -136,31 +136,8 @@ export default function ServicingPage() {
           onChange={(e) => setServicedAt(e.target.value)}
         />
 
+        <FuelFields entry={fuel} onChange={setFuelField} className="grid gap-3 sm:grid-cols-3" />
         <div className="grid gap-3 sm:grid-cols-3">
-          <Input
-            label="Fuel added"
-            type="number"
-            inputMode="decimal"
-            step="0.1"
-            min="0"
-            value={fuelAddedGal}
-            onChange={(e) => setFuelAddedGal(e.target.value)}
-            hint={
-              selected.fuelCapacityGal
-                ? `Gallons — ${selected.fuelCapacityGal} usable when full`
-                : "Gallons"
-            }
-          />
-          <Input
-            label="Price per gallon"
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0"
-            value={fuelPriceDollars}
-            onChange={(e) => setFuelPriceDollars(e.target.value)}
-            hint={fuelTotalHint(fuelAddedGal, fuelPriceDollars) ?? "Dollars, off the pump"}
-          />
           <Input
             label="Oil added"
             type="number"

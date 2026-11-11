@@ -179,7 +179,6 @@ export interface ApiFlightSummary {
   arrival: string | null;
   route: string | null;
   fuelAddedGal: number | null;
-  fuelPricePerGalCents: number | null;
   fuelCostCents: number | null;
   /**
    * Whose card the fuel went on. False = the club's, which records the fill-up
@@ -232,6 +231,19 @@ export interface ApiFlightSummary {
  * An extension of the summary rather than a separate shape, so anything that
  * takes a log row (the hours maths, the signature rules) accepts either.
  */
+/**
+ * The member's flight still in progress — GET /api/flights/active, for the
+ * app-wide "pick up where you left off" banner. `cards` are the checkouts
+ * already signed off against it, which is how the banner knows what's next.
+ */
+export interface ApiActiveFlight {
+  id: string;
+  aircraft: { id: string; tailNumber: string };
+  /** When the preflight opened it. */
+  openedAt: string;
+  cards: ("PREFLIGHT" | "RUNWAY")[];
+}
+
 export interface ApiFlight extends ApiFlightSummary {
   photos: ApiPhoto[];
   squawks: ApiSquawk[];
@@ -337,6 +349,19 @@ export interface ApiMe {
   flightReviewOn: string | null;
   /** When they finished or skipped the guided tour; null = never shown. */
   tourSeenAt: string | null;
+  /** Invited to their bookings' calendar events (lib/calendarInvites.ts). */
+  calendarInvites: boolean;
+  /** Where those invites go; null = `email`. */
+  calendarInviteEmail: string | null;
+  /** Whether this server can talk to Google at all — gates the picker button. */
+  googleConfigured: boolean;
+}
+
+/** GET /api/calendar/mine — the member's own calendars, for the invite picker. */
+export interface ApiMyCalendars {
+  configured: boolean;
+  needsConsent?: boolean;
+  calendars?: { id: string; name: string; primary: boolean }[];
 }
 
 /**
@@ -351,7 +376,6 @@ export interface ApiServicing {
   user: ApiUserSummary;
   servicedAt: string;
   fuelAddedGal: number | null;
-  fuelPricePerGalCents: number | null;
   fuelCostCents: number | null;
   oilAddedQts: number | null;
   /** Member's own card (so the club owes them) rather than the club's. */
@@ -532,4 +556,19 @@ export interface ApiInvoiceSendResult {
   sent: { memberId: string; name: string; address: string }[];
   skipped: { memberId: string; name: string; reason: string }[];
   failed: { memberId: string; name: string; error: string }[];
+}
+
+/** A personal access key as the profile lists it — no part of the key itself. */
+export interface ApiAccessKey {
+  id: string;
+  name: string;
+  /** May also book, cancel the member's bookings and file their flights. */
+  canWrite: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** POST /api/access-keys: the new key, shown once. */
+export interface ApiNewAccessKey extends ApiAccessKey {
+  key: string;
 }

@@ -334,10 +334,9 @@ export default function StatusPage() {
                 {lastFlight.landings === 1 ? "landing" : "landings"}
                 {lastFlight.route ? ` · ${lastFlight.route}` : ""}
               </p>
-              {(!lastFlight.tiedDown || !lastFlight.cabinClean) && (
+              {!lastFlight.tiedDown && (
                 <p className="text-sm text-amber-700 dark:text-amber-400">
-                  {!lastFlight.tiedDown && "Tie-downs not confirmed. "}
-                  {!lastFlight.cabinClean && "Cabin clean-out not confirmed."}
+                  Tie-downs not confirmed.
                 </p>
               )}
             </>

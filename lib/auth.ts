@@ -6,6 +6,8 @@ import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { authCookies } from "./authCookies";
+import { GOOGLE_SIGN_IN_PARAMS, grantsListScope } from "./googleCalendar";
+import { storeMemberListToken } from "./googleCalendarSync";
 import { can, type Capability } from "./positions";
 import { prisma } from "./prisma";
 
@@ -64,6 +66,9 @@ export const authOptions: NextAuthOptions = {
           Google({
             clientId: process.env.GOOGLE_CLIENT_ID!,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+            // Sign-in also asks for the member's calendar LIST, so the
+            // /profile invite picker works without a second trip to Google.
+            authorization: { params: GOOGLE_SIGN_IN_PARAMS },
           }),
         ]
       : []),
@@ -102,6 +107,15 @@ export const authOptions: NextAuthOptions = {
           if (dbUser) {
             token.id = dbUser.id;
             token.name = dbUser.name;
+            // Google sends a refresh token only on a consent screen, i.e. the
+            // first sign-in that asked for the calendar list. Keep it for the
+            // picker; a later sign-in (no token) leaves the stored one alone.
+            // Never let a failure here fail the sign-in.
+            if (account?.refresh_token && grantsListScope(account.scope)) {
+              await storeMemberListToken(dbUser.id, account.refresh_token).catch((e) =>
+                console.error("[auth] could not keep the calendar-list token", e)
+              );
+            }
           }
         } else {
           token.id = user.id;

@@ -7,8 +7,26 @@
 // Modelling them as a separate type is what keeps them out of the sign-off
 // arithmetic — a "cruise" item can't be an unticked box blocking a sign-off.
 //
-// Values are transcribed from the card as printed. The airspeeds are MPH: this
+// Values are transcribed from the card as printed, with the club's own edits:
+// the descent is the club's five-line flow (ATIS, altimeter, GUMPS, primer,
+// belts; GUMPS covers the fuel selector and mixture the card listed
+// separately, and carb heat and lights came off at the club's request), and the climb carries the manual's Vx, Vy and cruise-climb
+// speeds, pulled from lib/pohReference.ts rather than retyped. The airspeeds are MPH: this
 // is a 1957 airplane with an MPH airspeed indicator, not a knots one.
+
+import { REFERENCE_SECTIONS, formatKnots, formatMph } from "./pohReference";
+
+/**
+ * A speed off the manual's own reference page, written "60 MPH · 52 kt".
+ *
+ * Looked up by id rather than typed again here, so Tools › My plane and this
+ * card can never disagree, and the knots carry that file's safe-side rounding.
+ */
+export function manualSpeed(id: string): string {
+  const figure = REFERENCE_SECTIONS.flatMap((s) => s.figures).find((f) => f.id === id);
+  if (!figure?.mph) throw new Error(`No airspeed "${id}" in the manual's reference`);
+  return `${formatMph(figure.mph)} · ${formatKnots(figure.mph, figure.kind ?? "target")}`;
+}
 
 export interface ReferenceItem {
   label: string;
@@ -35,6 +53,9 @@ export const INFLIGHT_PHASES: ReferencePhase[] = [
     id: "climb",
     title: "Climb",
     items: [
+      { label: "Vx — best angle", action: manualSpeed("vx") },
+      { label: "Vy — best rate", action: manualSpeed("vy") },
+      { label: "Cruise climb", action: manualSpeed("cruise-climb") },
       { label: "Flaps", action: "Retract slowly" },
       { label: "Mixture", action: "Rich below 3000 ft" },
     ],
@@ -54,14 +75,11 @@ export const INFLIGHT_PHASES: ReferencePhase[] = [
     id: "descent",
     title: "Descent / before landing",
     items: [
-      { label: "Weather / ATIS", action: "As required" },
+      { label: "ATIS", action: "As required" },
       { label: "Altimeter", action: "Set" },
-      { label: "Gas / fuel selector", action: "Both" },
-      { label: "Mixture", action: "Enrich as required" },
-      { label: "Carb heat", action: "As required" },
+      { label: "GUMPS", action: "Check" },
       { label: "Primer", action: "In & locked" },
       { label: "Seat belts", action: "On" },
-      { label: "Lights", action: "As required" },
     ],
   },
 ];

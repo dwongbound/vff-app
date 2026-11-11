@@ -196,6 +196,27 @@ model User {
   // flight log. Null = treated as the lower-experience column.
   totalTimeHours Float?
 
+  // Whether this member is invited to their bookings' events on the airplane's
+  // Google Calendar (lib/googleCalendarSync.ts) — the booking they made, and
+  // a lesson they're the CFI on. Opt-out only, on by default, which is what
+  // the app did before the switch existed. Off takes them off the GUEST LIST
+  // only: the booking is theirs, it's on the airplane's calendar and in the
+  // app exactly as before.
+  calendarInvites Boolean @default(true)
+  // Where those invites are sent, when the account email isn't the right
+  // place. Google puts an invite on the default calendar of whatever address
+  // it was sent to, and a guest can't move an invited event afterwards — but a
+  // secondary Google calendar has an address of its own (its id), so pointing
+  // this at one puts the bookings on that calendar, where it can be coloured
+  // and hidden like any other. Null = `email`. `inviteAddress` in
+  // lib/calendarInvites.ts is the one reading of the pair.
+  calendarInviteEmail String?
+  // The member's OWN Google permission to list their calendars, for the
+  // /profile picker — a refresh token SEALED with lib/secretBox.ts, like the
+  // club's. Scope is `calendar.calendarlist.readonly` alone: names and ids,
+  // never an event. Null = never asked, or Google stopped honouring it.
+  googleListTokenEnc String?
+
   reservations    Reservation[]
   flights         Flight[]
   checkouts       Checkout[]
@@ -222,6 +243,7 @@ model User {
   recurringCharges        RecurringCharge[] @relation("RecurringChargeMember")
   recurringChargesCreated RecurringCharge[] @relation("RecurringChargeAuthor")
   googleConnections       GoogleConnection[]
+  accessKeys              AccessKey[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -522,11 +544,6 @@ model Flight {
   // Servicing done after the flight, so the next pilot knows what they're
   // getting. Fuel in gallons added, oil in quarts.
   fuelAddedGal  Float?
-  // What the pilot TYPED: the pump's price per gallon. `fuelCostCents` stays
-  // the TOTAL (gallons × price, worked out by the server) because the total is
-  // what's credited back and what every row before this column recorded — a
-  // row with a total and no price is a pre-price row, not a broken one.
-  fuelPricePerGalCents Int?
   fuelCostCents Int?
   oilAddedQts   Float?
 
@@ -689,9 +706,6 @@ model Servicing {
   servicedAt DateTime
 
   fuelAddedGal  Float?
-  // Price per gallon, as typed; `fuelCostCents` is the total. Same split as
-  // Flight's, for the same reason.
-  fuelPricePerGalCents Int?
   fuelCostCents Int?
   oilAddedQts   Float?
 
@@ -1056,4 +1070,34 @@ model InvoiceSend {
 
   @@index([memberId, scope])
   @@map("invoice_sends")
+}
+
+// A member's PERSONAL ACCESS KEY: lets one app of theirs (Jarvis) READ what
+// they can already see in the app, through GET /api/agent and the MCP endpoint
+// /api/mcp. A key with `canWrite` may also book, cancel the member's own
+// bookings and file their flights — through the SAME three routes the app
+// uses (lib/accessKeyAuth.ts `getActingUser`), so every rule a member is held
+// to holds for it too. Nothing else accepts a key: no money, no admin. Only the
+// SHA-256 of the key is stored (it's 256 random bits, so a slow hash buys
+// nothing), and no part of the key is kept for display: the member sees it
+// once, at creation. Revoking stamps `revokedAt` rather than deleting, so
+// "last used" stays readable; a revoked key is refused at once.
+model AccessKey {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  /// The member's own label ("Jarvis").
+  name    String
+  keyHash String @unique
+  /// May book, cancel own bookings and file flights. Off unless the member
+  /// turned it on when making the key.
+  canWrite Boolean @default(false)
+
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("access_keys")
 }

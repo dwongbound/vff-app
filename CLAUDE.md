@@ -55,6 +55,19 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   what gates booking and the Finances tab (`reservation:book` /
   `finance:read-own` in `lib/positions.ts`). Admin-only, from the same Members
   tab; defaults true, which is what every pre-instructor account was.
+  `calendarInvites` (default true) / `calendarInviteEmail` (null = `email`)
+  are the member's own answers on /profile's Calendar invites card, mirroring
+  TapWorship: off drops them from bookings' GUEST LISTS only; the address is
+  the only choice of calendar (Google files an invite by the address it was
+  sent to; a secondary calendar's id IS one). `lib/calendarInvites.ts`
+  `inviteAddress` is the one reading, and `staleInviteAddresses` is what a
+  PATCH drops, so a change lands on each booking the next time it's written
+  (no re-sync of existing bookings). `googleListTokenEnc` is the member's OWN
+  sealed `calendar.calendarlist.readonly` token for the picker — never events.
+  It arrives two ways, both through `storeMemberListToken`: the picker's own
+  consent trip, or Google SIGN-IN, which asks for the same scope
+  (`GOOGLE_SIGN_IN_PARAMS`, no forced consent) so a Google member's picker
+  works straight away.
 - **Aircraft** — tail number, model, `hourlyRateCents`, `fuelCapacityGal`,
   `homeBase`, plus `lastTach`/`lastHobbs` advanced by each filed flight.
   Everything else is keyed by aircraft, so a second airplane is a row.
@@ -142,8 +155,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   and null forever on a card walked but never flown). `SetNull`, not Cascade:
   deleting a mis-filed log entry must not take the record of the walkaround
   with it — the walk happened. `answers` JSON `{ itemId: true }`
-  against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 7,
-  continuing the old checklist's v3; RUNWAY at 3; TURNOFF at 4);
+  against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 8,
+  continuing the old checklist's v3; RUNWAY at 4; TURNOFF at 5);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
   `withInstructor` (selects the third column of the operating rules) and
@@ -220,6 +233,13 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   idempotent — `(memberId, recurringChargeId, period)` and `(flightId, kind)` —
   and rely on Postgres treating NULLs as distinct, which leaves hand-entered
   lines free to repeat.
+- **AccessKey** — a member's personal access key for their own assistant
+  (Jarvis): `name`, `keyHash` (SHA-256, unique — the key is 256 random bits,
+  so no slow hash), `canWrite` (may also book, cancel its member's bookings
+  and file their flights; set at creation only, default false), `lastUsedAt`
+  (written at most every 5 min), `revokedAt` (revoke stamps rather than
+  deletes). NO part of the key is stored or shown
+  again after creation, not even a prefix (Dylan, 2026-11-10).
 - **InvoiceSend** — one invoice emailed to one member (`scope` = "YYYY-MM"
   or "all", `amountCents`, `sentTo`, `sentBy`). A record only, never money:
   it's what lets the Send invoices window say "Sent Oct 3" beside a name so a
@@ -244,7 +264,13 @@ DOM. Money is added through ONE dashed "+" panel →
 `components/finances/AddMoneyModal.tsx`: a member gets only "Claim a
 reimbursement"; an officer gets Reimburse / Charge members / Club funds /
 Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
-`profile` ·
+`profile` (AUTOSAVES — no Save button: `lib/autosave.ts` queues edits into one
+PATCH a moment after typing stops, one request in flight at a time, and the
+`AutosaveStatus` line says "Saved" only once nothing is pending; the form is
+seeded from `me` ONCE, since re-seeding from each save's reply would overwrite
+what's being typed. A blank name, non-number total time or half-typed invite
+address is held back client-side, not sent) ·
+`profile` (ends with `AccessKeysCard`, outside the form: keys are made and revoked on the spot) ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
 its Google Calendar link, then the sign-up code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
@@ -293,11 +319,8 @@ Airworthy badge reads), then the squawks' line (`squawkBanner` in
 lib/squawks.ts: red for a grounding and nothing else; otherwise ONE amber line
 joining in work · unreviewed · reviewed-okay-to-fly — `newSquawkCount` /
 `okToFlySquawkCount` on the aircraft — → Squawks). A banner is NOT drawn on the tab it
-links to. The Navbar also carries the member's own FINISH-YOUR-FLIGHT line
-(amber, "Finished with your flight?" + Finish → `/postflight`) while they have
-an open session on the selected airplane inside `SESSION_WINDOW_HOURS` —
-`flightToFinish` in lib/flightSession.ts, re-asked on every navigation and
-hidden on the cards and the two forms that finish a flight. Both are true of the AIRPLANE rather than of a view, so every child
+links to. The Navbar also carries the member's own unfinished-flight line —
+`ActiveFlightBanner`, see Components. Both are true of the AIRPLANE rather than of a view, so every child
 tab gets them. The squawk cards and maintenance rows lay out by the CARD's
 width (`@container` / `@xl:` container queries), not the screen's: the
 control (status picker, Mark done) goes under the text until the card is
@@ -461,6 +484,33 @@ owns the only splash in the app.
   HAVE, not the one it had. For a Google-linked airplane GET syncs first
   (throttled), and POST/PATCH force a sync before the conflict check and write
   to Google BEFORE the row — a Google refusal is a 502 and nothing changed.
+- `calendar/mine` (GET, any member) — the member's OWN calendars for the
+  /profile invite picker: `{calendars}` or `{needsConsent}`; `?connect=1` is
+  the consent trip, asking `calendar.calendarlist.readonly` alone. It returns
+  through the club's `calendar/callback` (one registered redirect URI), told
+  apart by the state's `me.` prefix (`MEMBER_STATE_PREFIX`), and lands on
+  `/profile?calendarPicker=connected|denied|error`.
+- `access-keys` (GET the caller's live keys, POST `{ name }` → the key ONCE,
+  at most `MAX_ACCESS_KEYS`) · `access-keys/[id]` (DELETE = revoke your own).
+  Session only: a key can't make keys.
+- `agent` (GET) and `mcp` (POST) take `Authorization: Bearer vff_…`
+  (`getKeyUser` in lib/accessKeyAuth.ts) and NOTHING ELSE: a browser session
+  gets 401 there. A `canWrite` key is ALSO taken by exactly three routes —
+  `POST /api/reservations`, `DELETE /api/reservations/[id]`, `POST /api/flights`
+  — through `getActingUser` (session first, else a write key), which hands the
+  route the member stripped of `isAdmin` and positions, so a key on an admin's
+  account still cancels only its own bookings. The MCP writers
+  (`book_airplane`, `cancel_booking`, `file_flight`, listed only for a write
+  key) call those route handlers in-process with the same key header, so every
+  rule is the route's; `lib/agentWrites.ts` only parses arguments (club-time
+  strings via `clubInstant`, never the server's zone) and matches tail number /
+  CFI name. Both read
+  `agentSnapshot` (lib/agentSnapshot.ts): fleet + squawks + maintenance, the
+  next 30 days of bookings, the KEY HOLDER's own log/currency and own unpaid
+  lines. Read-only by construction — no Google sync, no dues materialised, so
+  money is what's already on the books. `mcp` is a stateless Streamable HTTP
+  MCP server written by hand (lib/mcp.ts, tools in lib/agentTools.ts); GET is
+  405 because it never streams.
 - `calendar` (GET status + the connected account's writable calendars, DELETE
   disconnect — both admin). The calendar LIST, and PUT-ing a calendar from it,
   belong to the admin who CONNECTED the account alone (`canPick`): it's their
@@ -476,6 +526,9 @@ owns the only splash in the app.
   open it inserts, which is the post-flight-without-preflight entry. Requires
   `tachEnd` and not `tachStart`. Also advances the aircraft's meters; both
   routes read `turnoffAnswers` and re-derive the put-away flags) ·
+  `flights/active` (GET — the caller's newest OPEN session on any airplane,
+  inside `SESSION_WINDOW_HOURS`, with the cards signed against it; feeds
+  `ActiveFlightBanner`) ·
   `flights/[id]` (PATCH stamps `editedAt` — except on a write-up-only edit, see
   the gotcha; reads every meter and time through `in body` so they can be
   CLEARED as well as set; `{ filed: true }` closes out an open session from the
@@ -547,22 +600,30 @@ owns the only splash in the app.
   N8318B's two laminated cards, every item with a `why` for the (i) popover.
   `PREFLIGHT_CHECKOUT` = I'M SAFE + homework + consumables + cockpit + the walk
   (left wing → nose → right wing → fuselage/empennage) + the club's closing
-  360 (`walkaround` — step back from it, the only section with no list, for
-  the whole-airplane problems you can't see with your nose against a bracket)
+  360 (`walkaround` — ONE item, `walkaround.lap`: step back and do a slow lap,
+  for the whole-airplane problems you can't see with your nose against a
+  bracket. It had four lines once; the club cut the other three, because a lap
+  with a list is just another list)
   + standard briefing;
   `RUNWAY_CHECKOUT` = passengers → before start → pre-lube → start → runup →
-  pre-takeoff + 5 Ps; `TURNOFF_CHECKOUT` = after landing / shutdown / outside
+  pre-takeoff (the club's 5 Ps used to close it and were taken off in v4);
+  `TURNOFF_CHECKOUT` = after landing / shutdown / outside
   parking, answered on the post-flight form. Every helper takes a
   `CheckoutKind`: `parseAnswers`, `countChecked`, `isComplete`, `missingItems`,
   `totalItems`; plus `derivePutAway`. A SECTION may be `optional` (the
   cold-start pre-lube) and so may an ITEM (the card's IFR-only VOR/GPS line):
   stored when ticked, never counted toward sign-off. Items the club adds to the
   cards are flagged `club: true` and render a "club" chip. Three are whole
-  SECTIONS (I'M SAFE, the 5 Ps, the closing walkaround) and seven are single
-  lines inside a card's own section (the open-squawks review, the tach/Hobbs
-  reading, the tail controls moving freely, the starter crank at the end of the
-  cold-start pre-lube, the CO detector ON before the start and OFF after the
-  master, the cabin clean-out); a test asserts nothing else creeps in. Two of the airplane's own lines are deliberately NOT transcriptions any
+  SECTIONS (I'M SAFE, the closing walkaround, and the turn-off card's outside
+  parking — tie-downs, chocks, cover, and one row for the pitot/air-vent/
+  engine-inlet plugs; the control lock and cabin rows came off in TURNOFF v5,
+  so `derivePutAway` now always reports `cabinClean: true` and nothing nags
+  about the cabin) and seven are single lines inside a card's own section (the
+  open-squawks review, the tach/Hobbs reading, the tail controls moving freely,
+  the starter crank at the end of the cold-start pre-lube, the CO detector ON
+  before the start and OFF after the master, and the shutdown's dead-mag check,
+  "Magnetos — check OFF", which replaced the card's idle line); a test asserts
+  nothing else creeps in. Two of the airplane's own lines are deliberately NOT transcriptions any
   more: both brake items dropped "pads", because N8318B wears wheel fairings and
   a card asking for a check nobody can make is a line that gets ticked anyway. Two
   more rules about FIELDS: a `defaultNow` time field opens at the club's
@@ -593,7 +654,10 @@ owns the only splash in the app.
   is a gap rather than a zero-landing claim. ✅tested
 - `inflightReference.ts` — the card's takeoff/climb/cruise/descent phases and
   the KTOA (Zamperini Field, the club's home) frequency block, as read-only data. Deliberately NOT checkout items:
-  nothing ticked in the air, nothing blocking a sign-off. Airspeeds are MPH.
+  nothing ticked in the air, nothing blocking a sign-off. The climb's Vx / Vy /
+  cruise-climb come from `pohReference.ts` by id (`manualSpeed`, "60 MPH · 52
+  kt") rather than being retyped; the descent is the club's five lines (ATIS,
+  altimeter, GUMPS, primer, belts).
   Rendered at the foot of the RUNWAY page (it's the next thing you read).
 - `weightBalance.ts` — the loading stations and CG envelope as data, plus the
   sum. Arms are RECOVERED from the POH's own worked example (p.38) rather than
@@ -715,15 +779,17 @@ owns the only splash in the app.
   reports what it cost),
   `flightCharge`/`fuelCredit`, `ruleAppliesTo`/`membersBilledBy`,
   money parsing/formatting. ✅tested
-- `fuel.ts` — fuel money. Every form asks for the PUMP PRICE per gallon
-  (`fuelPricePerGalCents`, as typed) and the server multiplies it out to
-  `fuelCostCents`, which stays the TOTAL — the number `fuelCredit` pays back
-  and the only one rows predating the price carry. Such a row shows as
-  "22.1 gal · $153.01" rather than with a price back-derived from it (that
-  rarely multiplies back to the cent). The body readers are `fuelFrom` /
-  `fuelPatchFrom` in `flights.ts`, shared by both flight routes and
-  servicing; a total sent outright is still accepted, because an outbox job
-  frozen before the price box existed sends one. ✅tested
+- `fuel.ts` — fuel money as THREE boxes, any two of which give the third:
+  gallons × price per gallon = total. Every fuel form draws them through
+  `components/FuelFields.tsx` (Quick Log, post-flight, Add Fuel, both flight
+  modals); all three are optional, so a member who lost the receipt can give
+  just a total, or nothing. The two most recently TYPED boxes are the inputs
+  (`editFuel`) and the third is "Worked out for you"; typing into the worked-
+  out one drops the PRICE first, because it's the one figure nothing stores.
+  Only gallons and the TOTAL reach the server (`fuelPayload` →
+  `fuelAddedGal` + `fuelCostDollars`); there is no price column — it's always
+  total ÷ gallons, which is how the log shows "22.1 gal × $6.99 = **$154.48**"
+  (`fuelSummary` / `FuelSummary`). Drafts keep all three strings. ✅tested
 - `landingFees.ts` — what a field charges to land: the fee TABLE (KTOA $6) and
   `landingFeeFor` / `landingFeeInputFor`. Only a DEFAULT — what the club bills is
   `Flight.landingFeeCents`, the figure the pilot left in the box, because rates
@@ -828,6 +894,15 @@ owns the only splash in the app.
   The club account is the organiser of every event, so a member needs no
   access to the airplane's calendar to book.
   ✅tested
+- `accessKeys.ts` — key generation, hashing, `bearerKey` (only `vff_` keys are
+  even looked up), names, the last-used throttle. `accessKeyView.ts` — the
+  wire shape (no key, no hash) and the card's "Made … · last used …" line.
+  `agentWrites.ts` — the writing tools' arguments → route bodies, plus
+  `pickAircraft` / `pickInstructor` (ambiguity is an error, never a guess).
+  `agentView.ts` — the pure shaping of what a key reads (status in words:
+  AIRWORTHY / IN_MAINTENANCE / GROUNDED with reasons, the same grounding rules
+  as Plane Status). `mcp.ts` — JSON-RPC: initialize (version negotiation),
+  ping, tools/list, tools/call, batches, notifications → 202. ✅tested
 - `googleCalendar.ts` — OAuth + Calendar REST by hand with fetch, same reasoning
   as `storage/s3.ts`. Reuses the sign-in OAuth client through its OWN consent
   flow. `googleCalendarSync.ts` — the db half: `syncAircraftCalendar`
@@ -893,9 +968,18 @@ with Checkouts expanding inline; below `md`, the rail is replaced by the
 floating bottom pill, whose group sheet opens ABOVE THE TAB it belongs to
 rather than centred on the pill — a menu is the answer to the thing you just
 touched, and on a five-tab bar "centred" is a different tab entirely; while
-one is open the page is FROZEN — `#app-scroll` overflow hidden, and a
+one is open the page is FROZEN — `useScrollLock`, see below — and a
 backdrop above everything but the pill takes the first outside tap and only
 closes it),
+`ActiveFlightBanner` (in the top bar under the grounded banner: "N8318B is out
+with you since 10:05 AM — continue: runway card →" whenever the member has an
+unfiled session. Where it goes is `resumePoint` in lib/flightSession.ts — runway
+card signed ⇒ the post-flight form, else the runway card — and tapping it
+SELECTS that airplane first, since the cards act on the selected one. Off on
+the pages that are the way to finish (`showsResumeBanner`: runway, post-flight,
+Quick Log), off while that flight is queued in the outbox, re-asked on every
+navigation, on returning to the foreground and when the outbox lands
+something; ✕ hides it for the visit only),
 `SwipePager`/`SwipeProvider`
 (touch tab swipe, PHONES ONLY — off from the `md` breakpoint up, where the rail
 is there to tap (`swipeEnabledAt`); the page never moves sideways; a clearly
@@ -1032,7 +1116,7 @@ it at every state, the minimums and the reasoning are behind the disclosure / `R
 `GumpsCard`).
 Primitives in `components/common/`: `Badge Banner Button Card ChipSelect
 ConfirmModal DateTimeField Dropdown InfoTip Input Modal MoneyInput RichText
-Select Textarea Toggle LoadingDots LoadingScreen`. `Badge` takes an optional
+Select SwitchRow Textarea Toggle LoadingDots LoadingScreen`. `Badge` takes an optional
 `className` for LAYOUT only (the type chip's truncation). `MoneyInput` is a dollar
 box: a fixed "$", digits and one decimal point only, and the cents filled in
 on blur ("590" → "590.00") — its value is the box's string, parsed with
@@ -1043,9 +1127,9 @@ stakes; refusals show inside it. `Button` has a `success` (green) variant for
 "settled/confirmed" actions. `Toggle` is a switch with a label on EACH side
 ("My card ( o) Club card") — for a binary choice where both sides deserve a
 name, which a checkbox can't do (it has a label and an unlabelled opposite) and
-a radio pair needs four lines and a legend for. The post-flight page keeps its
-own `SwitchRow` for the other shape: one switch, one label, an on/off assertion
-whose opposite doesn't want a word. Prefer extending these. `RichText` is two exports:
+a radio pair needs four lines and a legend for. `SwitchRow` is the other shape
+(the post-flight page's, shared now that /profile's invites switch uses it):
+one switch, one label, an on/off assertion whose opposite doesn't want a word. Prefer extending these. `RichText` is two exports:
 `RichTextEditor` (a formatting toolbar over a plain textarea — deliberately not
 a contenteditable, see the file) and `RichTextView` (the renderer, and the ONLY
 sanctioned `dangerouslySetInnerHTML` in the app). Its `applyTool` is exported
@@ -1548,6 +1632,15 @@ hover: brushing past a control that changes a stored value shouldn't open it.
   "Close dialog" because footers now say "Close" (never "Cancel", which reads as
   cancelling the booking itself) — specs match the footer one with
   `exact: true`.
+- **An open overlay freezes the page: `useScrollLock(open)`**
+  (`components/useScrollLock.ts`, counted lock in `lib/scrollLock.ts`).
+  `Modal`, `Dropdown`, `ChipSelect`, `DateTimeField`'s calendar and the pill's
+  group sheet all take it; a NEW popup must too. It sets `overflow: hidden` on
+  `#app-scroll`, never on <body> — the document doesn't scroll, so the old
+  body lock was a no-op and every modal let the page slide underneath.
+  `PullToRefresh` and `SwipePager` stand down while `isScrollLocked()`, since
+  they move the page by hand and overflow doesn't stop them. `.app-scroll`
+  reserves its scrollbar gutter so freezing it doesn't shift the page.
 - **A closing `Modal` stays mounted for 250ms** (`EXIT_MS`) so it can animate
   out, showing the content it had while open. For that window it is
   `aria-hidden` and `pointer-events-none`, so `getByRole("dialog")` and clicks

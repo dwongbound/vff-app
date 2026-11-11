@@ -44,8 +44,9 @@ import { hasContent } from "@/lib/markdown";
 import RichTextEditor, { RichTextView } from "./common/RichText";
 import type { ApiFlight, ApiMember } from "@/lib/types";
 import { FlightTypeChip, FlightTypeSelect } from "@/components/FlightType";
+import FuelFields from "@/components/FuelFields";
 import FuelSummary from "@/components/FuelSummary";
-import { fuelTotalHint } from "@/lib/fuel";
+import { editFuel, fuelEntryFor, fuelPayload, type FuelEntry } from "@/lib/fuel";
 import type { Purpose } from "@/lib/constants";
 
 /** The editable half of a log entry, as the inputs hold it (strings). */
@@ -63,9 +64,8 @@ interface EditForm {
   departure: string;
   arrival: string;
   route: string;
-  fuelAddedGal: string;
-  /** Price per gallon. The total is the server's sum — see lib/fuel.ts. */
-  fuelPriceDollars: string;
+  /** Gallons, price and total — any two give the third (lib/fuel.ts). */
+  fuel: FuelEntry;
   landingFeeDollars: string;
   oilAddedQts: string;
   withInstructor: boolean;
@@ -95,8 +95,7 @@ function formFor(flight: ApiFlight): EditForm {
     departure: flight.departure ?? "",
     arrival: flight.arrival ?? "",
     route: flight.route ?? "",
-    fuelAddedGal: text(flight.fuelAddedGal),
-    fuelPriceDollars: money(flight.fuelPricePerGalCents),
+    fuel: fuelEntryFor(flight),
     landingFeeDollars: money(flight.landingFeeCents),
     oilAddedQts: text(flight.oilAddedQts),
     withInstructor: flight.withInstructor,
@@ -242,13 +241,9 @@ export default function FlightDetailModal({
       departure: form.departure.trim() || null,
       arrival: form.arrival.trim() || null,
       route: form.route.trim() || null,
-      fuelAddedGal: numeric(form.fuelAddedGal),
-      // The price, and the server works the total out. An older entry has a
-      // total and no price: left empty, its box sends nothing, so saving some
-      // other correction can't wipe the total it was billed on.
-      ...(form.fuelPriceDollars.trim() !== "" || flight.fuelPricePerGalCents != null
-        ? { fuelPricePerGalCents: dollars(form.fuelPriceDollars) }
-        : {}),
+      // Gallons and the total — the two columns stored; the price is only a
+      // way of arriving at the total.
+      ...fuelPayload(form.fuel),
       landingFeeCents: dollars(form.landingFeeDollars),
       oilAddedQts: numeric(form.oilAddedQts),
       withInstructor: form.withInstructor,
@@ -495,30 +490,11 @@ export default function FlightDetailModal({
               onChange={(e) => set({ route: e.target.value })}
             />
 
+            <FuelFields
+              entry={form.fuel}
+              onChange={(field, value) => set({ fuel: editFuel(form.fuel, field, value) })}
+            />
             <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                label="Fuel added"
-                type="number"
-                step="0.1"
-                min="0"
-                value={form.fuelAddedGal}
-                onChange={(e) => set({ fuelAddedGal: e.target.value })}
-                hint="Gallons"
-              />
-              <Input
-                label="Price per gallon"
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.fuelPriceDollars}
-                onChange={(e) => set({ fuelPriceDollars: e.target.value })}
-                hint={
-                  fuelTotalHint(form.fuelAddedGal, form.fuelPriceDollars) ??
-                  (flight.fuelPricePerGalCents == null && flight.fuelCostCents != null
-                    ? `Recorded as a ${formatCents(flight.fuelCostCents)} total`
-                    : "Dollars — the total is credited back to you")
-                }
-              />
               <Input
                 label="Landing fee"
                 type="number"
@@ -700,11 +676,6 @@ export default function FlightDetailModal({
                 {!flight.tiedDown && (
                   <li className="text-amber-700 dark:text-amber-400">
                     Tie-downs and chocks not confirmed
-                  </li>
-                )}
-                {!flight.cabinClean && (
-                  <li className="text-amber-700 dark:text-amber-400">
-                    Cabin clean-out not confirmed
                   </li>
                 )}
                 {flight.turnoffCheckoutVersion != null && (
