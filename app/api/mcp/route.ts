@@ -1,0 +1,189 @@
+// POST /api/mcp — the club app as an MCP server, for a member's own assistant
+// (Jarvis). Stateless Streamable HTTP: one JSON-RPC message (or batch) per
+// POST, a plain JSON reply, tools only. Protocol rules in lib/mcp.ts, tools in
+// lib/agentTools.ts, data in lib/agentSnapshot.ts.
+//
+// Authenticated by `Authorization: Bearer vff_…` ONLY, like /api/agent. Every
+// key gets the reading tools; a key made "can book and file" also gets
+// book_airplane, cancel_booking and file_flight, which call the app's OWN
+// route handlers with the same key — so the booking rules, the conflict check,
+// the Google Calendar write and the bill are exactly the app's, and the key
+// acts as a plain member there (lib/accessKeyAuth.ts `getActingUser`).
+import { NextResponse } from "next/server";
+import { getKeyUser, type KeyUser } from "@/lib/accessKeyAuth";
+import { agentSection, agentSnapshot } from "@/lib/agentSnapshot";
+import {
+  AGENT_TOOLS,
+  AGENT_WRITE_TOOLS,
+  agentInstructions,
+  agentToolsFor,
+  type AgentAction,
+} from "@/lib/agentTools";
+import {
+  parseBookingArgs,
+  parseCancelArgs,
+  parseFlightArgs,
+  pickAircraft,
+  pickInstructor,
+} from "@/lib/agentWrites";
+import { handleMcp, parseErrorReply } from "@/lib/mcp";
+import { prisma } from "@/lib/prisma";
+import { PURPOSE_LABELS } from "@/lib/constants";
+import { POST as bookRoute } from "../reservations/route";
+import { DELETE as cancelRoute } from "../reservations/[id]/route";
+import { POST as fileRoute } from "../flights/route";
+
+export async function POST(req: Request) {
+  const user = await getKeyUser(req);
+  if (!user) {
+    return NextResponse.json(
+      { error: "Send a personal access key: Authorization: Bearer vff_… (make one on your profile)." },
+      { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="vff"' } }
+    );
+  }
+
+  const body = await req.json().catch(() => undefined);
+  if (body === undefined) return NextResponse.json(parseErrorReply(), { status: 400 });
+
+  const replies = await handleMcp(
+    {
+      name: "vff-app",
+      version: "1",
+      instructions: agentInstructions(user.canWrite),
+      tools: agentToolsFor(user.canWrite),
+      callTool: async (name, args) => {
+        const reader = AGENT_TOOLS.find((t) => t.name === name);
+        if (reader) return reader.section ? agentSection(user, reader.section) : agentSnapshot(user);
+        // handleMcp only calls a tool it listed, and writers are only listed
+        // for a key that may write.
+        const writer = AGENT_WRITE_TOOLS.find((t) => t.name === name)!;
+        return runWrite(req, user, writer.action, args);
+      },
+    },
+    body
+  );
+  // Only notifications: accepted, nothing to say.
+  if (replies === null) return new NextResponse(null, { status: 202 });
+  return NextResponse.json(replies, { headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * No server-to-client stream: the spec lets a server that never pushes answer
+ * GET with 405, and a client then simply POSTs.
+ */
+export function GET() {
+  return new NextResponse(null, { status: 405, headers: { Allow: "POST" } });
+}
+
+/** One writing tool: parse, resolve names, then hand it to the app's route. */
+async function runWrite(req: Request, user: KeyUser, action: AgentAction, args: Record<string, unknown>) {
+  switch (action) {
+    case "book":
+      return book(req, args);
+    case "cancel":
+      return cancel(req, args);
+    case "file":
+      return file(req, user, args);
+  }
+}
+
+/** Throws the sentence the model reads when a parse or lookup failed. */
+function unwrap<T>(parsed: { value: T } | { error: string }): T {
+  if ("error" in parsed) throw new Error(parsed.error);
+  return parsed.value;
+}
+
+async function activeFleet() {
+  return prisma.aircraft.findMany({
+    where: { active: true },
+    orderBy: { tailNumber: "asc" },
+    select: { id: true, tailNumber: true },
+  });
+}
+
+async function instructorId(name: string | null): Promise<string | null> {
+  if (!name) return null;
+  const instructors = await prisma.user.findMany({
+    where: { positions: { has: "INSTRUCTOR" } },
+    select: { id: true, name: true },
+  });
+  return unwrap(pickInstructor(instructors, name)).id;
+}
+
+/**
+ * A request to one of the app's own routes, carrying THIS request's key — the
+ * route authenticates it again, which is the point: it can't be talked into
+ * anything the key couldn't do by calling it directly.
+ */
+function inner(req: Request, path: string, method: string, json?: unknown) {
+  return new Request(new URL(path, req.url), {
+    method,
+    headers: {
+      authorization: req.headers.get("authorization") ?? "",
+      "content-type": "application/json",
+    },
+    body: json === undefined ? undefined : JSON.stringify(json),
+  });
+}
+
+/** The route's reply, or a throw carrying its own error sentence. */
+async function readReply(res: Response) {
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error ?? `The app refused that (HTTP ${res.status}).`);
+  return data;
+}
+
+async function book(req: Request, args: Record<string, unknown>) {
+  const request = unwrap(parseBookingArgs(args));
+  const aircraft = unwrap(pickAircraft(await activeFleet(), request.tailNumber));
+  const cfi = request.purpose === "TRAINING" ? await instructorId(request.instructor) : null;
+  const res = await bookRoute(
+    inner(req, "/api/reservations", "POST", {
+      aircraftId: aircraft.id,
+      startsAt: request.startsAt.toISOString(),
+      endsAt: request.endsAt.toISOString(),
+      purpose: request.purpose,
+      notes: request.notes,
+      instructorId: cfi,
+    })
+  );
+  const created = await readReply(res);
+  return {
+    booked: true,
+    bookingId: created.id,
+    tailNumber: aircraft.tailNumber,
+    startsAt: request.startsAt.toISOString(),
+    endsAt: request.endsAt.toISOString(),
+    purpose: PURPOSE_LABELS[request.purpose],
+  };
+}
+
+async function cancel(req: Request, args: Record<string, unknown>) {
+  const { bookingId } = unwrap(parseCancelArgs(args));
+  const res = await cancelRoute(inner(req, `/api/reservations/${encodeURIComponent(bookingId)}`, "DELETE"), {
+    params: Promise.resolve({ id: bookingId }),
+  });
+  await readReply(res);
+  return { cancelled: true, bookingId };
+}
+
+async function file(req: Request, user: KeyUser, args: Record<string, unknown>) {
+  const request = unwrap(parseFlightArgs(args));
+  const aircraft = unwrap(pickAircraft(await activeFleet(), request.tailNumber));
+  const res = await fileRoute(
+    inner(req, "/api/flights", "POST", {
+      ...request.body,
+      aircraftId: aircraft.id,
+      instructorId: await instructorId(request.instructor),
+    })
+  );
+  const flight = await readReply(res);
+  return {
+    filed: true,
+    flightId: flight.id,
+    pilot: user.name,
+    tailNumber: aircraft.tailNumber,
+    tachStart: flight.tachStart ?? null,
+    tachEnd: flight.tachEnd ?? null,
+  };
+}

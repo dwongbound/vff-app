@@ -22,6 +22,7 @@
 // written. See lib/flightSession.ts.
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { getActingUser } from "@/lib/accessKeyAuth";
 import { prisma } from "@/lib/prisma";
 import { serializeFlight, serializeFlightSummary } from "@/lib/serialize";
 import {
@@ -187,7 +188,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const user = await getSessionUser();
+  // A session, or a key made "can book and file" (lib/accessKeyAuth.ts).
+  const user = await getActingUser(req);
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const body = await req.json().catch(() => null);

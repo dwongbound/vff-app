@@ -349,6 +349,19 @@ export interface ApiMe {
   flightReviewOn: string | null;
   /** When they finished or skipped the guided tour; null = never shown. */
   tourSeenAt: string | null;
+  /** Invited to their bookings' calendar events (lib/calendarInvites.ts). */
+  calendarInvites: boolean;
+  /** Where those invites go; null = `email`. */
+  calendarInviteEmail: string | null;
+  /** Whether this server can talk to Google at all — gates the picker button. */
+  googleConfigured: boolean;
+}
+
+/** GET /api/calendar/mine — the member's own calendars, for the invite picker. */
+export interface ApiMyCalendars {
+  configured: boolean;
+  needsConsent?: boolean;
+  calendars?: { id: string; name: string; primary: boolean }[];
 }
 
 /**
@@ -543,4 +556,19 @@ export interface ApiInvoiceSendResult {
   sent: { memberId: string; name: string; address: string }[];
   skipped: { memberId: string; name: string; reason: string }[];
   failed: { memberId: string; name: string; error: string }[];
+}
+
+/** A personal access key as the profile lists it — no part of the key itself. */
+export interface ApiAccessKey {
+  id: string;
+  name: string;
+  /** May also book, cancel the member's bookings and file their flights. */
+  canWrite: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** POST /api/access-keys: the new key, shown once. */
+export interface ApiNewAccessKey extends ApiAccessKey {
+  key: string;
 }

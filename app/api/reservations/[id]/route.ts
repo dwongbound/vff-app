@@ -15,6 +15,7 @@
 // kept as CANCELED (which every read already filters out).
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { getActingUser } from "@/lib/accessKeyAuth";
 import { prisma } from "@/lib/prisma";
 import { serializeReservation } from "@/lib/serialize";
 import { conflictMessage, findConflict, validateReservation } from "@/lib/reservations";
@@ -202,10 +203,12 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getSessionUser();
+  // A session, or a key made "can book and file" — which acts as a plain
+  // member, so it can only ever cancel the member's OWN bookings.
+  const user = await getActingUser(req);
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
