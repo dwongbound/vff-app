@@ -138,13 +138,15 @@ describe("the access key's tools", () => {
 });
 
 describe("a key that may write", () => {
-  it("gets the three writing tools; a read-only key doesn't", () => {
+  it("gets the five writing tools; a read-only key doesn't", () => {
     expect(agentToolsFor(false).map((t) => t.name)).toEqual(AGENT_TOOLS.map((t) => t.name));
     expect(agentToolsFor(true).map((t) => t.name)).toEqual([
       ...AGENT_TOOLS.map((t) => t.name),
       "book_airplane",
+      "update_booking",
       "cancel_booking",
       "file_flight",
+      "update_flight",
     ]);
   });
   it("marks every writer as not read-only, and only cancelling as destructive", () => {

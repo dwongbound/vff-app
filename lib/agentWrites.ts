@@ -191,3 +191,100 @@ export function pickInstructor<T extends { id: string; name: string }>(
   }
   return { error: `No club instructor is called "${name}".` };
 }
+
+/**
+ * An argument that may be SET or CLEARED: absent → undefined (leave it), null
+ * or blank → null (clear it), a string → that string trimmed.
+ */
+function clearable(args: Args, key: string): string | null | undefined {
+  if (!(key in args) || args[key] === undefined) return undefined;
+  const v = args[key];
+  if (v === null) return null;
+  if (typeof v !== "string") return undefined;
+  return v.trim() || null;
+}
+
+export interface BookingUpdate {
+  bookingId: string;
+  /** The body for PATCH /api/reservations/[id], less instructorId. */
+  body: Record<string, unknown>;
+  /** A CFI's name to look up, null to drop the one it has, undefined to leave it. */
+  instructor: string | null | undefined;
+}
+
+/**
+ * update_booking's arguments. Only what was sent goes to the route, so moving
+ * the time leaves the notes alone and editing the notes leaves the time — the
+ * route re-checks the window (rules and conflicts) only when it moved.
+ */
+export function parseBookingUpdateArgs(args: Args): Parsed<BookingUpdate> {
+  const bookingId = text(args, "bookingId");
+  if (!bookingId) return { error: "Give the bookingId (the `id` from get_bookings)." };
+  const body: Record<string, unknown> = {};
+  for (const key of ["startsAt", "endsAt"] as const) {
+    if (args[key] === undefined || args[key] === null || args[key] === "") continue;
+    const at = parseClubTime(args[key]);
+    if (!at) return { error: `Give ${key} as club time, "YYYY-MM-DDTHH:mm".` };
+    body[key] = at.toISOString();
+  }
+  const purpose = purposeArg(args, null);
+  if ("error" in purpose) return purpose;
+  if (purpose.value) body.purpose = purpose.value;
+  const notes = clearable(args, "notes");
+  if (notes !== undefined) body.notes = notes;
+  const instructor = clearable(args, "instructor");
+  if (Object.keys(body).length === 0 && instructor === undefined) {
+    return { error: "Say what to change: startsAt, endsAt, purpose, instructor or notes." };
+  }
+  return { value: { bookingId, body, instructor } };
+}
+
+const FLIGHT_EDIT_NUMBERS = [...FLIGHT_NUMBERS, "oilAddedQts"] as const;
+
+export interface FlightUpdate {
+  flightId: string;
+  /** The body for PATCH /api/flights/[id], less instructorId. */
+  body: Record<string, unknown>;
+  instructor: string | null | undefined;
+}
+
+/**
+ * update_flight's arguments: a correction to one of the member's own log
+ * entries. Same "only what was sent" rule; a meter or a word sent as null is
+ * CLEARED, which the route allows on purpose (a misremembered tach has to be
+ * able to become a gap).
+ */
+export function parseFlightUpdateArgs(args: Args): Parsed<FlightUpdate> {
+  const flightId = text(args, "flightId");
+  if (!flightId) return { error: "Give the flightId (the `id` from get_my_flying)." };
+  const body: Record<string, unknown> = {};
+  for (const key of FLIGHT_EDIT_NUMBERS) {
+    if (!(key in args) || args[key] === undefined) continue;
+    if (args[key] === null) {
+      body[key] = null;
+      continue;
+    }
+    const n = number(args, key);
+    if (n === "invalid") return { error: `${key} has to be a number.` };
+    if (n !== null) body[key] = n;
+  }
+  const day = text(args, "flownOn");
+  if (day) {
+    const flownOn = DAY.test(day) ? clubInstant(day, "00:00") : null;
+    if (!flownOn) return { error: "Give flownOn as YYYY-MM-DD." };
+    body.flownOn = flownOn.toISOString();
+  }
+  const purpose = purposeArg(args, null);
+  if ("error" in purpose) return purpose;
+  if (purpose.value) body.purpose = purpose.value;
+  for (const key of ["departure", "arrival", "route", "notes", "logEntry"] as const) {
+    const v = clearable(args, key);
+    if (v !== undefined) body[key] = v;
+  }
+  if (typeof args.fuelPaidPersonally === "boolean") body.fuelPaidPersonally = args.fuelPaidPersonally;
+  const instructor = clearable(args, "instructor");
+  if (Object.keys(body).length === 0 && instructor === undefined) {
+    return { error: "Say what to change on the flight." };
+  }
+  return { value: { flightId, body, instructor } };
+}

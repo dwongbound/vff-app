@@ -73,7 +73,9 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getSessionUser();
+  // A session, or a key made "can book and file" — a plain member through a
+  // key, so it can only ever edit the member's OWN.
+  const user = await getActingUser(req);
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;

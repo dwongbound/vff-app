@@ -106,6 +106,7 @@ async function readFlying(user: KeyUser, now: Date) {
     where: { userId: user.id },
     orderBy: [{ flownOn: "desc" }, { createdAt: "desc" }],
     select: {
+      id: true,
       flownOn: true,
       filedAt: true,
       tachStart: true,

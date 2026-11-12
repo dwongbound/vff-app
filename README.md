@@ -366,9 +366,9 @@ nothing through a key can pay or change anything else.
 - **As an MCP server:** `POST https://<your site>/api/mcp` with the header
   `Authorization: Bearer vff_…`. Stateless Streamable HTTP, tools only:
   `get_club_snapshot`, `get_aircraft_status`, `get_bookings`,
-  `get_my_flying`, `get_my_balance`, plus `book_airplane`, `cancel_booking`
-  and `file_flight` for a key that may write. The writers call the app's own
-  booking and filing routes, so the club's booking rules, the conflict check,
+  `get_my_flying`, `get_my_balance`, plus `book_airplane`, `update_booking`,
+  `cancel_booking`, `file_flight` and `update_flight` for a key that may
+  write. The writers call the app's own booking, filing and editing routes, so the club's booking rules, the conflict check,
   the Google Calendar write and the bill are exactly what the app does.
   Times are club time (`"2026-11-14T09:00"`). For the Claude Agent SDK, for
   example:

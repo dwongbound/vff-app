@@ -79,6 +79,7 @@ describe("agentBooking", () => {
 describe("agentFlight", () => {
   it("reads an unfiled session as in progress, with no made-up hours", () => {
     const f = agentFlight({
+      id: "f1",
       flownOn: now,
       filedAt: null,
       tachStart: 1500,
@@ -95,6 +96,7 @@ describe("agentFlight", () => {
       instructor: null,
       signedAt: null,
     });
+    expect(f.id).toBe("f1"); // what update_flight takes
     expect(f.inProgress).toBe(true);
     expect(f.tachHours).toBeNull();
     expect(f.route).toBe("KTOA → KSMO");

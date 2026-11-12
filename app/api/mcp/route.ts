@@ -5,7 +5,8 @@
 //
 // Authenticated by `Authorization: Bearer vff_…` ONLY, like /api/agent. Every
 // key gets the reading tools; a key made "can book and file" also gets
-// book_airplane, cancel_booking and file_flight, which call the app's OWN
+// book_airplane, update_booking, cancel_booking, file_flight and
+// update_flight, which call the app's OWN
 // route handlers with the same key — so the booking rules, the conflict check,
 // the Google Calendar write and the bill are exactly the app's, and the key
 // acts as a plain member there (lib/accessKeyAuth.ts `getActingUser`).
@@ -21,8 +22,10 @@ import {
 } from "@/lib/agentTools";
 import {
   parseBookingArgs,
+  parseBookingUpdateArgs,
   parseCancelArgs,
   parseFlightArgs,
+  parseFlightUpdateArgs,
   pickAircraft,
   pickInstructor,
 } from "@/lib/agentWrites";
@@ -30,8 +33,9 @@ import { handleMcp, parseErrorReply } from "@/lib/mcp";
 import { prisma } from "@/lib/prisma";
 import { PURPOSE_LABELS } from "@/lib/constants";
 import { POST as bookRoute } from "../reservations/route";
-import { DELETE as cancelRoute } from "../reservations/[id]/route";
+import { DELETE as cancelRoute, PATCH as rebookRoute } from "../reservations/[id]/route";
 import { POST as fileRoute } from "../flights/route";
+import { PATCH as refileRoute } from "../flights/[id]/route";
 
 export async function POST(req: Request) {
   const user = await getKeyUser(req);
@@ -80,10 +84,14 @@ async function runWrite(req: Request, user: KeyUser, action: AgentAction, args: 
   switch (action) {
     case "book":
       return book(req, args);
+    case "rebook":
+      return rebook(req, args);
     case "cancel":
       return cancel(req, args);
     case "file":
       return file(req, user, args);
+    case "refile":
+      return refile(req, args);
   }
 }
 
@@ -158,6 +166,27 @@ async function book(req: Request, args: Record<string, unknown>) {
   };
 }
 
+async function rebook(req: Request, args: Record<string, unknown>) {
+  const { bookingId, body, instructor } = unwrap(parseBookingUpdateArgs(args));
+  // Left out, the instructor isn't sent, and the route keeps the one the
+  // booking has (or drops it if the purpose stopped being TRAINING).
+  const json = instructor === undefined ? body : { ...body, instructorId: await instructorId(instructor) };
+  const res = await rebookRoute(
+    inner(req, `/api/reservations/${encodeURIComponent(bookingId)}`, "PATCH", json),
+    { params: Promise.resolve({ id: bookingId }) }
+  );
+  const updated = await readReply(res);
+  return {
+    updated: true,
+    bookingId,
+    startsAt: updated.startsAt ?? null,
+    endsAt: updated.endsAt ?? null,
+    purpose: updated.purpose ? PURPOSE_LABELS[updated.purpose as keyof typeof PURPOSE_LABELS] : null,
+    instructor: updated.instructor?.name ?? null,
+    notes: updated.notes ?? null,
+  };
+}
+
 async function cancel(req: Request, args: Record<string, unknown>) {
   const { bookingId } = unwrap(parseCancelArgs(args));
   const res = await cancelRoute(inner(req, `/api/reservations/${encodeURIComponent(bookingId)}`, "DELETE"), {
@@ -185,5 +214,23 @@ async function file(req: Request, user: KeyUser, args: Record<string, unknown>) 
     tailNumber: aircraft.tailNumber,
     tachStart: flight.tachStart ?? null,
     tachEnd: flight.tachEnd ?? null,
+  };
+}
+
+async function refile(req: Request, args: Record<string, unknown>) {
+  const { flightId, body, instructor } = unwrap(parseFlightUpdateArgs(args));
+  const json = instructor === undefined ? body : { ...body, instructorId: await instructorId(instructor) };
+  const res = await refileRoute(inner(req, `/api/flights/${encodeURIComponent(flightId)}`, "PATCH", json), {
+    params: Promise.resolve({ id: flightId }),
+  });
+  const flight = await readReply(res);
+  return {
+    updated: true,
+    flightId,
+    tachStart: flight.tachStart ?? null,
+    tachEnd: flight.tachEnd ?? null,
+    hobbsStart: flight.hobbsStart ?? null,
+    hobbsEnd: flight.hobbsEnd ?? null,
+    flownOn: flight.flownOn ?? null,
   };
 }

@@ -495,13 +495,14 @@ owns the only splash in the app.
   Session only: a key can't make keys.
 - `agent` (GET) and `mcp` (POST) take `Authorization: Bearer vff_…`
   (`getKeyUser` in lib/accessKeyAuth.ts) and NOTHING ELSE: a browser session
-  gets 401 there. A `canWrite` key is ALSO taken by exactly three routes —
-  `POST /api/reservations`, `DELETE /api/reservations/[id]`, `POST /api/flights`
-  — through `getActingUser` (session first, else a write key), which hands the
+  gets 401 there. A `canWrite` key is ALSO taken by exactly five routes —
+  `POST /api/reservations`, `PATCH`/`DELETE /api/reservations/[id]`,
+  `POST /api/flights`, `PATCH /api/flights/[id]` — through `getActingUser` (session first, else a write key), which hands the
   route the member stripped of `isAdmin` and positions, so a key on an admin's
-  account still cancels only its own bookings. The MCP writers
-  (`book_airplane`, `cancel_booking`, `file_flight`, listed only for a write
-  key) call those route handlers in-process with the same key header, so every
+  account still edits and cancels only its own bookings and flights. The MCP
+  writers (`book_airplane`, `update_booking`, `cancel_booking`, `file_flight`,
+  `update_flight`, listed only for a write key; log rows carry their `id` for
+  the last) call those route handlers in-process with the same key header, so every
   rule is the route's; `lib/agentWrites.ts` only parses arguments (club-time
   strings via `clubInstant`, never the server's zone) and matches tail number /
   CFI name. Both read

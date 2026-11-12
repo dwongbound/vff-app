@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   parseBookingArgs,
+  parseBookingUpdateArgs,
   parseCancelArgs,
   parseClubTime,
   parseFlightArgs,
+  parseFlightUpdateArgs,
   pickAircraft,
   pickInstructor,
 } from "@/lib/agentWrites";
@@ -140,5 +142,56 @@ describe("pickInstructor", () => {
       error: 'More than one instructor matches "mat": Matt Reyes, Matthew Chen.',
     });
     expect(pickInstructor(cfis, "Zed")).toHaveProperty("error");
+  });
+});
+
+describe("parseBookingUpdateArgs", () => {
+  it("sends only what changes, with times on the club's clock", () => {
+    expect(parseBookingUpdateArgs({ bookingId: "b1", startsAt: "2026-11-12T09:00", endsAt: "2026-11-12T12:00" })).toEqual({
+      value: {
+        bookingId: "b1",
+        body: { startsAt: "2026-11-12T17:00:00.000Z", endsAt: "2026-11-12T20:00:00.000Z" },
+        instructor: undefined,
+      },
+    });
+  });
+  it("can clear the notes or the instructor, which is different from leaving them", () => {
+    expect(parseBookingUpdateArgs({ bookingId: "b1", notes: "", instructor: null })).toEqual({
+      value: { bookingId: "b1", body: { notes: null }, instructor: null },
+    });
+    expect(parseBookingUpdateArgs({ bookingId: "b1", purpose: "TRAINING", instructor: "Matt" })).toEqual({
+      value: { bookingId: "b1", body: { purpose: "TRAINING" }, instructor: "Matt" },
+    });
+  });
+  it("needs a booking and something to change, and refuses a bad time or purpose", () => {
+    expect(parseBookingUpdateArgs({ startsAt: "2026-11-12T09:00" })).toHaveProperty("error");
+    expect(parseBookingUpdateArgs({ bookingId: "b1" })).toHaveProperty("error");
+    expect(parseBookingUpdateArgs({ bookingId: "b1", endsAt: "noon" })).toHaveProperty("error");
+    expect(parseBookingUpdateArgs({ bookingId: "b1", purpose: "JOYRIDE" })).toHaveProperty("error");
+  });
+});
+
+describe("parseFlightUpdateArgs", () => {
+  it("sends only what changes, and null clears a meter or a word", () => {
+    expect(
+      parseFlightUpdateArgs({ flightId: "f1", tachEnd: "1502.4", hobbsEnd: null, route: null, logEntry: "Steep turns." })
+    ).toEqual({
+      value: {
+        flightId: "f1",
+        body: { tachEnd: 1502.4, hobbsEnd: null, route: null, logEntry: "Steep turns." },
+        instructor: undefined,
+      },
+    });
+  });
+  it("moves the day to club midnight and passes the instructor to look up", () => {
+    expect(parseFlightUpdateArgs({ flightId: "f1", flownOn: "2026-11-09", instructor: "Matt" })).toEqual({
+      value: { flightId: "f1", body: { flownOn: "2026-11-09T08:00:00.000Z" }, instructor: "Matt" },
+    });
+  });
+  it("needs a flight and something to change, and refuses what isn't a number or a day", () => {
+    expect(parseFlightUpdateArgs({ tachEnd: 1 })).toHaveProperty("error");
+    expect(parseFlightUpdateArgs({ flightId: "f1" })).toHaveProperty("error");
+    expect(parseFlightUpdateArgs({ flightId: "f1", tachEnd: "lots" })).toEqual({ error: "tachEnd has to be a number." });
+    expect(parseFlightUpdateArgs({ flightId: "f1", flownOn: "yesterday" })).toHaveProperty("error");
   });
 });

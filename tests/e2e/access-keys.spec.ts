@@ -106,7 +106,7 @@ test("a key made to book and file can book and cancel through MCP; a read-only o
   const writerTools = (await (await mcp(outside, key, "tools/list")).json()).result.tools.map(
     (t: { name: string }) => t.name
   );
-  expect(writerTools).toEqual(expect.arrayContaining(["book_airplane", "cancel_booking", "file_flight"]));
+  expect(writerTools).toEqual(expect.arrayContaining(["book_airplane", "update_booking", "cancel_booking", "file_flight", "update_flight"]));
   const readerTools = (await (await mcp(outside, reader.key, "tools/list")).json()).result.tools.map(
     (t: { name: string }) => t.name
   );
@@ -141,6 +141,29 @@ test("a key made to book and file can book and cancel through MCP; a read-only o
   );
   expect(mine?.yours).toBe(true);
 
+  // Moving it an hour later and changing the notes is the app's own edit.
+  const moved = await tool(outside, key, "update_booking", {
+    bookingId,
+    startsAt: `${day}T06:00`,
+    endsAt: `${day}T07:00`,
+    notes: "moved by e2e through MCP",
+  });
+  expect(moved).toHaveProperty("data.updated", true);
+  expect(moved).toHaveProperty("data.notes", "moved by e2e through MCP");
+  const relisted = await tool(outside, key, "get_bookings");
+  const movedRow = (relisted as { data: { bookings: { id: string; startsAt: string }[] } }).data.bookings.find(
+    (b) => b.id === bookingId
+  );
+  expect(new Date(movedRow!.startsAt).getTime()).toBe(
+    new Date((booked as { data: { startsAt: string } }).data.startsAt).getTime() + 3_600_000
+  );
+  // A read-only key can't reach the edit routes directly either.
+  const directEdit = await outside.patch(`/api/reservations/${bookingId}`, {
+    headers: { Authorization: `Bearer ${reader.key}` },
+    data: { notes: "nope" },
+  });
+  expect(directEdit.status()).toBe(401);
+
   expect(await tool(outside, key, "cancel_booking", { bookingId })).toEqual({
     data: { cancelled: true, bookingId },
   });
@@ -154,6 +177,22 @@ test("a key made to book and file can book and cancel through MCP; a read-only o
   // meters under every later spec).
   const backwards = await tool(outside, key, "file_flight", { tachStart: 9000, tachEnd: 8999 });
   expect(backwards).toHaveProperty("toolError");
+
+  // Corrections name the entry by the id get_my_flying gives; one that isn't
+  // there is the route's own 404, read back as words. (No real entry is
+  // edited: that re-bills it and marks a signed lesson as edited.)
+  const flying = (await tool(outside, key, "get_my_flying")) as {
+    data: { recentFlights: { id: string }[] };
+  };
+  for (const f of flying.data.recentFlights) expect(f.id).toEqual(expect.any(String));
+  expect(await tool(outside, key, "update_flight", { flightId: "no-such-flight", notes: "x" })).toHaveProperty(
+    "toolError"
+  );
+  const directFix = await outside.patch("/api/flights/no-such-flight", {
+    headers: { Authorization: `Bearer ${reader.key}` },
+    data: { notes: "nope" },
+  });
+  expect(directFix.status()).toBe(401);
 
   await outside.dispose();
   // Tidy up: revoke both, so later runs start from an empty card.

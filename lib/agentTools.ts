@@ -1,5 +1,5 @@
 // The MCP tools an access key gets: one per section of the snapshot, plus the
-// whole thing — and, for a key made "can book and file", three that write.
+// whole thing — and, for a key made "can book and file", five that write.
 // Declared here (not in the route) because a route.ts may only export Next's
 // own handlers, and the unit test pins the list.
 import type { McpTool } from "./mcp";
@@ -53,7 +53,7 @@ export const AGENT_TOOLS: AgentTool[] = [
 ];
 
 /** What a writing tool does — the MCP route maps each to one app route. */
-export type AgentAction = "book" | "cancel" | "file";
+export type AgentAction = "book" | "rebook" | "cancel" | "file" | "refile";
 
 export interface AgentWriteTool extends McpTool {
   action: AgentAction;
@@ -93,6 +93,30 @@ export const AGENT_WRITE_TOOLS: AgentWriteTool[] = [
         notes: { type: "string" },
       },
       required: ["startsAt", "endsAt"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_booking",
+    title: "Change a booking",
+    description:
+      "Change one of the member's own bookings (the `id` from get_bookings, where `yours` is true): move its times, or change its purpose, instructor or notes. Send only what changes. A moved booking goes through the same rules and conflict check as a new one, and a Google-linked airplane's calendar event is updated too. Confirm the change with the member before calling.",
+    action: "rebook",
+    readOnly: false,
+    inputSchema: {
+      type: "object",
+      properties: {
+        bookingId: { type: "string" },
+        startsAt: CLUB_TIME,
+        endsAt: CLUB_TIME,
+        purpose: { type: "string", enum: PURPOSES },
+        instructor: {
+          type: ["string", "null"],
+          description: `${INSTRUCTOR.description} Only for TRAINING; null drops the one it has.`,
+        },
+        notes: { type: ["string", "null"], description: "Replaces the notes; null or empty clears them." },
+      },
+      required: ["bookingId"],
       additionalProperties: false,
     },
   },
@@ -150,6 +174,40 @@ export const AGENT_WRITE_TOOLS: AgentWriteTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "update_flight",
+    title: "Correct a flight",
+    description:
+      "Correct one of the member's own log entries (the `id` from get_my_flying), the way editing it in the flight log does: meters, landings, date, route, type, instructor, fuel, notes and the write-up. Send only what changes; null clears a field. A corrected tach or fuel receipt re-bills the flight, and an instructor's signature stays but shows the entry was edited after. Read the change back to the member before calling.",
+    action: "refile",
+    readOnly: false,
+    inputSchema: {
+      type: "object",
+      properties: {
+        flightId: { type: "string" },
+        flownOn: { type: "string", description: "The day flown, YYYY-MM-DD at the club." },
+        tachStart: { type: ["number", "null"] },
+        tachEnd: { type: ["number", "null"] },
+        hobbsStart: { type: ["number", "null"] },
+        hobbsEnd: { type: ["number", "null"] },
+        landings: { type: "integer", minimum: 0 },
+        nightLandings: { type: "integer", minimum: 0 },
+        departure: { type: ["string", "null"], description: "Airport identifier, e.g. KTOA." },
+        arrival: { type: ["string", "null"] },
+        route: { type: ["string", "null"] },
+        purpose: { type: "string", enum: PURPOSES },
+        instructor: { type: ["string", "null"], description: `${INSTRUCTOR.description} null removes it.` },
+        fuelAddedGal: { type: ["number", "null"] },
+        fuelCostDollars: { type: ["number", "null"] },
+        fuelPaidPersonally: { type: "boolean" },
+        oilAddedQts: { type: ["number", "null"] },
+        notes: { type: ["string", "null"] },
+        logEntry: { type: ["string", "null"], description: "The pilot's write-up of the flight (Markdown)." },
+      },
+      required: ["flightId"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** The tools a key lists: the readers always, the writers only when it may write. */
@@ -169,7 +227,7 @@ export function agentInstructions(canWrite: boolean): string {
   }
   return (
     READ_ONLY_INSTRUCTIONS +
-    "This key may also book the airplane, cancel the member's own bookings and file their flights, as the member. " +
+    "This key may also book the airplane, change or cancel the member's own bookings, and file or correct their flights, as the member. " +
     "Confirm what you are about to do with the member before every write. Nothing here can pay or change anything else."
   );
 }

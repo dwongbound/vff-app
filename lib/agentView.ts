@@ -120,6 +120,7 @@ export function agentBooking(row: AgentBookingRow, meId: string) {
 // ── Flying ─────────────────────────────────────────────────────────────────
 
 export interface AgentFlightRow {
+  id: string;
   flownOn: Date;
   filedAt: Date | null;
   tachStart: number | null;
@@ -140,6 +141,7 @@ export interface AgentFlightRow {
 /** One log entry. `inProgress` is an airplane still out (no `filedAt`). */
 export function agentFlight(row: AgentFlightRow) {
   return {
+    id: row.id,
     flownOn: row.flownOn.toISOString(),
     tailNumber: row.aircraft.tailNumber,
     tachHours: tachHours(row),
