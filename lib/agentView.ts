@@ -120,6 +120,7 @@ export function agentBooking(row: AgentBookingRow, meId: string) {
 // ── Flying ─────────────────────────────────────────────────────────────────
 
 export interface AgentFlightRow {
+  id: string;
   flownOn: Date;
   filedAt: Date | null;
   tachStart: number | null;
@@ -132,6 +133,8 @@ export interface AgentFlightRow {
   departure: string | null;
   arrival: string | null;
   route: string | null;
+  notes: string | null;
+  logEntry: string | null;
   aircraft: { tailNumber: string };
   instructor: { name: string } | null;
   signedAt: Date | null;
@@ -140,6 +143,8 @@ export interface AgentFlightRow {
 /** One log entry. `inProgress` is an airplane still out (no `filedAt`). */
 export function agentFlight(row: AgentFlightRow) {
   return {
+    // What update_flight takes, for a key that may write.
+    id: row.id,
     flownOn: row.flownOn.toISOString(),
     tailNumber: row.aircraft.tailNumber,
     tachHours: tachHours(row),
@@ -154,6 +159,9 @@ export function agentFlight(row: AgentFlightRow) {
     instructor: row.instructor?.name ?? null,
     instructorSigned: row.signedAt != null,
     inProgress: row.filedAt == null,
+    notes: row.notes,
+    // The pilot's own write-up, markdown.
+    logEntry: row.logEntry,
   };
 }
 

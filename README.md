@@ -357,8 +357,8 @@ A member can let an assistant of their own read the club through a **personal
 access key**, made on **Profile → Personal access keys**. A key sees what its
 member sees: the airplanes' status, squawks and maintenance, the next 30 days
 of bookings, their own flight log and currency, and their own balance. A key
-is **read-only** unless the member ticks **"Also let this key book, cancel my
-bookings and file my flights"** when making it; that choice is fixed for the
+is **read-only** unless the member ticks **"Also let this key book, change and
+cancel my bookings, and file and correct my flights"** when making it; that choice is fixed for the
 key's life (make a new key to change it). A key that may write acts as a
 plain member, never as an admin or officer, even on an admin's account, and
 nothing through a key can pay or change anything else.
@@ -366,10 +366,13 @@ nothing through a key can pay or change anything else.
 - **As an MCP server:** `POST https://<your site>/api/mcp` with the header
   `Authorization: Bearer vff_…`. Stateless Streamable HTTP, tools only:
   `get_club_snapshot`, `get_aircraft_status`, `get_bookings`,
-  `get_my_flying`, `get_my_balance`, plus `book_airplane`, `cancel_booking`
-  and `file_flight` for a key that may write. The writers call the app's own
-  booking and filing routes, so the club's booking rules, the conflict check,
-  the Google Calendar write and the bill are exactly what the app does.
+  `get_my_flying`, `get_my_balance`, plus `book_airplane`, `update_booking`,
+  `cancel_booking`, `file_flight` and `update_flight` for a key that may
+  write. The writers call the app's own booking, filing and editing routes, so
+  the club's booking rules, the conflict check, the Google Calendar write and
+  the bill are exactly what the app does. The two update tools change only
+  what they name (a booking's times, type, CFI or notes; a log entry's meters,
+  landings, route, fuel, notes or write-up), and only the member's own.
   Times are club time (`"2026-11-14T09:00"`). For the Claude Agent SDK, for
   example:
 

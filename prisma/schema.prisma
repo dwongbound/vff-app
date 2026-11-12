@@ -1074,8 +1074,9 @@ model InvoiceSend {
 
 // A member's PERSONAL ACCESS KEY: lets one app of theirs (Jarvis) READ what
 // they can already see in the app, through GET /api/agent and the MCP endpoint
-// /api/mcp. A key with `canWrite` may also book, cancel the member's own
-// bookings and file their flights — through the SAME three routes the app
+// /api/mcp. A key with `canWrite` may also book, change and cancel the
+// member's own bookings and file and correct their flights — through the SAME
+// five routes the app
 // uses (lib/accessKeyAuth.ts `getActingUser`), so every rule a member is held
 // to holds for it too. Nothing else accepts a key: no money, no admin. Only the
 // SHA-256 of the key is stored (it's 256 random bits, so a slow hash buys
@@ -1090,7 +1091,7 @@ model AccessKey {
   /// The member's own label ("Jarvis").
   name    String
   keyHash String @unique
-  /// May book, cancel own bookings and file flights. Off unless the member
+  /// May book, change and cancel own bookings, and file and correct own flights. Off unless the member
   /// turned it on when making the key.
   canWrite Boolean @default(false)
 

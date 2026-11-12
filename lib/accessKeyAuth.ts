@@ -1,8 +1,9 @@
 // The db half of lib/accessKeys.ts: who, if anyone, a request's access key
 // belongs to. `getKeyUser` is for GET /api/agent and POST /api/mcp, which take
-// a key and nothing else. `getActingUser` is for the three routes a key that
-// was made "can book and file" may also write through — book, cancel your own
-// booking, file a flight — and every other route still takes only a session.
+// a key and nothing else. `getActingUser` is for the five routes a key that
+// was made "can book and file" may also write through — book, change or
+// cancel your own booking, file or correct your own flight — and every other
+// route still takes only a session.
 import { prisma } from "./prisma";
 import { getSessionUser } from "./auth";
 import { bearerKey, hashAccessKey, shouldTouchLastUsed } from "./accessKeys";

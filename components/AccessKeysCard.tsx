@@ -167,7 +167,7 @@ export default function AccessKeysCard() {
             checked={canWrite}
             onChange={(e) => setCanWrite(e.target.checked)}
           />
-          Also let this key book, cancel my bookings and file my flights
+          Also let this key book, change and cancel my bookings, and file and correct my flights
         </label>
       )}
 

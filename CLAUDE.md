@@ -235,8 +235,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   lines free to repeat.
 - **AccessKey** — a member's personal access key for their own assistant
   (Jarvis): `name`, `keyHash` (SHA-256, unique — the key is 256 random bits,
-  so no slow hash), `canWrite` (may also book, cancel its member's bookings
-  and file their flights; set at creation only, default false), `lastUsedAt`
+  so no slow hash), `canWrite` (may also book, change and cancel its member's
+  bookings and file and correct their flights; set at creation only, default false), `lastUsedAt`
   (written at most every 5 min), `revokedAt` (revoke stamps rather than
   deletes). NO part of the key is stored or shown
   again after creation, not even a prefix (Dylan, 2026-11-10).
@@ -495,13 +495,13 @@ owns the only splash in the app.
   Session only: a key can't make keys.
 - `agent` (GET) and `mcp` (POST) take `Authorization: Bearer vff_…`
   (`getKeyUser` in lib/accessKeyAuth.ts) and NOTHING ELSE: a browser session
-  gets 401 there. A `canWrite` key is ALSO taken by exactly three routes —
-  `POST /api/reservations`, `DELETE /api/reservations/[id]`, `POST /api/flights`
-  — through `getActingUser` (session first, else a write key), which hands the
+  gets 401 there. A `canWrite` key is ALSO taken by exactly five routes —
+  `POST /api/reservations`, `PATCH`/`DELETE /api/reservations/[id]`,
+  `POST /api/flights`, `PATCH /api/flights/[id]` — through `getActingUser` (session first, else a write key), which hands the
   route the member stripped of `isAdmin` and positions, so a key on an admin's
-  account still cancels only its own bookings. The MCP writers
-  (`book_airplane`, `cancel_booking`, `file_flight`, listed only for a write
-  key) call those route handlers in-process with the same key header, so every
+  account still edits and cancels only its own bookings and flights. The MCP
+  writers (`book_airplane`, `update_booking`, `cancel_booking`, `file_flight`,
+  `update_flight`, listed only for a write key) call those route handlers in-process with the same key header, so every
   rule is the route's; `lib/agentWrites.ts` only parses arguments (club-time
   strings via `clubInstant`, never the server's zone) and matches tail number /
   CFI name. Both read

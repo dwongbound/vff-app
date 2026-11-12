@@ -78,13 +78,13 @@ async function tool(request: APIRequestContext, key: string, name: string, args:
   return body.result.isError ? { toolError: text } : { data: JSON.parse(text) };
 }
 
-test("a key made to book and file can book and cancel through MCP; a read-only one can't", async ({
+test("a key made to book and file can book, change, cancel and correct through MCP; a read-only one can't", async ({
   page,
   playwright,
 }) => {
   await gotoTab(page, "/profile", "Your profile");
   const card = page.getByTestId("access-keys");
-  await card.getByLabel("Also let this key book, cancel my bookings and file my flights").check();
+  await card.getByLabel("Also let this key book, change and cancel my bookings, and file and correct my flights").check();
   await card.getByLabel("Name for a new key").fill("Jarvis writes e2e");
   await card.getByRole("button", { name: "Create key" }).click();
   const shown = card.getByTestId("new-access-key");
@@ -93,7 +93,7 @@ test("a key made to book and file can book and cancel through MCP; a read-only o
   await card.getByRole("button", { name: "Close", exact: true }).click();
   await expect(card.getByText(/^Can book and file · /).first()).toBeVisible();
   // The box goes back to off for the next key.
-  await expect(card.getByLabel("Also let this key book, cancel my bookings and file my flights")).not.toBeChecked();
+  await expect(card.getByLabel("Also let this key book, change and cancel my bookings, and file and correct my flights")).not.toBeChecked();
 
   // And a read-only one, straight through the API.
   const made = await page.request.post("/api/access-keys", { data: { name: "Reader e2e" } });
@@ -106,7 +106,9 @@ test("a key made to book and file can book and cancel through MCP; a read-only o
   const writerTools = (await (await mcp(outside, key, "tools/list")).json()).result.tools.map(
     (t: { name: string }) => t.name
   );
-  expect(writerTools).toEqual(expect.arrayContaining(["book_airplane", "cancel_booking", "file_flight"]));
+  expect(writerTools).toEqual(
+    expect.arrayContaining(["book_airplane", "update_booking", "cancel_booking", "file_flight", "update_flight"])
+  );
   const readerTools = (await (await mcp(outside, reader.key, "tools/list")).json()).result.tools.map(
     (t: { name: string }) => t.name
   );
@@ -141,6 +143,23 @@ test("a key made to book and file can book and cancel through MCP; a read-only o
   );
   expect(mine?.yours).toBe(true);
 
+  // Change it: a later end and new notes, the start left as it was.
+  const moved = await tool(outside, key, "update_booking", {
+    bookingId,
+    endsAt: `${day}T06:30`,
+    notes: "moved by e2e",
+  });
+  expect(moved).toHaveProperty("data.updated", true);
+  const relisted = await tool(outside, key, "get_bookings");
+  const now = (relisted as { data: { bookings: { id: string; startsAt: string; endsAt: string; notes: string }[] } })
+    .data.bookings.find((b) => b.id === bookingId);
+  expect(now?.notes).toBe("moved by e2e");
+  expect(new Date(now!.endsAt).getTime() - new Date(now!.startsAt).getTime()).toBe(90 * 60_000);
+  // Moving it onto nothing at all is the app's own rule: the end before the start.
+  expect(await tool(outside, key, "update_booking", { bookingId, endsAt: `${day}T04:00` })).toHaveProperty(
+    "toolError"
+  );
+
   expect(await tool(outside, key, "cancel_booking", { bookingId })).toEqual({
     data: { cancelled: true, bookingId },
   });
@@ -154,6 +173,38 @@ test("a key made to book and file can book and cancel through MCP; a read-only o
   // meters under every later spec).
   const backwards = await tool(outside, key, "file_flight", { tachStart: 9000, tachEnd: 8999 });
   expect(backwards).toHaveProperty("toolError");
+
+  // Correcting a log entry. The entry is one with no meters at all (filed as
+  // incomplete, by hand), so nothing here can move N8318B's tach or bill
+  // anyone, and it's deleted at the end.
+  const fleet = (await (await page.request.get("/api/aircraft")).json()) as { id: string }[];
+  const filed = await page.request.post("/api/flights", {
+    data: {
+      aircraftId: fleet[0].id,
+      flownOn: new Date().toISOString(),
+      standalone: true,
+      acknowledgeIncomplete: true,
+      notes: "filed by e2e for update_flight",
+    },
+  });
+  expect(filed.ok()).toBe(true);
+  const filedId = ((await filed.json()) as { id: string }).id;
+  const flying = (await tool(outside, key, "get_my_flying")) as {
+    data: { recentFlights: { id: string; logEntry: string | null }[] };
+  };
+  const entry = flying.data.recentFlights.find((f) => f.id === filedId)!;
+  expect(entry).toBeTruthy();
+  expect(await tool(outside, key, "update_flight", { flightId: entry.id, logEntry: "Edited by e2e" })).toHaveProperty(
+    "data.updated",
+    true
+  );
+  const reread = (await tool(outside, key, "get_my_flying")) as typeof flying;
+  expect(reread.data.recentFlights.find((f) => f.id === entry.id)?.logEntry).toBe("Edited by e2e");
+  // A meter that runs backwards is refused here too.
+  expect(
+    await tool(outside, key, "update_flight", { flightId: entry.id, tachStart: 9000, tachEnd: 8999 })
+  ).toHaveProperty("toolError");
+  expect((await page.request.delete(`/api/flights/${filedId}`)).ok()).toBe(true);
 
   await outside.dispose();
   // Tidy up: revoke both, so later runs start from an empty card.

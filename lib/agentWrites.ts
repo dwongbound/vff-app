@@ -191,3 +191,103 @@ export function pickInstructor<T extends { id: string; name: string }>(
   }
   return { error: `No club instructor is called "${name}".` };
 }
+
+export interface BookingUpdate {
+  bookingId: string;
+  /** The fields for PATCH /api/reservations/[id], less instructorId. */
+  body: Record<string, unknown>;
+  /** A CFI's name to resolve; "" = clear the instructor; null = leave it. */
+  instructor: string | null;
+}
+
+/**
+ * update_booking's arguments. Only what's named changes: a time left out keeps
+ * the booking's own, so moving the end alone is one argument. The route still
+ * re-runs the booking rules and the conflict check when the times move.
+ */
+export function parseBookingUpdateArgs(args: Args): Parsed<BookingUpdate> {
+  const bookingId = text(args, "bookingId");
+  if (!bookingId) return { error: "Give the bookingId (the `id` from get_bookings)." };
+  const body: Record<string, unknown> = {};
+  for (const key of ["startsAt", "endsAt"] as const) {
+    if (args[key] === undefined || args[key] === null || args[key] === "") continue;
+    const at = parseClubTime(args[key]);
+    if (!at) return { error: `Give ${key} as club time, "YYYY-MM-DDTHH:mm".` };
+    body[key] = at.toISOString();
+  }
+  const purpose = purposeArg(args, null);
+  if ("error" in purpose) return purpose;
+  if (purpose.value) body.purpose = purpose.value;
+  // Notes can be emptied, so "" is an answer here rather than "absent".
+  if (typeof args.notes === "string") body.notes = args.notes.trim() || null;
+
+  let instructor: string | null = null;
+  if (typeof args.instructor === "string") instructor = args.instructor.trim();
+  if (Object.keys(body).length === 0 && instructor === null) {
+    return { error: "Say what to change: startsAt, endsAt, purpose, instructor or notes." };
+  }
+  return { value: { bookingId, body, instructor } };
+}
+
+export interface FlightUpdate {
+  flightId: string;
+  /** The fields for PATCH /api/flights/[id], less instructorId. */
+  body: Record<string, unknown>;
+  /** A CFI's name to resolve; "" = clear the instructor; null = leave it. */
+  instructor: string | null;
+}
+
+/** The meters: a number sets one, null empties it (an honest gap). */
+const FLIGHT_METERS = ["tachStart", "tachEnd", "hobbsStart", "hobbsEnd"] as const;
+const FLIGHT_COUNTS = ["landings", "nightLandings", "fuelAddedGal", "fuelCostDollars"] as const;
+const FLIGHT_TEXTS = ["departure", "arrival", "route", "notes", "logEntry"] as const;
+
+/**
+ * update_flight's arguments: a correction to one of the member's own log
+ * entries, the way the log's Edit does. Only what's named is sent, so the
+ * route's "did anything really change" check — which decides whether a
+ * signed lesson reads "signed, then edited" — sees exactly the correction.
+ */
+export function parseFlightUpdateArgs(args: Args): Parsed<FlightUpdate> {
+  const flightId = text(args, "flightId");
+  if (!flightId) return { error: "Give the flightId (the `id` from get_my_flying)." };
+  const body: Record<string, unknown> = {};
+
+  for (const key of FLIGHT_METERS) {
+    if (!(key in args)) continue;
+    if (args[key] === null) {
+      body[key] = null;
+      continue;
+    }
+    const n = number(args, key);
+    if (n === "invalid" || n === null) return { error: `${key} has to be a number, or null to clear it.` };
+    body[key] = n;
+  }
+  for (const key of FLIGHT_COUNTS) {
+    const n = number(args, key);
+    if (n === "invalid") return { error: `${key} has to be a number.` };
+    if (n !== null) body[key] = n;
+  }
+  // Text can be emptied, so "" is an answer here rather than "absent".
+  for (const key of FLIGHT_TEXTS) {
+    if (typeof args[key] === "string") body[key] = (args[key] as string).trim() || null;
+  }
+  if (typeof args.fuelPaidPersonally === "boolean") body.fuelPaidPersonally = args.fuelPaidPersonally;
+
+  const day = text(args, "flownOn");
+  if (day) {
+    const flownOn = DAY.test(day) ? clubInstant(day, "00:00") : null;
+    if (!flownOn) return { error: "Give flownOn as YYYY-MM-DD." };
+    body.flownOn = flownOn.toISOString();
+  }
+  const purpose = purposeArg(args, null);
+  if ("error" in purpose) return purpose;
+  if (purpose.value) body.purpose = purpose.value;
+
+  let instructor: string | null = null;
+  if (typeof args.instructor === "string") instructor = args.instructor.trim();
+  if (Object.keys(body).length === 0 && instructor === null) {
+    return { error: "Say what to change on the entry." };
+  }
+  return { value: { flightId, body, instructor } };
+}
