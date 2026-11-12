@@ -79,6 +79,7 @@ describe("agentBooking", () => {
 describe("agentFlight", () => {
   it("reads an unfiled session as in progress, with no made-up hours", () => {
     const f = agentFlight({
+      id: "f1",
       flownOn: now,
       filedAt: null,
       tachStart: 1500,
@@ -91,10 +92,14 @@ describe("agentFlight", () => {
       departure: "KTOA",
       arrival: "KSMO",
       route: null,
+      notes: null,
+      logEntry: "**Pattern work**",
       aircraft: { tailNumber: "N8318B" },
       instructor: null,
       signedAt: null,
     });
+    // The id is what update_flight takes, and the write-up is shown to edit.
+    expect(f).toMatchObject({ id: "f1", logEntry: "**Pattern work**" });
     expect(f.inProgress).toBe(true);
     expect(f.tachHours).toBeNull();
     expect(f.route).toBe("KTOA → KSMO");

@@ -106,6 +106,7 @@ async function readFlying(user: KeyUser, now: Date) {
     where: { userId: user.id },
     orderBy: [{ flownOn: "desc" }, { createdAt: "desc" }],
     select: {
+      id: true,
       flownOn: true,
       filedAt: true,
       tachStart: true,
@@ -118,6 +119,8 @@ async function readFlying(user: KeyUser, now: Date) {
       departure: true,
       arrival: true,
       route: true,
+      notes: true,
+      logEntry: true,
       signedAt: true,
       aircraft: { select: { tailNumber: true } },
       instructor: { select: { name: true } },
