@@ -363,6 +363,11 @@ key's life (make a new key to change it). A key that may write acts as a
 plain member, never as an admin or officer, even on an admin's account, and
 nothing through a key can pay or change anything else.
 
+- **The whole club, for an admin's key:** `GET https://<your site>/api/club`
+  returns every pilot (certificate, declared total time, hours and landings
+  over 90 days and 12 months, the operating rules' column and currency), every
+  flight in the last 90 days with who flew it, the schedule and the airplanes.
+  It's for a club officer's own tools; any other member's key gets 403.
 - **As an MCP server:** `POST https://<your site>/api/mcp` with the header
   `Authorization: Bearer vff_…`. Stateless Streamable HTTP, tools only:
   `get_club_snapshot`, `get_aircraft_status`, `get_bookings`,

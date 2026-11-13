@@ -212,3 +212,34 @@ test("a key made to book and file can book, change, cancel and correct through M
     await page.request.delete(`/api/access-keys/${k.id}`);
   }
 });
+
+test("an admin's key reads the whole club at /api/club", async ({ page, playwright }) => {
+  const made = await page.request.post("/api/access-keys", { data: { name: "Club officer e2e" } });
+  expect(made.status()).toBe(201);
+  const { key } = (await made.json()) as { key: string };
+
+  const outside = await playwright.request.newContext({ baseURL: "http://localhost:3100" });
+  expect((await outside.get("/api/club")).status()).toBe(401);
+
+  const res = await outside.get("/api/club", { headers: { Authorization: `Bearer ${key}` } });
+  expect(res.status()).toBe(200);
+  const club = (await res.json()) as {
+    windowDays: number;
+    pilots: { name: string; certificate: string | null; landingsLast90Days: number }[];
+    recentFlights: { pilot: string }[];
+    schedule: { bookings: unknown[] };
+  };
+  expect(club.windowDays).toBe(90);
+  expect(club.pilots.length).toBeGreaterThan(1); // everyone, not just the key's owner
+  for (const p of club.pilots) {
+    expect(p).toHaveProperty("certificate");
+    expect(typeof p.landingsLast90Days).toBe("number");
+  }
+  for (const f of club.recentFlights) expect(typeof f.pilot).toBe("string");
+  expect(Array.isArray(club.schedule.bookings)).toBe(true);
+
+  await outside.dispose();
+  for (const k of (await (await page.request.get("/api/access-keys")).json()) as { id: string }[]) {
+    await page.request.delete(`/api/access-keys/${k.id}`);
+  }
+});

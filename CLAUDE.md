@@ -47,8 +47,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 - **User** — email doubles as username; `isAdmin` is club-wide (first account
   created gets it, see `app/api/signup`; after that admins promote each other
   from the Members tab). Pilot paperwork (`certificate`, `medicalExpiresOn`,
-  `flightReviewOn`) is informational and stays private to the member — the
-  roster API never selects it. `clubMember` is the OTHER half of "what is this
+  `flightReviewOn`) is informational. The members roster selects
+  `certificate`; `GET /api/club` (an admin's key only) shows `certificate` and
+  `totalTimeHours` for every pilot; the medical and flight review dates go
+  nowhere but the member's own profile. `clubMember` is the OTHER half of "what is this
   person to the club": it says they FLY here, as opposed to only teaching here.
   Independent of the INSTRUCTOR position on purpose — a club CFI who also rents
   the airplane is both, a visiting instructor is only the office — and it's
@@ -493,6 +495,11 @@ owns the only splash in the app.
 - `access-keys` (GET the caller's live keys, POST `{ name }` → the key ONCE,
   at most `MAX_ACCESS_KEYS`) · `access-keys/[id]` (DELETE = revoke your own).
   Session only: a key can't make keys.
+- `club` (GET) — the whole club for an ADMIN's key (`getKeyUser`, then
+  `isAdmin`, else 403): every pilot's certificate, declared total time, 90-day
+  and 12-month hours and landings (lib/clubView.ts `clubPilot`), every flight
+  of the last 90 days with its pilot (notes and write-ups left out), plus the
+  member snapshot's airplanes and schedule (lib/clubSnapshot.ts).
 - `agent` (GET) and `mcp` (POST) take `Authorization: Bearer vff_…`
   (`getKeyUser` in lib/accessKeyAuth.ts) and NOTHING ELSE: a browser session
   gets 401 there. A `canWrite` key is ALSO taken by exactly five routes —
