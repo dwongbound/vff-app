@@ -37,6 +37,15 @@ test("a key reads the club read-only, and stops the moment it's revoked", async 
   const outside = await playwright.request.newContext({ baseURL: "http://localhost:3100" });
   expect((await outside.get("/api/agent")).status()).toBe(401);
 
+  // The API's description is public — it's the shape, never the data — and
+  // so is the page that renders it.
+  const described = await outside.get("/api/openapi");
+  expect(described.status()).toBe(200);
+  expect(await described.json()).toMatchObject({ openapi: "3.1.0", paths: { "/api/agent": {}, "/api/mcp": {} } });
+  const docsPage = await outside.get("/api-docs.html");
+  expect(docsPage.status()).toBe(200);
+  expect(await docsPage.text()).toContain('url: "/api/openapi"');
+
   const snapshot = await outside.get("/api/agent", { headers: { Authorization: `Bearer ${key}` } });
   expect(snapshot.status()).toBe(200);
   const body = await snapshot.json();
