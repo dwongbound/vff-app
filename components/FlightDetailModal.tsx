@@ -315,13 +315,12 @@ export default function FlightDetailModal({
     <Modal
       open
       onClose={onClose}
-      title={
-        tach != null
-          ? `${formatHours(tach)} hours · ${flight.aircraft.tailNumber}`
-          : inProgress
-            ? `In progress · ${flight.aircraft.tailNumber}`
-            : `Hours not recorded · ${flight.aircraft.tailNumber}`
-      }
+      title={entryTitle({
+        hobbs,
+        tach,
+        inProgress,
+        tailNumber: flight.aircraft.tailNumber,
+      })}
       subtitle={`${formatFullDate(flight.flownOn)} · ${flight.pilot.name}`}
       footer={
         <div className="flex w-full items-center gap-2">
@@ -958,4 +957,24 @@ function Figure({
       {sub && <div className="text-xs text-gray-500 dark:text-gray-400">{sub}</div>}
     </div>
   );
+}
+
+/**
+ * The detail modal's title: how long the flight was, and on which airplane.
+ *
+ * Hobbs is the headline figure (Dylan, 2026-11-13). An entry with no Hobbs
+ * reading (most of the transcribed history) falls back to its tach span and
+ * says which meter that is, rather than showing a dash for a known flight.
+ */
+function entryTitle(args: {
+  hobbs: number | null;
+  tach: number | null;
+  inProgress: boolean;
+  tailNumber: string;
+}): string {
+  const { hobbs, tach, inProgress, tailNumber } = args;
+  if (hobbs != null) return `${formatHours(hobbs)} hours · ${tailNumber}`;
+  if (tach != null) return `${formatHours(tach)} tach hours · ${tailNumber}`;
+  if (inProgress) return `In progress · ${tailNumber}`;
+  return `Hours not recorded · ${tailNumber}`;
 }
