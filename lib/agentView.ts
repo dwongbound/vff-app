@@ -16,7 +16,8 @@ import {
   type MaintenanceFacts,
 } from "./maintenance";
 import { SQUAWK_STATUS_LABELS, isGrounding, isInMaintenance, type SquawkStatus } from "./squawks";
-import { tachHours } from "./hours";
+import { hobbsHours, tachHours, totalHobbsHours, totalTachHours } from "./hours";
+import { soloEligibility, TIER_LABELS } from "./operatingRules";
 import { bookedBy } from "./reservations";
 
 const dollars = (cents: number) => Math.round(cents) / 100;
@@ -120,6 +121,7 @@ export function agentBooking(row: AgentBookingRow, meId: string) {
 // ── Flying ─────────────────────────────────────────────────────────────────
 
 export interface AgentFlightRow {
+  id: string;
   flownOn: Date;
   filedAt: Date | null;
   tachStart: number | null;
@@ -132,6 +134,8 @@ export interface AgentFlightRow {
   departure: string | null;
   arrival: string | null;
   route: string | null;
+  notes: string | null;
+  logEntry: string | null;
   aircraft: { tailNumber: string };
   instructor: { name: string } | null;
   signedAt: Date | null;
@@ -140,6 +144,8 @@ export interface AgentFlightRow {
 /** One log entry. `inProgress` is an airplane still out (no `filedAt`). */
 export function agentFlight(row: AgentFlightRow) {
   return {
+    // What update_flight takes, for a key that may write.
+    id: row.id,
     flownOn: row.flownOn.toISOString(),
     tailNumber: row.aircraft.tailNumber,
     tachHours: tachHours(row),
@@ -154,6 +160,85 @@ export function agentFlight(row: AgentFlightRow) {
     instructor: row.instructor?.name ?? null,
     instructorSigned: row.signedAt != null,
     inProgress: row.filedAt == null,
+    notes: row.notes,
+    // The pilot's own write-up, markdown.
+    logEntry: row.logEntry,
+  };
+}
+
+// ── The club (a club-data key only) ───────────────────────────────────────
+
+/** How far back the club's flight log and each pilot's recent numbers go. */
+export const CLUB_RECENT_DAYS = 90;
+
+export interface ClubFlightRow extends AgentFlightRow {
+  pilot: { name: string };
+}
+
+/**
+ * One entry in the club's log, naming its pilot. The pilot's write-up
+ * (`logEntry`) is left out: it is their own account of the flight, and the
+ * question this answers is who flew the airplane and what they did with it.
+ */
+export function clubFlight(row: ClubFlightRow) {
+  const { logEntry: _writeUp, ...flight } = agentFlight(row);
+  return { ...flight, pilot: row.pilot.name, hobbsHours: hobbsHours(row) };
+}
+
+export interface ClubPilotRow {
+  id: string;
+  name: string;
+  email: string | null;
+  certificate: string | null;
+  totalTimeHours: number | null;
+  clubMember: boolean;
+  positions: string[];
+}
+
+export interface ClubPilotFlight {
+  flownOn: Date;
+  tachStart: number | null;
+  tachEnd: number | null;
+  hobbsStart: number | null;
+  hobbsEnd: number | null;
+  landings: number;
+  nightLandings: number;
+}
+
+/**
+ * One pilot's experience as the club can see it: what they told the club
+ * (certificate, total time — both self-entered, null when blank) and what the
+ * club's own log shows over the last 90 days and 12 months. `flights` is this
+ * pilot's flights, any order.
+ */
+export function clubPilot(row: ClubPilotRow, flights: ClubPilotFlight[], now: Date) {
+  const cutoff = now.getTime() - CLUB_RECENT_DAYS * 86_400_000;
+  const recent = flights.filter((f) => f.flownOn.getTime() >= cutoff);
+  const solo = soloEligibility({ totalTimeHours: row.totalTimeHours, flights, now });
+  let lastFlew: Date | null = null;
+  for (const f of flights) {
+    if (!lastFlew || f.flownOn > lastFlew) lastFlew = f.flownOn;
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    certificate: row.certificate,
+    declaredTotalTimeHours: row.totalTimeHours,
+    isInstructor: row.positions.includes("INSTRUCTOR"),
+    clubMember: row.clubMember,
+    last90Days: {
+      flights: recent.length,
+      landings: recent.reduce((sum, f) => sum + f.landings, 0),
+      nightLandings: recent.reduce((sum, f) => sum + f.nightLandings, 0),
+      tachHours: totalTachHours(recent),
+      hobbsHours: totalHobbsHours(recent),
+    },
+    hoursInClubLogLast12Months: solo.recentHours,
+    lastFlewOn: lastFlew?.toISOString() ?? null,
+    operatingRulesColumn: TIER_LABELS[solo.tier],
+    maySoloByDay: solo.daySolo,
+    maySoloAtNight: solo.nightSolo,
   };
 }
 

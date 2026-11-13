@@ -47,8 +47,9 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 - **User** — email doubles as username; `isAdmin` is club-wide (first account
   created gets it, see `app/api/signup`; after that admins promote each other
   from the Members tab). Pilot paperwork (`certificate`, `medicalExpiresOn`,
-  `flightReviewOn`) is informational and stays private to the member — the
-  roster API never selects it. `clubMember` is the OTHER half of "what is this
+  `flightReviewOn`) is informational. `certificate` and `totalTimeHours` are
+  shown for every pilot to a club-data key (`/api/agent/club`, admin-made);
+  the medical and flight review dates go nowhere but the member's own profile. `clubMember` is the OTHER half of "what is this
   person to the club": it says they FLY here, as opposed to only teaching here.
   Independent of the INSTRUCTOR position on purpose — a club CFI who also rents
   the airplane is both, a visiting instructor is only the office — and it's
@@ -235,8 +236,10 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   lines free to repeat.
 - **AccessKey** — a member's personal access key for their own assistant
   (Jarvis): `name`, `keyHash` (SHA-256, unique — the key is 256 random bits,
-  so no slow hash), `canWrite` (may also book, cancel its member's bookings
-  and file their flights; set at creation only, default false), `lastUsedAt`
+  so no slow hash), `canWrite` (may also book, change and cancel its member's
+  bookings and file and correct their flights; set at creation only, default false),
+  `canReadClub` (admins only, set at creation: may also read the whole club at
+  `/api/agent/club`; `getKeyUser` ANDs it with the member's CURRENT `isAdmin`), `lastUsedAt`
   (written at most every 5 min), `revokedAt` (revoke stamps rather than
   deletes). NO part of the key is stored or shown
   again after creation, not even a prefix (Dylan, 2026-11-10).
@@ -492,16 +495,25 @@ owns the only splash in the app.
   `/profile?calendarPicker=connected|denied|error`.
 - `access-keys` (GET the caller's live keys, POST `{ name }` → the key ONCE,
   at most `MAX_ACCESS_KEYS`) · `access-keys/[id]` (DELETE = revoke your own).
-  Session only: a key can't make keys.
+  Session only: a key can't make keys. `canReadClub: true` is a 403 unless the
+  caller is an admin.
+- `agent/club` (GET) — a club-data key only (else 403): the club's log for 90
+  days with pilots named (no write-ups), every pilot (`clubPilot` in
+  lib/agentView.ts: certificate, declared total time, 90-day flights/landings/
+  hours, 12-month hours, last flew, solo verdicts), the schedule and the
+  airplanes (lib/agentClub.ts). MCP twins: `get_club_flights`, `get_pilots`,
+  listed only for such a key. `openapi` (GET, public) serves lib/openapi.json,
+  rendered by `public/api-docs.html` (Swagger UI); `tests/unit/openapi.test.ts`
+  holds the spec to the code's field names.
 - `agent` (GET) and `mcp` (POST) take `Authorization: Bearer vff_…`
   (`getKeyUser` in lib/accessKeyAuth.ts) and NOTHING ELSE: a browser session
-  gets 401 there. A `canWrite` key is ALSO taken by exactly three routes —
-  `POST /api/reservations`, `DELETE /api/reservations/[id]`, `POST /api/flights`
-  — through `getActingUser` (session first, else a write key), which hands the
+  gets 401 there. A `canWrite` key is ALSO taken by exactly five routes —
+  `POST /api/reservations`, `PATCH`/`DELETE /api/reservations/[id]`,
+  `POST /api/flights`, `PATCH /api/flights/[id]` — through `getActingUser` (session first, else a write key), which hands the
   route the member stripped of `isAdmin` and positions, so a key on an admin's
-  account still cancels only its own bookings. The MCP writers
-  (`book_airplane`, `cancel_booking`, `file_flight`, listed only for a write
-  key) call those route handlers in-process with the same key header, so every
+  account still edits and cancels only its own bookings and flights. The MCP
+  writers (`book_airplane`, `update_booking`, `cancel_booking`, `file_flight`,
+  `update_flight`, listed only for a write key) call those route handlers in-process with the same key header, so every
   rule is the route's; `lib/agentWrites.ts` only parses arguments (club-time
   strings via `clubInstant`, never the server's zone) and matches tail number /
   CFI name. Both read

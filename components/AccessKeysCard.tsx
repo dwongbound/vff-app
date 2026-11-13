@@ -14,17 +14,21 @@ import Card from "@/components/common/Card";
 import ConfirmModal from "@/components/common/ConfirmModal";
 import Input from "@/components/common/Input";
 import LoadingDots from "@/components/common/LoadingDots";
+import { useMe } from "@/components/MeProvider";
 import { fetchJsonList, sendJson } from "@/lib/api";
 import { accessKeyLine } from "@/lib/accessKeyView";
 import type { ApiAccessKey, ApiNewAccessKey } from "@/lib/types";
 
 export default function AccessKeysCard() {
+  const { me } = useMe();
   // null = still loading (or the list couldn't be read).
   const [keys, setKeys] = useState<ApiAccessKey[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [name, setName] = useState("");
   // Off by default: a key reads unless the member says otherwise.
   const [canWrite, setCanWrite] = useState(false);
+  // Admins only, and off by default too: every pilot's flying and ratings.
+  const [canReadClub, setCanReadClub] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The key just made, until the member closes it. Never stored anywhere.
@@ -48,6 +52,7 @@ export default function AccessKeysCard() {
     const result = await sendJson<ApiNewAccessKey>("/api/access-keys", "POST", {
       name,
       canWrite,
+      canReadClub: me?.isAdmin === true && canReadClub,
     });
     setCreating(false);
     if (!result.ok || !result.data) {
@@ -60,6 +65,7 @@ export default function AccessKeysCard() {
     setCopied(false);
     setName("");
     setCanWrite(false);
+    setCanReadClub(false);
   }
 
   async function copy(text: string) {
@@ -126,6 +132,13 @@ export default function AccessKeysCard() {
             To connect it as an MCP server, use <span className="font-mono">{mcpUrl}</span> with the
             header <span className="font-mono">Authorization: Bearer &lt;key&gt;</span>. Or read
             everything in one go from <span className="font-mono">/api/agent</span>.
+            {fresh.canReadClub && (
+              <>
+                {" "}The club&rsquo;s flight log and pilots are at{" "}
+                <span className="font-mono">/api/agent/club</span>.
+              </>
+            )}{" "}
+            The full reference is at <span className="font-mono">/api-docs.html</span>.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button type="button" className="w-full sm:w-auto" onClick={() => void copy(fresh.key)}>
@@ -167,7 +180,20 @@ export default function AccessKeysCard() {
             checked={canWrite}
             onChange={(e) => setCanWrite(e.target.checked)}
           />
-          Also let this key book, cancel my bookings and file my flights
+          Also let this key book, change and cancel my bookings, and file and correct my flights
+        </label>
+      )}
+
+      {keys && me?.isAdmin && (
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+          <input
+            type="checkbox"
+            className="h-5 w-5 shrink-0 accent-indigo-600"
+            checked={canReadClub}
+            onChange={(e) => setCanReadClub(e.target.checked)}
+          />
+          Also let this key read club data: every pilot&rsquo;s flights, ratings, total time and
+          recent landings (admins only)
         </label>
       )}
 

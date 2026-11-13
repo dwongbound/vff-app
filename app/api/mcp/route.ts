@@ -4,15 +4,19 @@
 // lib/agentTools.ts, data in lib/agentSnapshot.ts.
 //
 // Authenticated by `Authorization: Bearer vff_…` ONLY, like /api/agent. Every
-// key gets the reading tools; a key made "can book and file" also gets
-// book_airplane, cancel_booking and file_flight, which call the app's OWN
+// key gets the reading tools; a club-data key (an admin's) also gets
+// get_club_flights and get_pilots; a key made "can book and file" also gets
+// book_airplane, update_booking, cancel_booking, file_flight and
+// update_flight, which call the app's OWN
 // route handlers with the same key — so the booking rules, the conflict check,
 // the Google Calendar write and the bill are exactly the app's, and the key
 // acts as a plain member there (lib/accessKeyAuth.ts `getActingUser`).
 import { NextResponse } from "next/server";
 import { getKeyUser, type KeyUser } from "@/lib/accessKeyAuth";
 import { agentSection, agentSnapshot } from "@/lib/agentSnapshot";
+import { readClubFlights, readPilots } from "@/lib/agentClub";
 import {
+  AGENT_CLUB_TOOLS,
   AGENT_TOOLS,
   AGENT_WRITE_TOOLS,
   agentInstructions,
@@ -21,17 +25,20 @@ import {
 } from "@/lib/agentTools";
 import {
   parseBookingArgs,
+  parseBookingUpdateArgs,
   parseCancelArgs,
   parseFlightArgs,
+  parseFlightUpdateArgs,
   pickAircraft,
   pickInstructor,
 } from "@/lib/agentWrites";
 import { handleMcp, parseErrorReply } from "@/lib/mcp";
 import { prisma } from "@/lib/prisma";
-import { PURPOSE_LABELS } from "@/lib/constants";
+import { PURPOSE_LABELS, type Purpose } from "@/lib/constants";
 import { POST as bookRoute } from "../reservations/route";
-import { DELETE as cancelRoute } from "../reservations/[id]/route";
+import { DELETE as cancelRoute, PATCH as editBookingRoute } from "../reservations/[id]/route";
 import { POST as fileRoute } from "../flights/route";
+import { PATCH as editFlightRoute } from "../flights/[id]/route";
 
 export async function POST(req: Request) {
   const user = await getKeyUser(req);
@@ -49,11 +56,14 @@ export async function POST(req: Request) {
     {
       name: "vff-app",
       version: "1",
-      instructions: agentInstructions(user.canWrite),
-      tools: agentToolsFor(user.canWrite),
+      instructions: agentInstructions(user.canWrite, user.canReadClub),
+      tools: agentToolsFor(user.canWrite, user.canReadClub),
       callTool: async (name, args) => {
         const reader = AGENT_TOOLS.find((t) => t.name === name);
         if (reader) return reader.section ? agentSection(user, reader.section) : agentSnapshot(user);
+        // Listed only for a club-data key, like the writers below.
+        const club = AGENT_CLUB_TOOLS.find((t) => t.name === name);
+        if (club) return club.read === "flights" ? readClubFlights(new Date()) : readPilots(new Date());
         // handleMcp only calls a tool it listed, and writers are only listed
         // for a key that may write.
         const writer = AGENT_WRITE_TOOLS.find((t) => t.name === name)!;
@@ -80,10 +90,14 @@ async function runWrite(req: Request, user: KeyUser, action: AgentAction, args: 
   switch (action) {
     case "book":
       return book(req, args);
+    case "update-booking":
+      return updateBooking(req, args);
     case "cancel":
       return cancel(req, args);
     case "file":
       return file(req, user, args);
+    case "update-flight":
+      return updateFlight(req, args);
   }
 }
 
@@ -158,6 +172,38 @@ async function book(req: Request, args: Record<string, unknown>) {
   };
 }
 
+/**
+ * The instructorId to send for a name the tool was given: "" clears it, a name
+ * is matched on the roster. Absent (null) sends nothing, so the route keeps the
+ * one already there.
+ */
+async function instructorPatch(name: string | null): Promise<Record<string, unknown>> {
+  if (name === null) return {};
+  if (name === "") return { instructorId: null };
+  return { instructorId: await instructorId(name) };
+}
+
+async function updateBooking(req: Request, args: Record<string, unknown>) {
+  const request = unwrap(parseBookingUpdateArgs(args));
+  const res = await editBookingRoute(
+    inner(req, `/api/reservations/${encodeURIComponent(request.bookingId)}`, "PATCH", {
+      ...request.body,
+      ...(await instructorPatch(request.instructor)),
+    }),
+    { params: Promise.resolve({ id: request.bookingId }) }
+  );
+  const booking = await readReply(res);
+  return {
+    updated: true,
+    bookingId: request.bookingId,
+    startsAt: booking.startsAt ?? null,
+    endsAt: booking.endsAt ?? null,
+    purpose: booking.purpose ? (PURPOSE_LABELS[booking.purpose as Purpose] ?? booking.purpose) : null,
+    instructor: booking.instructor?.name ?? null,
+    notes: booking.notes ?? null,
+  };
+}
+
 async function cancel(req: Request, args: Record<string, unknown>) {
   const { bookingId } = unwrap(parseCancelArgs(args));
   const res = await cancelRoute(inner(req, `/api/reservations/${encodeURIComponent(bookingId)}`, "DELETE"), {
@@ -185,5 +231,27 @@ async function file(req: Request, user: KeyUser, args: Record<string, unknown>) 
     tailNumber: aircraft.tailNumber,
     tachStart: flight.tachStart ?? null,
     tachEnd: flight.tachEnd ?? null,
+  };
+}
+
+async function updateFlight(req: Request, args: Record<string, unknown>) {
+  const request = unwrap(parseFlightUpdateArgs(args));
+  const res = await editFlightRoute(
+    inner(req, `/api/flights/${encodeURIComponent(request.flightId)}`, "PATCH", {
+      ...request.body,
+      ...(await instructorPatch(request.instructor)),
+    }),
+    { params: Promise.resolve({ id: request.flightId }) }
+  );
+  const flight = await readReply(res);
+  return {
+    updated: true,
+    flightId: request.flightId,
+    tachStart: flight.tachStart ?? null,
+    tachEnd: flight.tachEnd ?? null,
+    hobbsStart: flight.hobbsStart ?? null,
+    hobbsEnd: flight.hobbsEnd ?? null,
+    landings: flight.landings ?? null,
+    route: flight.route ?? null,
   };
 }

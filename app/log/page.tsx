@@ -50,8 +50,10 @@ import { xlsxFilename } from "@/lib/xlsx";
 import { REQUIRED_LANDINGS, soloEligibility } from "@/lib/operatingRules";
 import {
   formatHours,
+  hobbsHours,
   inRange,
   tachHours,
+  totalHobbsHours,
   totalLandings,
   totalTachHours,
 } from "@/lib/hours";
@@ -176,7 +178,9 @@ function FlightLog() {
     const yearStart = new Date(now.getFullYear(), 0, 1);
     return {
       monthHours: totalTachHours(inRange(visible, monthStart, nextMonth)),
+      monthHobbs: totalHobbsHours(inRange(visible, monthStart, nextMonth)),
       yearHours: totalTachHours(inRange(visible, yearStart, nextMonth)),
+      yearHobbs: totalHobbsHours(inRange(visible, yearStart, nextMonth)),
       flights: visible.length,
       landings: totalLandings(visible),
     };
@@ -310,19 +314,31 @@ function FlightLog() {
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {filter === "all" ? (
           <>
-            <Stat label="Hours this month" value={formatHours(stats.monthHours)} />
+            <HoursStat
+              label="Hours this month"
+              tach={stats.monthHours}
+              hobbs={stats.monthHobbs}
+            />
             <Stat label="Flights" value={String(stats.flights)} />
             <Stat label="Landings" value={String(stats.landings)} />
           </>
         ) : asInstructor ? (
           <>
-            <Stat label="Hours taught" value={formatHours(stats.yearHours)} />
+            <HoursStat
+              label="Hours taught"
+              tach={stats.yearHours}
+              hobbs={stats.yearHobbs}
+            />
             <Stat label="Lessons" value={String(stats.flights)} />
             <Stat label="To sign" value={String(awaiting.length)} />
           </>
         ) : (
           <>
-            <Stat label="Hours this year" value={formatHours(stats.yearHours)} />
+            <HoursStat
+              label="Hours this year"
+              tach={stats.yearHours}
+              hobbs={stats.yearHobbs}
+            />
             <Stat label="Flights" value={String(stats.flights)} />
             <Stat label="Landings" value={String(stats.landings)} />
           </>
@@ -506,6 +522,7 @@ function FlightLog() {
                           the left, so it isn't repeated here. */}
                       <span className="min-w-0 truncate">
                         {flownOn.toLocaleDateString(undefined, { weekday: "long" })}
+                        {` · ${flight.landings} landing${flight.landings === 1 ? "" : "s"}`}
                         {flight.fuelAddedGal != null && ` · ${flight.fuelAddedGal} gal`}
                       </span>
                     </div>
@@ -519,27 +536,15 @@ function FlightLog() {
                   )}
 
                   {/* The numbers, right-aligned so a column of them lines up on
-                      the decimal — which is the whole reason to move them here. */}
+                      the decimal — which is the whole reason to move them here.
+                      BOTH meters, Hobbs first (Dylan, 2026-11-13): Hobbs is the
+                      elapsed time a pilot logs, tach is what the club bills on,
+                      and seeing them side by side is how a mis-read meter gets
+                      noticed. Landings moved
+                      down into the subline to make room. */}
                   <div className="shrink-0 text-right">
-                    <div className="text-sm font-semibold tabular">
-                      {/* An em dash, not 0.0. A flight whose span nobody has
-                          recorded has not flown zero hours — the club simply
-                          doesn't know yet, and a zero in this column is a
-                          number somebody would go looking for the cause of. */}
-                      {tachHours(flight) != null ? (
-                        <>
-                          {formatHours(tachHours(flight)!)}
-                          <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
-                            hr
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-gray-400 dark:text-gray-500">—</span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {flight.landings} landing{flight.landings === 1 ? "" : "s"}
-                    </div>
+                    <MeterHours label="Hobbs" hours={hobbsHours(flight)} strong />
+                    <MeterHours label="tach" hours={tachHours(flight)} />
                   </div>
                 </button>
               </li>
@@ -616,6 +621,61 @@ function Stat({ label, value }: { label: string; value: string }) {
       </div>
       <div className="text-lg font-bold tabular sm:text-xl">{value}</div>
     </Card>
+  );
+}
+
+/**
+ * An hours tile: the Hobbs total as the headline (the logbook figure, and the
+ * default the club reads hours in) with the tach total — what it bills on —
+ * for the same flights under it, so both meters are visible at a glance.
+ */
+function HoursStat({ label, tach, hobbs }: { label: string; tach: number; hobbs: number }) {
+  return (
+    <Card padded={false} className="p-2.5 sm:p-3">
+      <div className="text-[11px] leading-tight text-gray-500 dark:text-gray-400 sm:text-xs">
+        {label}
+      </div>
+      <div className="text-lg font-bold tabular sm:text-xl">
+        {formatHours(hobbs)}
+        <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">Hobbs</span>
+      </div>
+      <div className="text-xs tabular text-gray-500 dark:text-gray-400">
+        {formatHours(tach)} tach
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * One meter's hours on a log row: "1.4 Hobbs" / "1.2 tach".
+ *
+ * An em dash, not 0.0, when the span is unknown. A flight whose readings nobody
+ * recorded has not flown zero hours — the club simply doesn't know, and a zero
+ * here is a number somebody would go looking for the cause of.
+ */
+function MeterHours({
+  label,
+  hours,
+  strong = false,
+}: {
+  label: string;
+  hours: number | null;
+  strong?: boolean;
+}) {
+  const figure = strong
+    ? "text-sm font-semibold"
+    : "text-xs font-medium text-gray-600 dark:text-gray-300";
+  return (
+    <div className={`${figure} tabular`}>
+      {hours != null ? (
+        formatHours(hours)
+      ) : (
+        <span className="text-gray-400 dark:text-gray-500">—</span>
+      )}
+      <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
+        {label}
+      </span>
+    </div>
   );
 }
 

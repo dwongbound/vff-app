@@ -564,6 +564,8 @@ export interface ApiAccessKey {
   name: string;
   /** May also book, cancel the member's bookings and file their flights. */
   canWrite: boolean;
+  /** May also read the whole club's flight log and pilots (admins only). */
+  canReadClub: boolean;
   createdAt: string;
   lastUsedAt: string | null;
 }

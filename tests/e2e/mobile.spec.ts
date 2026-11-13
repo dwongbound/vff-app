@@ -474,6 +474,34 @@ test("the flight log fits a phone: three stats in a row, + Add flight at the rig
 });
 
 
+// Both meters on every log row, and on a phone that has to fit: the tach and
+// Hobbs figures stack at the right and the row stays inside the screen.
+test("the flight log shows tach and Hobbs hours on a phone, without overflow", async ({
+  page,
+}) => {
+  await page.goto("/log");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Flight log" })).toBeVisible({
+    timeout: 60_000,
+  });
+
+  const firstRow = main.locator("li button").first();
+  await expect(firstRow).toContainText(/tach/);
+  await expect(firstRow).toContainText(/Hobbs/);
+  await expect(main.getByText("Hours this year", { exact: true }).locator("..")).toContainText(
+    /Hobbs/
+  );
+
+  // 44px touch target, and nothing wider than the phone.
+  const box = (await firstRow.boundingBox())!;
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  const overflow = await page.evaluate(() => {
+    const scroller = document.getElementById("app-scroll")!;
+    return scroller.scrollWidth - scroller.clientWidth;
+  });
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
 test("My plane fits a phone: no value runs over its label, no table scrolls sideways", async ({
   page,
 }) => {

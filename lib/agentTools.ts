@@ -1,5 +1,5 @@
 // The MCP tools an access key gets: one per section of the snapshot, plus the
-// whole thing — and, for a key made "can book and file", three that write.
+// whole thing — and, for a key made "can book and file", five that write.
 // Declared here (not in the route) because a route.ts may only export Next's
 // own handlers, and the unit test pins the list.
 import type { McpTool } from "./mcp";
@@ -53,7 +53,7 @@ export const AGENT_TOOLS: AgentTool[] = [
 ];
 
 /** What a writing tool does — the MCP route maps each to one app route. */
-export type AgentAction = "book" | "cancel" | "file";
+export type AgentAction = "book" | "update-booking" | "cancel" | "file" | "update-flight";
 
 export interface AgentWriteTool extends McpTool {
   action: AgentAction;
@@ -93,6 +93,30 @@ export const AGENT_WRITE_TOOLS: AgentWriteTool[] = [
         notes: { type: "string" },
       },
       required: ["startsAt", "endsAt"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_booking",
+    title: "Change a booking",
+    description:
+      "Change one of the member's own bookings (the `id` from get_bookings, where `yours` is true), exactly as editing it in the app does: name only what changes. New times go through the club's booking rules and the conflict check again, and a Google-linked airplane's calendar event is updated. Confirm the change with the member before calling.",
+    action: "update-booking",
+    readOnly: false,
+    inputSchema: {
+      type: "object",
+      properties: {
+        bookingId: { type: "string" },
+        startsAt: { ...CLUB_TIME, description: `${CLUB_TIME.description} Left out, the booking keeps its start.` },
+        endsAt: { ...CLUB_TIME, description: `${CLUB_TIME.description} Left out, the booking keeps its end.` },
+        purpose: { type: "string", enum: PURPOSES },
+        instructor: {
+          ...INSTRUCTOR,
+          description: `${INSTRUCTOR.description} Only for TRAINING; "" removes the instructor.`,
+        },
+        notes: { type: "string", description: "Replaces the notes; \"\" clears them." },
+      },
+      required: ["bookingId"],
       additionalProperties: false,
     },
   },
@@ -150,11 +174,75 @@ export const AGENT_WRITE_TOOLS: AgentWriteTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "update_flight",
+    title: "Correct a log entry",
+    description:
+      "Correct one of the member's own flight log entries (the `id` from get_my_flying), the way the log's Edit does: name only what changes. Meter corrections re-bill the flight. `logEntry` is the pilot's own write-up (markdown: bold, italic, lists). Read the change back to the member before calling.",
+    action: "update-flight",
+    readOnly: false,
+    inputSchema: {
+      type: "object",
+      properties: {
+        flightId: { type: "string" },
+        flownOn: { type: "string", description: "The day flown, YYYY-MM-DD at the club." },
+        tachStart: { type: ["number", "null"], description: "null clears a reading nobody knows." },
+        tachEnd: { type: ["number", "null"] },
+        hobbsStart: { type: ["number", "null"] },
+        hobbsEnd: { type: ["number", "null"] },
+        landings: { type: "integer", minimum: 0 },
+        nightLandings: { type: "integer", minimum: 0 },
+        departure: { type: "string" },
+        arrival: { type: "string" },
+        route: { type: "string" },
+        purpose: { type: "string", enum: PURPOSES },
+        instructor: { ...INSTRUCTOR, description: `${INSTRUCTOR.description} "" removes the instructor.` },
+        fuelAddedGal: { type: "number" },
+        fuelCostDollars: { type: "number" },
+        fuelPaidPersonally: { type: "boolean" },
+        notes: { type: "string", description: "Replaces the notes; \"\" clears them." },
+        logEntry: { type: "string", description: "Replaces the write-up; \"\" clears it." },
+      },
+      required: ["flightId"],
+      additionalProperties: false,
+    },
+  },
 ];
 
-/** The tools a key lists: the readers always, the writers only when it may write. */
-export function agentToolsFor(canWrite: boolean): McpTool[] {
-  return canWrite ? [...AGENT_TOOLS, ...AGENT_WRITE_TOOLS] : AGENT_TOOLS;
+/** What a club-data tool returns (lib/agentClub.ts). */
+export type AgentClubRead = "flights" | "pilots";
+
+export interface AgentClubTool extends McpTool {
+  read: AgentClubRead;
+}
+
+/** Listed only for a key an admin made with "club data" ticked. */
+export const AGENT_CLUB_TOOLS: AgentClubTool[] = [
+  {
+    name: "get_club_flights",
+    title: "Club flight log",
+    description:
+      "Every flight in the club's log over the last 90 days, newest first, each naming its pilot: airplane, tach and Hobbs hours, landings, route, type and instructor.",
+    read: "flights",
+  },
+  {
+    name: "get_pilots",
+    title: "Pilots",
+    description:
+      "Every club member and instructor: their certificate/ratings and declared total time (as they entered them on their profile, null when blank), plus flights, landings and hours in the club's log over the last 90 days, hours in the last 12 months, when they last flew, and whether the club's operating rules let them fly solo.",
+    read: "pilots",
+  },
+];
+
+/**
+ * The tools a key lists: the readers always, the club readers for a club-data
+ * key, the writers only when it may write.
+ */
+export function agentToolsFor(canWrite: boolean, canReadClub = false): McpTool[] {
+  const tools: McpTool[] = [...AGENT_TOOLS];
+  if (canReadClub) tools.push(...AGENT_CLUB_TOOLS);
+  if (canWrite) tools.push(...AGENT_WRITE_TOOLS);
+  return tools;
 }
 
 const READ_ONLY_INSTRUCTIONS =
@@ -162,14 +250,18 @@ const READ_ONLY_INSTRUCTIONS =
   "the club's airplanes, bookings, maintenance and squawks, and the member's own flight log and balance. " +
   "Times are ISO instants; show them in the club's time zone (America/Los_Angeles). ";
 
+const CLUB_INSTRUCTIONS =
+  "This key also reads the whole club: the flight log with every pilot named (get_club_flights) and each pilot's ratings, total time and recent landings (get_pilots). ";
+
 /** Shown once at initialize; says what this particular key may do. */
-export function agentInstructions(canWrite: boolean): string {
+export function agentInstructions(canWrite: boolean, canReadClub = false): string {
+  const intro = READ_ONLY_INSTRUCTIONS + (canReadClub ? CLUB_INSTRUCTIONS : "");
   if (!canWrite) {
-    return READ_ONLY_INSTRUCTIONS + "This key is read-only: nothing here can book, file or pay; send the member to the app for that.";
+    return intro + "This key is read-only: nothing here can book, file or pay; send the member to the app for that.";
   }
   return (
-    READ_ONLY_INSTRUCTIONS +
-    "This key may also book the airplane, cancel the member's own bookings and file their flights, as the member. " +
+    intro +
+    "This key may also book the airplane, change or cancel the member's own bookings, and file or correct their own flights, as the member. " +
     "Confirm what you are about to do with the member before every write. Nothing here can pay or change anything else."
   );
 }
