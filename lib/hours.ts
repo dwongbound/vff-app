@@ -155,6 +155,16 @@ export function totalTachHours(flights: FlightLike[]): number {
   return round1(flights.reduce((sum, f) => sum + (tachHours(f) ?? 0), 0));
 }
 
+/**
+ * Total Hobbs (elapsed) hours across a set of flights — the logbook figure,
+ * shown beside the tach total on the flight log. Same rule as the tach total:
+ * a flight with no Hobbs span (most of the club's transcribed history never
+ * recorded one) adds nothing rather than counting as zero hours flown.
+ */
+export function totalHobbsHours(flights: FlightLike[]): number {
+  return round1(flights.reduce((sum, f) => sum + (hobbsHours(f) ?? 0), 0));
+}
+
 /** One month of flying, for the Plane Status utilisation chart. */
 export interface MonthlyHours {
   /** First of the month, local — the bucket's identity and its sort key. */

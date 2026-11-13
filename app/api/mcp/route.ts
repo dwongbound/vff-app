@@ -5,7 +5,8 @@
 //
 // Authenticated by `Authorization: Bearer vff_…` ONLY, like /api/agent. Every
 // key gets the reading tools; a key made "can book and file" also gets
-// book_airplane, cancel_booking and file_flight, which call the app's OWN
+// book_airplane, update_booking, cancel_booking, file_flight and
+// update_flight, which call the app's OWN
 // route handlers with the same key — so the booking rules, the conflict check,
 // the Google Calendar write and the bill are exactly the app's, and the key
 // acts as a plain member there (lib/accessKeyAuth.ts `getActingUser`).
@@ -21,17 +22,20 @@ import {
 } from "@/lib/agentTools";
 import {
   parseBookingArgs,
+  parseBookingUpdateArgs,
   parseCancelArgs,
   parseFlightArgs,
+  parseFlightUpdateArgs,
   pickAircraft,
   pickInstructor,
 } from "@/lib/agentWrites";
 import { handleMcp, parseErrorReply } from "@/lib/mcp";
 import { prisma } from "@/lib/prisma";
-import { PURPOSE_LABELS } from "@/lib/constants";
+import { PURPOSE_LABELS, type Purpose } from "@/lib/constants";
 import { POST as bookRoute } from "../reservations/route";
-import { DELETE as cancelRoute } from "../reservations/[id]/route";
+import { DELETE as cancelRoute, PATCH as editBookingRoute } from "../reservations/[id]/route";
 import { POST as fileRoute } from "../flights/route";
+import { PATCH as editFlightRoute } from "../flights/[id]/route";
 
 export async function POST(req: Request) {
   const user = await getKeyUser(req);
@@ -80,10 +84,14 @@ async function runWrite(req: Request, user: KeyUser, action: AgentAction, args: 
   switch (action) {
     case "book":
       return book(req, args);
+    case "update-booking":
+      return updateBooking(req, args);
     case "cancel":
       return cancel(req, args);
     case "file":
       return file(req, user, args);
+    case "update-flight":
+      return updateFlight(req, args);
   }
 }
 
@@ -158,6 +166,38 @@ async function book(req: Request, args: Record<string, unknown>) {
   };
 }
 
+/**
+ * The instructorId to send for a name the tool was given: "" clears it, a name
+ * is matched on the roster. Absent (null) sends nothing, so the route keeps the
+ * one already there.
+ */
+async function instructorPatch(name: string | null): Promise<Record<string, unknown>> {
+  if (name === null) return {};
+  if (name === "") return { instructorId: null };
+  return { instructorId: await instructorId(name) };
+}
+
+async function updateBooking(req: Request, args: Record<string, unknown>) {
+  const request = unwrap(parseBookingUpdateArgs(args));
+  const res = await editBookingRoute(
+    inner(req, `/api/reservations/${encodeURIComponent(request.bookingId)}`, "PATCH", {
+      ...request.body,
+      ...(await instructorPatch(request.instructor)),
+    }),
+    { params: Promise.resolve({ id: request.bookingId }) }
+  );
+  const booking = await readReply(res);
+  return {
+    updated: true,
+    bookingId: request.bookingId,
+    startsAt: booking.startsAt ?? null,
+    endsAt: booking.endsAt ?? null,
+    purpose: booking.purpose ? (PURPOSE_LABELS[booking.purpose as Purpose] ?? booking.purpose) : null,
+    instructor: booking.instructor?.name ?? null,
+    notes: booking.notes ?? null,
+  };
+}
+
 async function cancel(req: Request, args: Record<string, unknown>) {
   const { bookingId } = unwrap(parseCancelArgs(args));
   const res = await cancelRoute(inner(req, `/api/reservations/${encodeURIComponent(bookingId)}`, "DELETE"), {
@@ -185,5 +225,27 @@ async function file(req: Request, user: KeyUser, args: Record<string, unknown>) 
     tailNumber: aircraft.tailNumber,
     tachStart: flight.tachStart ?? null,
     tachEnd: flight.tachEnd ?? null,
+  };
+}
+
+async function updateFlight(req: Request, args: Record<string, unknown>) {
+  const request = unwrap(parseFlightUpdateArgs(args));
+  const res = await editFlightRoute(
+    inner(req, `/api/flights/${encodeURIComponent(request.flightId)}`, "PATCH", {
+      ...request.body,
+      ...(await instructorPatch(request.instructor)),
+    }),
+    { params: Promise.resolve({ id: request.flightId }) }
+  );
+  const flight = await readReply(res);
+  return {
+    updated: true,
+    flightId: request.flightId,
+    tachStart: flight.tachStart ?? null,
+    tachEnd: flight.tachEnd ?? null,
+    hobbsStart: flight.hobbsStart ?? null,
+    hobbsEnd: flight.hobbsEnd ?? null,
+    landings: flight.landings ?? null,
+    route: flight.route ?? null,
   };
 }
