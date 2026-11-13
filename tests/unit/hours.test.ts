@@ -8,6 +8,7 @@ import {
   tachHours,
   totalLandings,
   totalTachHours,
+  totalHobbsHours,
   validateMeters,
   monthlyTachHours,
 } from "@/lib/hours";
@@ -74,6 +75,17 @@ describe("totals", () => {
 
   it("adds tach hours to one decimal", () => {
     expect(totalTachHours(flights)).toBe(4);
+  });
+
+  it("adds Hobbs hours, skipping flights with no Hobbs span", () => {
+    expect(
+      totalHobbsHours([
+        { hobbsStart: 200, hobbsEnd: 201.3 },
+        { hobbsStart: 201.3, hobbsEnd: 202.25 },
+        { hobbsStart: null, hobbsEnd: null },
+        { hobbsStart: 300, hobbsEnd: null },
+      ])
+    ).toBe(2.3);
   });
 
   it("adds landings", () => {
