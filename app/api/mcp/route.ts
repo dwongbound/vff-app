@@ -4,7 +4,8 @@
 // lib/agentTools.ts, data in lib/agentSnapshot.ts.
 //
 // Authenticated by `Authorization: Bearer vff_…` ONLY, like /api/agent. Every
-// key gets the reading tools; a key made "can book and file" also gets
+// key gets the reading tools; a club-data key (an admin's) also gets
+// get_club_flights and get_pilots; a key made "can book and file" also gets
 // book_airplane, update_booking, cancel_booking, file_flight and
 // update_flight, which call the app's OWN
 // route handlers with the same key — so the booking rules, the conflict check,
@@ -13,7 +14,9 @@
 import { NextResponse } from "next/server";
 import { getKeyUser, type KeyUser } from "@/lib/accessKeyAuth";
 import { agentSection, agentSnapshot } from "@/lib/agentSnapshot";
+import { readClubFlights, readPilots } from "@/lib/agentClub";
 import {
+  AGENT_CLUB_TOOLS,
   AGENT_TOOLS,
   AGENT_WRITE_TOOLS,
   agentInstructions,
@@ -53,11 +56,14 @@ export async function POST(req: Request) {
     {
       name: "vff-app",
       version: "1",
-      instructions: agentInstructions(user.canWrite),
-      tools: agentToolsFor(user.canWrite),
+      instructions: agentInstructions(user.canWrite, user.canReadClub),
+      tools: agentToolsFor(user.canWrite, user.canReadClub),
       callTool: async (name, args) => {
         const reader = AGENT_TOOLS.find((t) => t.name === name);
         if (reader) return reader.section ? agentSection(user, reader.section) : agentSnapshot(user);
+        // Listed only for a club-data key, like the writers below.
+        const club = AGENT_CLUB_TOOLS.find((t) => t.name === name);
+        if (club) return club.read === "flights" ? readClubFlights(new Date()) : readPilots(new Date());
         // handleMcp only calls a tool it listed, and writers are only listed
         // for a key that may write.
         const writer = AGENT_WRITE_TOOLS.find((t) => t.name === name)!;

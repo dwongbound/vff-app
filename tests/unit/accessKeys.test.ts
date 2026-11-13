@@ -70,12 +70,13 @@ describe("a key on the wire", () => {
       id: "k1",
       name: "Jarvis",
       canWrite: false,
+      canReadClub: false,
       createdAt: new Date(),
       lastUsedAt: null,
       keyHash: "abc",
     };
     expect(Object.keys(serializeAccessKey(row)).sort()).toEqual(
-      ["canWrite", "createdAt", "id", "lastUsedAt", "name"].sort()
+      ["canReadClub", "canWrite", "createdAt", "id", "lastUsedAt", "name"].sort()
     );
   });
   it("says what it may do, when it was made and when it was last used", () => {
@@ -88,5 +89,8 @@ describe("a key on the wire", () => {
     expect(accessKeyLine({ canWrite: true, createdAt: made, lastUsedAt: used }, now)).toMatch(
       /^Can book and file · .+ · last used 3 hours ago$/
     );
+    expect(
+      accessKeyLine({ canWrite: false, canReadClub: true, createdAt: made, lastUsedAt: null }, now)
+    ).toMatch(/^Read-only · reads club data · made /);
   });
 });

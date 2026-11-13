@@ -51,7 +51,7 @@ export async function agentSnapshot(user: KeyUser, now = new Date()) {
   };
 }
 
-async function readAircraft(now: Date) {
+export async function readAircraft(now: Date) {
   const rows = await prisma.aircraft.findMany({
     where: { active: true },
     orderBy: { tailNumber: "asc" },
@@ -73,7 +73,7 @@ async function readAircraft(now: Date) {
   return rows.map((row) => agentAircraft(row, now));
 }
 
-async function readBookings(user: KeyUser, now: Date) {
+export async function readBookings(user: KeyUser, now: Date) {
   const until = new Date(now.getTime() + AGENT_BOOKING_DAYS * 86_400_000);
   const rows = await prisma.reservation.findMany({
     // Still running counts: a booking you're in the middle of is "upcoming"
