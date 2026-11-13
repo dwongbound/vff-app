@@ -52,11 +52,16 @@ test("each log row shows tach and Hobbs hours, and the tile totals both", async 
     await expect(row).toHaveCount(1);
     await expect(row).toContainText("2 landings");
 
-    // The hours tile (Mine opens on "Hours this year") names the tach total
-    // and gives the Hobbs total for the same flights under it.
+    // Hobbs is the headline, tach under it — on the row and on the tile
+    // (Mine opens on "Hours this year").
+    const figures = await row.locator(".tabular").allTextContents();
+    expect(figures.slice(-2)).toEqual(["1.7Hobbs", "1.2tach"]);
     const tile = main.getByText("Hours this year", { exact: true }).locator("..");
-    await expect(tile).toContainText(/\d+\.\d\s*tach/);
-    await expect(tile).toContainText(/\d+\.\d Hobbs/);
+    await expect(tile).toContainText(/\d+\.\d\s*Hobbs\s*\d+\.\d tach/);
+
+    // The entry's own title leads with Hobbs too.
+    await row.click();
+    await expect(page.getByRole("dialog")).toContainText("1.7 hours");
   } finally {
     await page.request.delete(`/api/flights/${id}`);
   }

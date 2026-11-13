@@ -537,13 +537,14 @@ function FlightLog() {
 
                   {/* The numbers, right-aligned so a column of them lines up on
                       the decimal — which is the whole reason to move them here.
-                      BOTH meters: tach is what the club bills on, Hobbs is the
-                      elapsed time a pilot logs, and seeing them side by side is
-                      also how a mis-read meter gets noticed. Landings moved
+                      BOTH meters, Hobbs first (Dylan, 2026-11-13): Hobbs is the
+                      elapsed time a pilot logs, tach is what the club bills on,
+                      and seeing them side by side is how a mis-read meter gets
+                      noticed. Landings moved
                       down into the subline to make room. */}
                   <div className="shrink-0 text-right">
-                    <MeterHours label="tach" hours={tachHours(flight)} strong />
-                    <MeterHours label="Hobbs" hours={hobbsHours(flight)} />
+                    <MeterHours label="Hobbs" hours={hobbsHours(flight)} strong />
+                    <MeterHours label="tach" hours={tachHours(flight)} />
                   </div>
                 </button>
               </li>
@@ -624,9 +625,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * An hours tile: the tach total as the headline (the club's billing figure, and
- * what the tile always showed) with the Hobbs total for the same flights under
- * it, so both meters are visible at a glance.
+ * An hours tile: the Hobbs total as the headline (the logbook figure, and the
+ * default the club reads hours in) with the tach total — what it bills on —
+ * for the same flights under it, so both meters are visible at a glance.
  */
 function HoursStat({ label, tach, hobbs }: { label: string; tach: number; hobbs: number }) {
   return (
@@ -635,18 +636,18 @@ function HoursStat({ label, tach, hobbs }: { label: string; tach: number; hobbs:
         {label}
       </div>
       <div className="text-lg font-bold tabular sm:text-xl">
-        {formatHours(tach)}
-        <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">tach</span>
+        {formatHours(hobbs)}
+        <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">Hobbs</span>
       </div>
       <div className="text-xs tabular text-gray-500 dark:text-gray-400">
-        {formatHours(hobbs)} Hobbs
+        {formatHours(tach)} tach
       </div>
     </Card>
   );
 }
 
 /**
- * One meter's hours on a log row: "1.2 tach" / "1.4 Hobbs".
+ * One meter's hours on a log row: "1.4 Hobbs" / "1.2 tach".
  *
  * An em dash, not 0.0, when the span is unknown. A flight whose readings nobody
  * recorded has not flown zero hours — the club simply doesn't know, and a zero
