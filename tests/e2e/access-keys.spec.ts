@@ -37,6 +37,15 @@ test("a key reads the club read-only, and stops the moment it's revoked", async 
   const outside = await playwright.request.newContext({ baseURL: "http://localhost:3100" });
   expect((await outside.get("/api/agent")).status()).toBe(401);
 
+  // The API's description is public — it's the shape, never the data — and
+  // so is the page that renders it.
+  const described = await outside.get("/api/openapi");
+  expect(described.status()).toBe(200);
+  expect(await described.json()).toMatchObject({ openapi: "3.1.0", paths: { "/api/agent": {}, "/api/mcp": {} } });
+  const docsPage = await outside.get("/api-docs.html");
+  expect(docsPage.status()).toBe(200);
+  expect(await docsPage.text()).toContain('url: "/api/openapi"');
+
   const snapshot = await outside.get("/api/agent", { headers: { Authorization: `Bearer ${key}` } });
   expect(snapshot.status()).toBe(200);
   const body = await snapshot.json();
@@ -208,6 +217,71 @@ test("a key made to book and file can book, change, cancel and correct through M
 
   await outside.dispose();
   // Tidy up: revoke both, so later runs start from an empty card.
+  for (const k of (await (await page.request.get("/api/access-keys")).json()) as { id: string }[]) {
+    await page.request.delete(`/api/access-keys/${k.id}`);
+  }
+});
+
+test("an admin's club-data key reads every pilot and the club's log; an ordinary key can't", async ({
+  page,
+  playwright,
+}) => {
+  await gotoTab(page, "/profile", "Your profile");
+  const card = page.getByTestId("access-keys");
+  const clubBox = card.getByLabel(/Also let this key read club data/);
+  await clubBox.check();
+  await card.getByLabel("Name for a new key").fill("Club officer e2e");
+  await card.getByRole("button", { name: "Create key" }).click();
+  const shown = card.getByTestId("new-access-key");
+  await expect(shown).toHaveText(/^vff_\S{40,}$/, { timeout: 60_000 });
+  const key = (await shown.textContent())!.trim();
+  await expect(card.getByText("/api/agent/club")).toBeVisible();
+  await card.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(card.getByText(/reads club data/).first()).toBeVisible();
+  await expect(clubBox).not.toBeChecked();
+
+  // An ordinary key on the very same admin account.
+  const plain = ((await (await page.request.post("/api/access-keys", { data: { name: "Plain e2e" } })).json()) as {
+    key: string;
+    canReadClub: boolean;
+  });
+  expect(plain.canReadClub).toBe(false);
+
+  const outside = await playwright.request.newContext({ baseURL: "http://localhost:3100" });
+  expect((await outside.get("/api/agent/club")).status()).toBe(401);
+  expect(
+    (await outside.get("/api/agent/club", { headers: { Authorization: `Bearer ${plain.key}` } })).status()
+  ).toBe(403);
+
+  const res = await outside.get("/api/agent/club", { headers: { Authorization: `Bearer ${key}` } });
+  expect(res.status()).toBe(200);
+  const club = (await res.json()) as {
+    pilots: { pilots: { name: string; certificate: string | null; last90Days: { landings: number } }[] };
+    recentFlights: { flights: { pilot: string; logEntry?: unknown }[] };
+    bookings: { bookings: unknown[] };
+    aircraft: unknown[];
+  };
+  // Everyone, not just the key's owner, with what they put on their profile.
+  const alex = club.pilots.pilots.find((p) => p.name === "Alex Rivera");
+  expect(alex?.certificate).toBe("Private Pilot ASEL");
+  expect(club.pilots.pilots.length).toBeGreaterThan(1);
+  for (const p of club.pilots.pilots) expect(typeof p.last90Days.landings).toBe("number");
+  for (const f of club.recentFlights.flights) {
+    expect(typeof f.pilot).toBe("string");
+    expect(f).not.toHaveProperty("logEntry");
+  }
+  expect(Array.isArray(club.bookings.bookings)).toBe(true);
+  expect(club.aircraft.length).toBeGreaterThan(0);
+
+  // The same over MCP, and only for the club key.
+  const toolNames = async (k: string) =>
+    ((await (await mcp(outside, k, "tools/list")).json()).result.tools as { name: string }[]).map((t) => t.name);
+  expect(await toolNames(key)).toEqual(expect.arrayContaining(["get_club_flights", "get_pilots"]));
+  expect(await toolNames(plain.key)).not.toContain("get_pilots");
+  const pilots = await tool(outside, key, "get_pilots");
+  expect((pilots as { data: { pilots: unknown[] } }).data.pilots.length).toBe(club.pilots.pilots.length);
+
+  await outside.dispose();
   for (const k of (await (await page.request.get("/api/access-keys")).json()) as { id: string }[]) {
     await page.request.delete(`/api/access-keys/${k.id}`);
   }
