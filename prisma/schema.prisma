@@ -1094,6 +1094,10 @@ model AccessKey {
   /// May book, change and cancel own bookings, and file and correct own flights. Off unless the member
   /// turned it on when making the key.
   canWrite Boolean @default(false)
+  /// May also read the whole club's flight log and every pilot's ratings, total time and recent
+  /// landings (GET /api/agent/club). Only an admin can make one, and it stops working the moment
+  /// its member stops being an admin.
+  canReadClub Boolean @default(false)
 
   lastUsedAt DateTime?
   revokedAt  DateTime?
