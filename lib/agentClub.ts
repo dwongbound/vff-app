@@ -40,11 +40,20 @@ export async function readPilots(now: Date) {
     prisma.user.findMany({
       where: { OR: [{ clubMember: true }, { positions: { has: "INSTRUCTOR" } }] },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, certificate: true, totalTimeHours: true },
+      select: { id: true, name: true, certificate: true },
     }),
     prisma.flight.findMany({
-      where: { flownOn: { gte: from } },
-      select: { userId: true, flownOn: true, landings: true },
+      // Filed flights only: an open session is a flight still in the air.
+      where: { flownOn: { gte: from }, filedAt: { not: null } },
+      select: {
+        userId: true,
+        flownOn: true,
+        landings: true,
+        tachStart: true,
+        tachEnd: true,
+        hobbsStart: true,
+        hobbsEnd: true,
+      },
     }),
   ]);
   const byPilot = new Map<string, ClubPilotFlight[]>();
@@ -55,8 +64,9 @@ export async function readPilots(now: Date) {
   }
   return {
     note:
-      "Certificate and total time are what each pilot entered on their profile (null when blank). " +
-      `Landings are from this club's log over the last ${CLUB_RECENT_DAYS} days; a flight with no landing count counts as 1.`,
+      "Certificate is what each pilot entered on their profile (null when blank). " +
+      `Landings, Hobbs hours and tach hours are from this club's filed flights over the last ${CLUB_RECENT_DAYS} days; ` +
+      "a flight with no landing count counts as 1, and a flight missing a meter reading adds no hours to that meter.",
     pilots: people.map((p) => clubPilot(p, byPilot.get(p.id) ?? [], now)),
   };
 }
