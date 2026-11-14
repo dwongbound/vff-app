@@ -256,6 +256,7 @@ test("an admin's club-data key reads every pilot's ratings and landings; an ordi
   const res = await outside.get("/api/agent/club", { headers: { Authorization: `Bearer ${key}` } });
   expect(res.status()).toBe(200);
   const club = (await res.json()) as {
+    lastFlown: { tailNumber: string; pilot: string | null; flownOn: string | null }[];
     pilots: { pilots: { name: string; certificate: string | null; landingsLast90Days: number }[] };
     bookings: { bookings: unknown[] };
   };
@@ -266,16 +267,24 @@ test("an admin's club-data key reads every pilot's ratings and landings; an ordi
   for (const p of club.pilots.pilots) {
     expect(Object.keys(p).sort()).toEqual(["certificate", "declaredTotalTimeHours", "landingsLast90Days", "name"]);
   }
-  // Nothing flight-by-flight leaves through this key.
-  expect(Object.keys(club).sort()).toEqual(["bookings", "clubTimeZone", "generatedAt", "pilots"]);
+  // Nothing flight-by-flight leaves through this key: who flew last is one line per airplane.
+  expect(Object.keys(club).sort()).toEqual(["bookings", "clubTimeZone", "generatedAt", "lastFlown", "pilots"]);
+  const lastFlown = club.lastFlown;
+  expect(lastFlown.length).toBeGreaterThan(0);
+  for (const plane of lastFlown) expect(Object.keys(plane).sort()).toEqual(["flownOn", "pilot", "tailNumber"]);
+  // The seeded airplane has a filed history, so somebody flew it last.
+  expect(lastFlown.some((plane) => typeof plane.pilot === "string" && plane.flownOn != null)).toBe(true);
   expect(Array.isArray(club.bookings.bookings)).toBe(true);
 
   // The same over MCP, and only for the club key.
   const toolNames = async (k: string) =>
     ((await (await mcp(outside, k, "tools/list")).json()).result.tools as { name: string }[]).map((t) => t.name);
-  expect(await toolNames(key)).toContain("get_pilots");
+  expect(await toolNames(key)).toEqual(expect.arrayContaining(["get_last_flown", "get_pilots"]));
   expect(await toolNames(key)).not.toContain("get_club_flights");
   expect(await toolNames(plain.key)).not.toContain("get_pilots");
+  expect(await toolNames(plain.key)).not.toContain("get_last_flown");
+  const last = await tool(outside, key, "get_last_flown");
+  expect((last as { data: unknown[] }).data).toEqual(lastFlown);
   const pilots = await tool(outside, key, "get_pilots");
   expect((pilots as { data: { pilots: unknown[] } }).data.pilots.length).toBe(club.pilots.pilots.length);
 

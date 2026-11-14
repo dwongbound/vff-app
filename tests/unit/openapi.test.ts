@@ -2,7 +2,7 @@
 // describes: every field the key routes return, every tool, every label.
 import { describe, expect, it } from "vitest";
 import spec from "@/lib/openapi.json";
-import { agentAircraft, agentBooking, agentFlight, agentMoney, clubPilot } from "@/lib/agentView";
+import { agentAircraft, agentBooking, agentFlight, agentMoney, clubLastFlown, clubPilot } from "@/lib/agentView";
 import { agentToolsFor } from "@/lib/agentTools";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@/lib/mcp";
 import { PURPOSE_LABELS } from "@/lib/constants";
@@ -88,6 +88,7 @@ describe("the OpenAPI document", () => {
 
     const pilot = clubPilot({ name: "A Member", certificate: null, totalTimeHours: null }, [], now);
     expect(fields("Pilot")).toEqual(Object.keys(pilot).sort());
+    expect(fields("LastFlown")).toEqual(Object.keys(clubLastFlown({ tailNumber: "N8318B", flight: null })).sort());
 
     const money = agentMoney([{ kind: "DUES", amountCents: 100, description: "Dues", incurredOn: now }]);
     expect(fields("Money")).toEqual(Object.keys(money).sort());
@@ -102,7 +103,7 @@ describe("the OpenAPI document", () => {
 
   it("lists the club snapshot's sections", () => {
     expect(fields("ClubSnapshot")).toEqual(
-      ["bookings", "clubTimeZone", "generatedAt", "pilots"].sort()
+      ["bookings", "clubTimeZone", "generatedAt", "lastFlown", "pilots"].sort()
     );
   });
 
