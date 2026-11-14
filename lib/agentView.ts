@@ -16,7 +16,7 @@ import {
   type MaintenanceFacts,
 } from "./maintenance";
 import { SQUAWK_STATUS_LABELS, isGrounding, isInMaintenance, type SquawkStatus } from "./squawks";
-import { tachHours } from "./hours";
+import { hobbsHours, tachHours } from "./hours";
 import { bookedBy } from "./reservations";
 
 const dollars = (cents: number) => Math.round(cents) / 100;
@@ -167,36 +167,47 @@ export function agentFlight(row: AgentFlightRow) {
 
 // ── The club (a club-data key only) ───────────────────────────────────────
 
-/** How far back a pilot's landings are counted. */
+/** How far back a pilot's landings and hours are counted. */
 export const CLUB_RECENT_DAYS = 90;
 
 export interface ClubPilotRow {
   name: string;
   certificate: string | null;
-  totalTimeHours: number | null;
 }
 
 export interface ClubPilotFlight {
   flownOn: Date;
   /** Null or missing counts as one landing: every flight lands at least once. */
   landings: number | null | undefined;
+  tachStart: number | null;
+  tachEnd: number | null;
+  hobbsStart: number | null;
+  hobbsEnd: number | null;
+}
+
+/** Adds up hours, treating an unmeasured flight as contributing nothing. */
+function sumHours(values: (number | null)[]): number {
+  const total = values.reduce<number>((sum, h) => sum + (h ?? 0), 0);
+  return Math.round(total * 10) / 10;
 }
 
 /**
- * One pilot, and only what the club officer asked for: their ratings and
- * total time (both self-entered on their profile, null when blank) and how
- * many landings the club's log shows in the last 90 days. No flight-by-flight
- * detail leaves the app through this. `flights` is this pilot's, any order.
+ * One pilot, and only what the club officer asked for: their ratings (as
+ * entered on their profile, null when blank) and what the club's OWN log shows
+ * for them over the last 90 days: landings, Hobbs hours and tach hours. Hours
+ * come from the meters on each filed flight, never from the profile's
+ * self-declared total. No flight-by-flight detail leaves the app through this.
+ * `flights` is this pilot's filed flights, any order.
  */
 export function clubPilot(row: ClubPilotRow, flights: ClubPilotFlight[], now: Date) {
   const cutoff = now.getTime() - CLUB_RECENT_DAYS * 86_400_000;
+  const recent = flights.filter((f) => f.flownOn.getTime() >= cutoff);
   return {
     name: row.name,
     certificate: row.certificate,
-    declaredTotalTimeHours: row.totalTimeHours,
-    landingsLast90Days: flights
-      .filter((f) => f.flownOn.getTime() >= cutoff)
-      .reduce((sum, f) => sum + (f.landings ?? 1), 0),
+    landingsLast90Days: recent.reduce((sum, f) => sum + (f.landings ?? 1), 0),
+    hobbsHoursLast90Days: sumHours(recent.map(hobbsHours)),
+    tachHoursLast90Days: sumHours(recent.map(tachHours)),
   };
 }
 

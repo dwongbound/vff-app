@@ -193,7 +193,7 @@ export default function AccessKeysCard() {
             onChange={(e) => setCanReadClub(e.target.checked)}
           />
           Also let this key read club data: who flew each airplane last, and every pilot&rsquo;s
-          ratings, total time and landings in the last 90 days (admins only)
+          ratings and landings, Hobbs and tach hours in the last 90 days (admins only)
         </label>
       )}
 
