@@ -3,7 +3,7 @@
   "info": {
     "title": "Varda Free Flyers club app API",
     "version": "1",
-    "description": "Read (and, with a write key, change) one member's view of the Varda Free Flyers club app.\n\n## Getting a key\nA member signs in at vardafreeflyers.com, opens **Profile → Personal access keys**, names a key and presses **Create key**. The key (`vff_…`) is shown **once**; only its hash is stored. Revoking it on the same card stops it on the next request.\n\nA key is **read-only** unless the member ticked **\"Also let this key book, change and cancel my bookings, and file and correct my flights\"** when making it. That choice can't be changed later; make a new key instead.\n\n## Using it\nSend it on every request: `Authorization: Bearer vff_…`. A browser session is NOT accepted on these endpoints, and a missing, wrong or revoked key gets `401`.\n\n## What a key can see\nExactly what its member sees in the app, nothing more: the club's airplanes (status, squawks, maintenance), the next 30 days of bookings, **the member's own** flight log and currency, and **the member's own** unpaid balance. Never another member's statement, paperwork or log. A key acts as a plain member even on an admin's account.\n\n**A key IS its member.** Anyone holding it sees that member's flying and balance and, with a write key, can book and file as them. Give each person their own account and key rather than sharing one, and prefer read-only keys for anything that only reads.\n\n## Club data keys\nAn **admin** can also tick **\"Also let this key read club data\"** when making a key. That key additionally reads `GET /api/agent/club`: who flew each airplane last, each pilot's certificate and ratings, declared total time and landings over the last 90 days, plus the schedule. No flight-by-flight log. Over MCP it also gets `get_last_flown` and `get_pilots`. It covers every member, so keep it to the officer who needs it, and revoke it when they're done.\n\n## Two ways in\n- **`GET /api/agent`**: everything in one JSON document (and `GET /api/agent/club` for a club-data key). The simplest way to pull data.\n- **`POST /api/mcp`**: the same data as Model Context Protocol tools, for AI assistants (Claude, etc.). Write keys also get the writing tools there.\n\nTimes are ISO-8601 instants (UTC); show them in `clubTimeZone`. Money is in US dollars."
+    "description": "Read (and, with a write key, change) one member's view of the Varda Free Flyers club app.\n\n## Getting a key\nA member signs in at vardafreeflyers.com, opens **Profile → Personal access keys**, names a key and presses **Create key**. The key (`vff_…`) is shown **once**; only its hash is stored. Revoking it on the same card stops it on the next request.\n\nA key is **read-only** unless the member ticked **\"Also let this key book, change and cancel my bookings, and file and correct my flights\"** when making it. That choice can't be changed later; make a new key instead.\n\n## Using it\nSend it on every request: `Authorization: Bearer vff_…`. A browser session is NOT accepted on these endpoints, and a missing, wrong or revoked key gets `401`.\n\n## What a key can see\nExactly what its member sees in the app, nothing more: the club's airplanes (status, squawks, maintenance), the next 30 days of bookings, **the member's own** flight log and currency, and **the member's own** unpaid balance. Never another member's statement, paperwork or log. A key acts as a plain member even on an admin's account.\n\n**A key IS its member.** Anyone holding it sees that member's flying and balance and, with a write key, can book and file as them. Give each person their own account and key rather than sharing one, and prefer read-only keys for anything that only reads.\n\n## Club data keys\nAn **admin** can also tick **\"Also let this key read club data\"** when making a key. That key additionally reads `GET /api/agent/club`: who flew each airplane last, each pilot's certificate and ratings, and their landings, Hobbs hours and tach hours over the last 90 days (from the club's filed flights), plus the schedule. No flight-by-flight log. Over MCP it also gets `get_last_flown` and `get_pilots`. It covers every member, so keep it to the officer who needs it, and revoke it when they're done.\n\n## Two ways in\n- **`GET /api/agent`**: everything in one JSON document (and `GET /api/agent/club` for a club-data key). The simplest way to pull data.\n- **`POST /api/mcp`**: the same data as Model Context Protocol tools, for AI assistants (Claude, etc.). Write keys also get the writing tools there.\n\nTimes are ISO-8601 instants (UTC); show them in `clubTimeZone`. Money is in US dollars."
   },
   "servers": [
     {
@@ -77,8 +77,8 @@
           "Club data"
         ],
         "operationId": "getClubData",
-        "summary": "Who flew each airplane last, every pilot's ratings, total time and 90-day landings, and the schedule (club-data keys only)",
-        "description": "Who flew each airplane last (pilot and day), each pilot's certificate, declared total time and landings in the last 90 days, and every booking for the next 30 days, in one call. No flight-by-flight log. Needs a key an admin made with **club data** ticked; it stops working if that member stops being an admin. Read-only, not cached.\n\n```sh\ncurl -H \"Authorization: Bearer $VFF_KEY\" https://www.vardafreeflyers.com/api/agent/club\n```",
+        "summary": "Who flew each airplane last, every pilot's ratings and 90-day landings, Hobbs and tach hours, and the schedule (club-data keys only)",
+        "description": "Who flew each airplane last (pilot and day), each pilot's certificate and their landings, Hobbs hours and tach hours in the last 90 days, and every booking for the next 30 days, in one call. No flight-by-flight log. Needs a key an admin made with **club data** ticked; it stops working if that member stops being an admin. Read-only, not cached.\n\n```sh\ncurl -H \"Authorization: Bearer $VFF_KEY\" https://www.vardafreeflyers.com/api/agent/club\n```",
         "responses": {
           "200": {
             "description": "The club's data.",
@@ -128,7 +128,7 @@
         ],
         "operationId": "mcp",
         "summary": "MCP server (JSON-RPC 2.0)",
-        "description": "A stateless [Model Context Protocol](https://modelcontextprotocol.io) server over Streamable HTTP: one JSON-RPC message (or a batch) per POST, a plain JSON reply, tools only. Supported protocol versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05.\n\n**Reading tools (every key):** `get_club_snapshot` (all of it), `get_aircraft_status`, `get_bookings`, `get_my_flying`, `get_my_balance`. They return the same sections as `GET /api/agent`.\n\n**Club tools (club-data keys only):** `get_last_flown` (who flew each airplane last) and `get_pilots` (every pilot's certificate, total time and landings in the last 90 days). They return the `lastFlown` and `pilots` sections of `GET /api/agent/club`.\n\n**Writing tools (write keys only):** `book_airplane`, `update_booking`, `cancel_booking`, `file_flight`, `update_flight`. Each runs the app's own rules: the booking rules and conflict check, Google Calendar, meter validation and billing. Call `tools/list` for each tool's exact JSON Schema. Times are club local time (`\"2026-11-14T09:00\"`) or an ISO instant with an offset. A key can only change its own member's bookings and flights.\n\nA refusal (a clash, a bad reading) comes back as a tool result with `isError: true` and a sentence saying why. A request containing only notifications gets `202` with no body.\n\nFor the Claude Agent SDK:\n```ts\nmcpServers: {\n  vff: {\n    type: \"http\",\n    url: \"https://www.vardafreeflyers.com/api/mcp\",\n    headers: { Authorization: `Bearer ${process.env.VFF_ACCESS_KEY}` },\n  },\n}\n```",
+        "description": "A stateless [Model Context Protocol](https://modelcontextprotocol.io) server over Streamable HTTP: one JSON-RPC message (or a batch) per POST, a plain JSON reply, tools only. Supported protocol versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05.\n\n**Reading tools (every key):** `get_club_snapshot` (all of it), `get_aircraft_status`, `get_bookings`, `get_my_flying`, `get_my_balance`. They return the same sections as `GET /api/agent`.\n\n**Club tools (club-data keys only):** `get_last_flown` (who flew each airplane last) and `get_pilots` (every pilot's certificate and their landings, Hobbs hours and tach hours in the last 90 days). They return the `lastFlown` and `pilots` sections of `GET /api/agent/club`.\n\n**Writing tools (write keys only):** `book_airplane`, `update_booking`, `cancel_booking`, `file_flight`, `update_flight`. Each runs the app's own rules: the booking rules and conflict check, Google Calendar, meter validation and billing. Call `tools/list` for each tool's exact JSON Schema. Times are club local time (`\"2026-11-14T09:00\"`) or an ISO instant with an offset. A key can only change its own member's bookings and flights.\n\nA refusal (a clash, a bad reading) comes back as a tool result with `isError: true` and a sentence saying why. A request containing only notifications gets `202` with no body.\n\nFor the Claude Agent SDK:\n```ts\nmcpServers: {\n  vff: {\n    type: \"http\",\n    url: \"https://www.vardafreeflyers.com/api/mcp\",\n    headers: { Authorization: `Bearer ${process.env.VFF_ACCESS_KEY}` },\n  },\n}\n```",
         "requestBody": {
           "required": true,
           "content": {
@@ -957,8 +957,9 @@
         "required": [
           "name",
           "certificate",
-          "declaredTotalTimeHours",
-          "landingsLast90Days"
+          "landingsLast90Days",
+          "hobbsHoursLast90Days",
+          "tachHoursLast90Days"
         ],
         "properties": {
           "name": {
@@ -971,17 +972,20 @@
             ],
             "description": "Certificate and ratings as the pilot entered them on their profile, e.g. \"Private Pilot ASEL\" or \"Student\". Null when blank."
           },
-          "declaredTotalTimeHours": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Total flight time the pilot entered on their profile. Null when blank."
-          },
           "landingsLast90Days": {
             "type": "integer",
-            "description": "Landings in this club's log over the last 90 days, night ones included. A flight with no landing count counts as 1; flying elsewhere isn't counted.",
+            "description": "Landings on this club's filed flights over the last 90 days, night ones included. A flight with no landing count counts as 1; flying elsewhere isn't counted.",
             "example": 7
+          },
+          "hobbsHoursLast90Days": {
+            "type": "number",
+            "description": "Hobbs (elapsed) hours on this club's filed flights over the last 90 days, from each flight's meters, to one decimal. A flight with no Hobbs reading adds nothing.",
+            "example": 4.2
+          },
+          "tachHoursLast90Days": {
+            "type": "number",
+            "description": "Tach hours on this club's filed flights over the last 90 days, from each flight's meters, to one decimal. A flight with no tach reading adds nothing.",
+            "example": 3.6
           }
         }
       },

@@ -257,7 +257,15 @@ test("an admin's club-data key reads every pilot's ratings and landings; an ordi
   expect(res.status()).toBe(200);
   const club = (await res.json()) as {
     lastFlown: { tailNumber: string; pilot: string | null; flownOn: string | null }[];
-    pilots: { pilots: { name: string; certificate: string | null; landingsLast90Days: number }[] };
+    pilots: {
+      pilots: {
+        name: string;
+        certificate: string | null;
+        landingsLast90Days: number;
+        hobbsHoursLast90Days: number;
+        tachHoursLast90Days: number;
+      }[];
+    };
     bookings: { bookings: unknown[] };
   };
   // Everyone, not just the key's owner, with what they put on their profile.
@@ -265,8 +273,16 @@ test("an admin's club-data key reads every pilot's ratings and landings; an ordi
   expect(alex?.certificate).toBe("Private Pilot ASEL");
   expect(club.pilots.pilots.length).toBeGreaterThan(1);
   for (const p of club.pilots.pilots) {
-    expect(Object.keys(p).sort()).toEqual(["certificate", "declaredTotalTimeHours", "landingsLast90Days", "name"]);
+    expect(Object.keys(p).sort()).toEqual([
+      "certificate",
+      "hobbsHoursLast90Days",
+      "landingsLast90Days",
+      "name",
+      "tachHoursLast90Days",
+    ]);
   }
+  // Hours come from the club's own log: the seed's recent flights give someone tach time.
+  expect(club.pilots.pilots.some((p) => p.tachHoursLast90Days > 0)).toBe(true);
   // Nothing flight-by-flight leaves through this key: who flew last is one line per airplane.
   expect(Object.keys(club).sort()).toEqual(["bookings", "clubTimeZone", "generatedAt", "lastFlown", "pilots"]);
   const lastFlown = club.lastFlown;
