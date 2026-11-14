@@ -86,7 +86,7 @@ describe("the OpenAPI document", () => {
     });
     expect(fields("Flight")).toEqual(Object.keys(flight).sort());
 
-    const pilot = clubPilot({ name: "A Member", certificate: null, totalTimeHours: null }, [], now);
+    const pilot = clubPilot({ name: "A Member", certificate: null }, [], now);
     expect(fields("Pilot")).toEqual(Object.keys(pilot).sort());
     expect(fields("LastFlown")).toEqual(Object.keys(clubLastFlown({ tailNumber: "N8318B", flight: null })).sort());
 

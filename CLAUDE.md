@@ -239,7 +239,7 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   so no slow hash), `canWrite` (may also book, change and cancel its member's
   bookings and file and correct their flights; set at creation only, default false),
   `canReadClub` (admins only, set at creation: may also read who flew each airplane last
-  and every pilot's ratings, total time and 90-day landings at `/api/agent/club`; `getKeyUser` ANDs it with the member's CURRENT `isAdmin`), `lastUsedAt`
+  and every pilot's ratings plus 90-day landings, Hobbs and tach hours at `/api/agent/club`; `getKeyUser` ANDs it with the member's CURRENT `isAdmin`), `lastUsedAt`
   (written at most every 5 min), `revokedAt` (revoke stamps rather than
   deletes). NO part of the key is stored or shown
   again after creation, not even a prefix (Dylan, 2026-11-10).
@@ -500,10 +500,12 @@ owns the only splash in the app.
 - `agent/club` (GET) — a club-data key only (else 403): who flew each
   airplane last (`clubLastFlown`: pilot + day of its latest FILED flight, one
   line per airplane), every pilot
-  (`clubPilot` in lib/agentView.ts: certificate, declared total time, landings
-  in the last 90 days, a flight with no count counting as 1) and the schedule
+  (`clubPilot` in lib/agentView.ts: certificate, then landings, Hobbs hours
+  and tach hours over the last 90 days of FILED flights, a flight with no
+  landing count counting as 1; deliberately NOT the profile's self-declared
+  total, Dylan 2026-11-14) and the schedule
   (lib/agentClub.ts). Deliberately narrow — it is what the club officer asked
-  for, so no flight-by-flight log, hours or emails. MCP twins: `get_last_flown`, `get_pilots`,
+  for, so no flight-by-flight log or emails. MCP twins: `get_last_flown`, `get_pilots`,
   listed only for such a key. `openapi` (GET, public) serves lib/openapi.json,
   rendered by `public/api-docs.html` (Swagger UI); `tests/unit/openapi.test.ts`
   holds the spec to the code's field names.

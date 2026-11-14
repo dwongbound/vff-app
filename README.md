@@ -366,7 +366,8 @@ nothing through a key can pay or change anything else.
 - **Club data (admins only):** an admin can also tick **"Also let this key read
   club data"**. That key reads `GET https://<your site>/api/agent/club`: who
   flew each airplane last (pilot and day), every pilot's certificate and
-  ratings, declared total time and landings over the last 90 days, and the
+  ratings, and their landings, Hobbs hours and tach hours over the last 90
+  days (worked out from the club's filed flights, not the profile), and the
   schedule. Nothing flight-by-flight. Over MCP it also gets `get_last_flown`
   and `get_pilots`. It stops working if its member stops
   being an admin. It's meant for a club officer's own tools.

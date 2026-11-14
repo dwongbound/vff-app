@@ -4,11 +4,19 @@ import { AGENT_CLUB_TOOLS, AGENT_TOOLS, AGENT_WRITE_TOOLS, agentInstructions, ag
 
 const now = new Date("2026-11-13T20:00:00Z");
 const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000);
-const flight = (over: Partial<ClubPilotFlight> = {}): ClubPilotFlight => ({ flownOn: daysAgo(10), landings: 3, ...over });
-const person = { name: "Alex Rivera", certificate: "Private Pilot ASEL", totalTimeHours: 240 };
+const flight = (over: Partial<ClubPilotFlight> = {}): ClubPilotFlight => ({
+  flownOn: daysAgo(10),
+  landings: 3,
+  tachStart: 1500,
+  tachEnd: 1501,
+  hobbsStart: 3000,
+  hobbsEnd: 3001.3,
+  ...over,
+});
+const person = { name: "Alex Rivera", certificate: "Private Pilot ASEL" };
 
 describe("clubPilot", () => {
-  it("is only ratings, total time and 90-day landings", () => {
+  it("is only ratings and 90-day landings, Hobbs and tach hours", () => {
     const p = clubPilot(
       person,
       [flight(), flight({ flownOn: daysAgo(80), landings: 2 }), flight({ flownOn: daysAgo(120), landings: 9 })],
@@ -17,9 +25,24 @@ describe("clubPilot", () => {
     expect(p).toEqual({
       name: "Alex Rivera",
       certificate: "Private Pilot ASEL",
-      declaredTotalTimeHours: 240,
       landingsLast90Days: 5,
+      hobbsHoursLast90Days: 2.6,
+      tachHoursLast90Days: 2,
     });
+  });
+
+  it("works hours out from each flight's meters, skipping a missing reading", () => {
+    const p = clubPilot(
+      person,
+      [
+        flight({ hobbsStart: null, hobbsEnd: null }),
+        flight({ tachEnd: null }),
+        flight({ tachStart: 1510, tachEnd: 1511.25, hobbsStart: 3010, hobbsEnd: 3011.44 }),
+      ],
+      now
+    );
+    expect(p.hobbsHoursLast90Days).toBe(2.7);
+    expect(p.tachHoursLast90Days).toBe(2.3);
   });
 
   it("counts a flight with no landing count as one landing", () => {
@@ -28,10 +51,11 @@ describe("clubPilot", () => {
   });
 
   it("says null for what a pilot never entered, and zero landings for one who hasn't flown", () => {
-    const p = clubPilot({ ...person, certificate: null, totalTimeHours: null }, [], now);
+    const p = clubPilot({ ...person, certificate: null }, [], now);
     expect(p.certificate).toBeNull();
-    expect(p.declaredTotalTimeHours).toBeNull();
     expect(p.landingsLast90Days).toBe(0);
+    expect(p.hobbsHoursLast90Days).toBe(0);
+    expect(p.tachHoursLast90Days).toBe(0);
   });
 });
 

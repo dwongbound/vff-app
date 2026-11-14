@@ -221,7 +221,7 @@ export const AGENT_CLUB_TOOLS: McpTool[] = [
     name: "get_pilots",
     title: "Pilots",
     description:
-      "Every club member and instructor: their certificate/ratings and declared total time (as they entered them on their profile, null when blank), and how many landings the club's log shows for them in the last 90 days.",
+      "Every club member and instructor: their certificate/ratings (as they entered them on their profile, null when blank), and the landings, Hobbs hours and tach hours the club's log shows for them in the last 90 days.",
   },
 ];
 
@@ -242,7 +242,7 @@ const READ_ONLY_INSTRUCTIONS =
   "Times are ISO instants; show them in the club's time zone (America/Los_Angeles). ";
 
 const CLUB_INSTRUCTIONS =
-  "This key also reads who flew each airplane last (get_last_flown) and each pilot's ratings, total time and landings in the last 90 days (get_pilots). ";
+  "This key also reads who flew each airplane last (get_last_flown) and each pilot's ratings and their landings, Hobbs hours and tach hours in the last 90 days (get_pilots). ";
 
 /** Shown once at initialize; says what this particular key may do. */
 export function agentInstructions(canWrite: boolean, canReadClub = false): string {
