@@ -209,28 +209,13 @@ export const AGENT_WRITE_TOOLS: AgentWriteTool[] = [
   },
 ];
 
-/** What a club-data tool returns (lib/agentClub.ts). */
-export type AgentClubRead = "flights" | "pilots";
-
-export interface AgentClubTool extends McpTool {
-  read: AgentClubRead;
-}
-
 /** Listed only for a key an admin made with "club data" ticked. */
-export const AGENT_CLUB_TOOLS: AgentClubTool[] = [
-  {
-    name: "get_club_flights",
-    title: "Club flight log",
-    description:
-      "Every flight in the club's log over the last 90 days, newest first, each naming its pilot: airplane, tach and Hobbs hours, landings, route, type and instructor.",
-    read: "flights",
-  },
+export const AGENT_CLUB_TOOLS: McpTool[] = [
   {
     name: "get_pilots",
     title: "Pilots",
     description:
-      "Every club member and instructor: their certificate/ratings and declared total time (as they entered them on their profile, null when blank), plus flights, landings and hours in the club's log over the last 90 days, hours in the last 12 months, when they last flew, and whether the club's operating rules let them fly solo.",
-    read: "pilots",
+      "Every club member and instructor: their certificate/ratings and declared total time (as they entered them on their profile, null when blank), and how many landings the club's log shows for them in the last 90 days.",
   },
 ];
 
@@ -251,7 +236,7 @@ const READ_ONLY_INSTRUCTIONS =
   "Times are ISO instants; show them in the club's time zone (America/Los_Angeles). ";
 
 const CLUB_INSTRUCTIONS =
-  "This key also reads the whole club: the flight log with every pilot named (get_club_flights) and each pilot's ratings, total time and recent landings (get_pilots). ";
+  "This key also reads each pilot's ratings, total time and landings in the last 90 days (get_pilots). ";
 
 /** Shown once at initialize; says what this particular key may do. */
 export function agentInstructions(canWrite: boolean, canReadClub = false): string {
