@@ -200,6 +200,23 @@ export function clubPilot(row: ClubPilotRow, flights: ClubPilotFlight[], now: Da
   };
 }
 
+export interface ClubLastFlownRow {
+  tailNumber: string;
+  flight: { flownOn: Date; pilot: { name: string } } | null;
+}
+
+/**
+ * Who flew an airplane last, and on which day: one line per airplane, nothing
+ * else about the flight. Both null for an airplane nobody has flown here.
+ */
+export function clubLastFlown(row: ClubLastFlownRow) {
+  return {
+    tailNumber: row.tailNumber,
+    pilot: row.flight?.pilot.name ?? null,
+    flownOn: row.flight?.flownOn.toISOString() ?? null,
+  };
+}
+
 // ── Money ──────────────────────────────────────────────────────────────────
 
 export interface AgentChargeRow {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clubPilot, type ClubPilotFlight } from "@/lib/agentView";
+import { clubLastFlown, clubPilot, type ClubPilotFlight } from "@/lib/agentView";
 import { AGENT_CLUB_TOOLS, AGENT_TOOLS, AGENT_WRITE_TOOLS, agentInstructions, agentToolsFor } from "@/lib/agentTools";
 
 const now = new Date("2026-11-13T20:00:00Z");
@@ -35,18 +35,37 @@ describe("clubPilot", () => {
   });
 });
 
+describe("clubLastFlown", () => {
+  it("names the last pilot and the day, and nothing else about the flight", () => {
+    expect(
+      clubLastFlown({ tailNumber: "N8318B", flight: { flownOn: daysAgo(2), pilot: { name: "Alex Rivera" } } })
+    ).toEqual({ tailNumber: "N8318B", pilot: "Alex Rivera", flownOn: daysAgo(2).toISOString() });
+  });
+
+  it("says null for an airplane nobody has flown here", () => {
+    expect(clubLastFlown({ tailNumber: "N1234", flight: null })).toEqual({
+      tailNumber: "N1234",
+      pilot: null,
+      flownOn: null,
+    });
+  });
+});
+
 describe("agentToolsFor", () => {
   const names = (canWrite: boolean, club: boolean) => agentToolsFor(canWrite, club).map((t) => t.name);
-  it("lists get_pilots only for a club-data key, and no flight-by-flight tool", () => {
-    expect(AGENT_CLUB_TOOLS.map((t) => t.name)).toEqual(["get_pilots"]);
-    expect(names(false, false)).not.toContain("get_pilots");
-    expect(names(true, false)).not.toContain("get_pilots");
-    expect(names(false, true)).toContain("get_pilots");
+  it("lists the club tools only for a club-data key, and no flight-by-flight tool", () => {
+    expect(AGENT_CLUB_TOOLS.map((t) => t.name)).toEqual(["get_last_flown", "get_pilots"]);
+    for (const name of ["get_last_flown", "get_pilots"]) {
+      expect(names(false, false)).not.toContain(name);
+      expect(names(true, false)).not.toContain(name);
+      expect(names(false, true)).toContain(name);
+    }
     expect(names(true, true)).toHaveLength(AGENT_TOOLS.length + AGENT_CLUB_TOOLS.length + AGENT_WRITE_TOOLS.length);
   });
 
   it("tells the assistant about club data only when the key has it", () => {
     expect(agentInstructions(false, true)).toContain("get_pilots");
+    expect(agentInstructions(false, true)).toContain("get_last_flown");
     expect(agentInstructions(false)).not.toContain("get_pilots");
   });
 });

@@ -212,6 +212,12 @@ export const AGENT_WRITE_TOOLS: AgentWriteTool[] = [
 /** Listed only for a key an admin made with "club data" ticked. */
 export const AGENT_CLUB_TOOLS: McpTool[] = [
   {
+    name: "get_last_flown",
+    title: "Who flew last",
+    description:
+      "For each club airplane, who flew it last and on which day (the latest filed flight). Both null for an airplane nobody has flown here.",
+  },
+  {
     name: "get_pilots",
     title: "Pilots",
     description:
@@ -236,7 +242,7 @@ const READ_ONLY_INSTRUCTIONS =
   "Times are ISO instants; show them in the club's time zone (America/Los_Angeles). ";
 
 const CLUB_INSTRUCTIONS =
-  "This key also reads each pilot's ratings, total time and landings in the last 90 days (get_pilots). ";
+  "This key also reads who flew each airplane last (get_last_flown) and each pilot's ratings, total time and landings in the last 90 days (get_pilots). ";
 
 /** Shown once at initialize; says what this particular key may do. */
 export function agentInstructions(canWrite: boolean, canReadClub = false): string {

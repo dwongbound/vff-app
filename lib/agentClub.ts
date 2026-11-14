@@ -1,7 +1,8 @@
 // What a CLUB-DATA key reads beyond a member's own view (GET /api/agent/club,
-// and the get_pilots MCP tool): every pilot's ratings, total time and landings
-// in the last 90 days, and the schedule. The db half; the shaping is
-// clubPilot in agentView.ts.
+// and the get_pilots / get_last_flown MCP tools): who flew each airplane last,
+// every pilot's ratings, total time and landings in the last 90 days, and the
+// schedule. The db half; the shaping is clubLastFlown / clubPilot in
+// agentView.ts.
 //
 // Deliberately narrow: it answers what the club officer asked and no more —
 // no flight-by-flight log, no hours, no email. Only a key made by an admin
@@ -9,9 +10,28 @@
 // (`canReadClub` in lib/accessKeyAuth.ts). Read-only like the rest.
 import { prisma } from "./prisma";
 import { CLUB_TIME_ZONE } from "./constants";
-import { CLUB_RECENT_DAYS, clubPilot, type ClubPilotFlight } from "./agentView";
+import { CLUB_RECENT_DAYS, clubLastFlown, clubPilot, type ClubPilotFlight } from "./agentView";
 import { readBookings } from "./agentSnapshot";
 import type { KeyUser } from "./accessKeyAuth";
+
+/** Each active airplane and the last FILED flight on it: who flew it, and which day. */
+export async function readLastFlown() {
+  const planes = await prisma.aircraft.findMany({
+    where: { active: true },
+    orderBy: { tailNumber: "asc" },
+    select: {
+      tailNumber: true,
+      flights: {
+        // An open session hasn't come back yet: "flew it last" means a filed flight.
+        where: { filedAt: { not: null } },
+        orderBy: [{ flownOn: "desc" }, { createdAt: "desc" }],
+        take: 1,
+        select: { flownOn: true, pilot: { select: { name: true } } },
+      },
+    },
+  });
+  return planes.map((p) => clubLastFlown({ tailNumber: p.tailNumber, flight: p.flights[0] ?? null }));
+}
 
 /** Every member and instructor: ratings, total time, landings in the last 90 days. */
 export async function readPilots(now: Date) {
@@ -41,12 +61,17 @@ export async function readPilots(now: Date) {
   };
 }
 
-/** Everything GET /api/agent/club answers: the pilots and the schedule. */
+/** Everything GET /api/agent/club answers: who flew last, the pilots and the schedule. */
 export async function clubSnapshot(user: KeyUser, now = new Date()) {
-  const [pilots, schedule] = await Promise.all([readPilots(now), readBookings(user, now)]);
+  const [lastFlown, pilots, schedule] = await Promise.all([
+    readLastFlown(),
+    readPilots(now),
+    readBookings(user, now),
+  ]);
   return {
     generatedAt: now.toISOString(),
     clubTimeZone: CLUB_TIME_ZONE,
+    lastFlown,
     pilots,
     bookings: schedule,
   };
