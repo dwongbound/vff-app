@@ -1,7 +1,6 @@
-// GET /api/agent/club — the club-wide read for a club officer's tools: the
-// last 90 days of the flight log with pilots named, every pilot's ratings,
-// total time and recent landings, and the next 30 days of bookings
-// (lib/agentClub.ts).
+// GET /api/agent/club — the club-wide read for a club officer's tools: every
+// pilot's ratings, total time and landings in the last 90 days, and the next
+// 30 days of bookings (lib/agentClub.ts). Nothing flight-by-flight.
 //
 // Takes `Authorization: Bearer vff_…` ONLY, and only a key made with "club
 // data" by a member who is still an admin. Any other valid key gets 403.
@@ -23,6 +22,6 @@ export async function GET(req: Request) {
       { status: 403 }
     );
   }
-  // Every member's flying: never cached by anything in between.
+  // Every member's ratings: never cached by anything in between.
   return NextResponse.json(await clubSnapshot(user), { headers: { "Cache-Control": "no-store" } });
 }

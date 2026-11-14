@@ -238,8 +238,8 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   (Jarvis): `name`, `keyHash` (SHA-256, unique — the key is 256 random bits,
   so no slow hash), `canWrite` (may also book, change and cancel its member's
   bookings and file and correct their flights; set at creation only, default false),
-  `canReadClub` (admins only, set at creation: may also read the whole club at
-  `/api/agent/club`; `getKeyUser` ANDs it with the member's CURRENT `isAdmin`), `lastUsedAt`
+  `canReadClub` (admins only, set at creation: may also read every pilot's ratings,
+  total time and 90-day landings at `/api/agent/club`; `getKeyUser` ANDs it with the member's CURRENT `isAdmin`), `lastUsedAt`
   (written at most every 5 min), `revokedAt` (revoke stamps rather than
   deletes). NO part of the key is stored or shown
   again after creation, not even a prefix (Dylan, 2026-11-10).
@@ -497,11 +497,11 @@ owns the only splash in the app.
   at most `MAX_ACCESS_KEYS`) · `access-keys/[id]` (DELETE = revoke your own).
   Session only: a key can't make keys. `canReadClub: true` is a 403 unless the
   caller is an admin.
-- `agent/club` (GET) — a club-data key only (else 403): the club's log for 90
-  days with pilots named (no write-ups), every pilot (`clubPilot` in
-  lib/agentView.ts: certificate, declared total time, 90-day flights/landings/
-  hours, 12-month hours, last flew, solo verdicts), the schedule and the
-  airplanes (lib/agentClub.ts). MCP twins: `get_club_flights`, `get_pilots`,
+- `agent/club` (GET) — a club-data key only (else 403): every pilot
+  (`clubPilot` in lib/agentView.ts: certificate, declared total time, landings
+  in the last 90 days, a flight with no count counting as 1) and the schedule
+  (lib/agentClub.ts). Deliberately narrow — it is what the club officer asked
+  for, so no flight-by-flight log, hours or emails. MCP twin: `get_pilots`,
   listed only for such a key. `openapi` (GET, public) serves lib/openapi.json,
   rendered by `public/api-docs.html` (Swagger UI); `tests/unit/openapi.test.ts`
   holds the spec to the code's field names.
