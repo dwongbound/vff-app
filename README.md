@@ -364,11 +364,11 @@ plain member, never as an admin or officer, even on an admin's account, and
 nothing through a key can pay or change anything else.
 
 - **Club data (admins only):** an admin can also tick **"Also let this key read
-  club data"**. That key reads `GET https://<your site>/api/agent/club`: every
-  flight in the last 90 days with who flew it, every pilot's certificate and
-  ratings, declared total time, flights, landings and hours over 90 days and 12
-  months, the schedule and the airplanes. Over MCP it also gets
-  `get_club_flights` and `get_pilots`. It stops working if its member stops
+  club data"**. That key reads `GET https://<your site>/api/agent/club`: who
+  flew each airplane last (pilot and day), every pilot's certificate and
+  ratings, declared total time and landings over the last 90 days, and the
+  schedule. Nothing flight-by-flight. Over MCP it also gets `get_last_flown`
+  and `get_pilots`. It stops working if its member stops
   being an admin. It's meant for a club officer's own tools.
 - **Docs:** `https://<your site>/api-docs.html` is a Swagger page over the
   OpenAPI spec at `/api/openapi` (both public; they describe the shape, never

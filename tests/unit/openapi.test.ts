@@ -2,7 +2,7 @@
 // describes: every field the key routes return, every tool, every label.
 import { describe, expect, it } from "vitest";
 import spec from "@/lib/openapi.json";
-import { agentAircraft, agentBooking, agentFlight, agentMoney, clubFlight, clubPilot } from "@/lib/agentView";
+import { agentAircraft, agentBooking, agentFlight, agentMoney, clubLastFlown, clubPilot } from "@/lib/agentView";
 import { agentToolsFor } from "@/lib/agentTools";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@/lib/mcp";
 import { PURPOSE_LABELS } from "@/lib/constants";
@@ -86,36 +86,9 @@ describe("the OpenAPI document", () => {
     });
     expect(fields("Flight")).toEqual(Object.keys(flight).sort());
 
-    const logged = clubFlight({
-      id: "f1",
-      flownOn: now,
-      filedAt: now,
-      tachStart: 1,
-      tachEnd: 2,
-      hobbsStart: null,
-      hobbsEnd: null,
-      landings: 1,
-      nightLandings: 0,
-      purpose: null,
-      departure: null,
-      arrival: null,
-      route: null,
-      notes: null,
-      logEntry: null,
-      aircraft: { tailNumber: "N8318B" },
-      instructor: null,
-      signedAt: null,
-      pilot: { name: "A Member" },
-    });
-    expect(fields("ClubFlight")).toEqual(Object.keys(logged).sort());
-    const pilot = clubPilot(
-      { id: "u1", name: "A Member", email: null, certificate: null, totalTimeHours: null, clubMember: true, positions: [] },
-      [],
-      now
-    );
+    const pilot = clubPilot({ name: "A Member", certificate: null, totalTimeHours: null }, [], now);
     expect(fields("Pilot")).toEqual(Object.keys(pilot).sort());
-    const last90 = schemas.Pilot.properties.last90Days as unknown as Schema;
-    expect(Object.keys(last90.properties).sort()).toEqual(Object.keys(pilot.last90Days).sort());
+    expect(fields("LastFlown")).toEqual(Object.keys(clubLastFlown({ tailNumber: "N8318B", flight: null })).sort());
 
     const money = agentMoney([{ kind: "DUES", amountCents: 100, description: "Dues", incurredOn: now }]);
     expect(fields("Money")).toEqual(Object.keys(money).sort());
@@ -130,7 +103,7 @@ describe("the OpenAPI document", () => {
 
   it("lists the club snapshot's sections", () => {
     expect(fields("ClubSnapshot")).toEqual(
-      ["aircraft", "bookings", "clubTimeZone", "generatedAt", "pilots", "recentFlights"].sort()
+      ["bookings", "clubTimeZone", "generatedAt", "lastFlown", "pilots"].sort()
     );
   });
 
@@ -141,7 +114,6 @@ describe("the OpenAPI document", () => {
     expect(enumOf("Squawk", "status")).toEqual(Object.values(SQUAWK_STATUS_LABELS));
     expect(enumOf("MoneyLine", "kind")).toEqual(Object.values(CHARGE_KIND_LABELS));
     expect(enumOf("Flying", "operatingRulesColumn")).toEqual(Object.values(TIER_LABELS));
-    expect(enumOf("Pilot", "operatingRulesColumn")).toEqual(Object.values(TIER_LABELS));
   });
 
   it("names every MCP tool and protocol version the server has", () => {
