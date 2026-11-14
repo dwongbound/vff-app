@@ -1,6 +1,7 @@
 // What a CLUB-DATA key reads beyond a member's own view (GET /api/agent/club,
-// and the get_pilots MCP tool): every pilot's ratings, total time and landings
-// in the last 90 days, and the schedule. The db half; the shaping is
+// and the get_pilots / get_last_flown MCP tools): every pilot's ratings, total
+// time and landings in the last 90 days, who last flew each airplane, and the
+// schedule. The db half; the shaping is
 // clubPilot in agentView.ts.
 //
 // Deliberately narrow: it answers what the club officer asked and no more —
@@ -9,7 +10,7 @@
 // (`canReadClub` in lib/accessKeyAuth.ts). Read-only like the rest.
 import { prisma } from "./prisma";
 import { CLUB_TIME_ZONE } from "./constants";
-import { CLUB_RECENT_DAYS, clubPilot, type ClubPilotFlight } from "./agentView";
+import { CLUB_RECENT_DAYS, clubLastFlight, clubPilot, type ClubPilotFlight } from "./agentView";
 import { readBookings } from "./agentSnapshot";
 import type { KeyUser } from "./accessKeyAuth";
 
@@ -41,13 +42,33 @@ export async function readPilots(now: Date) {
   };
 }
 
-/** Everything GET /api/agent/club answers: the pilots and the schedule. */
+/** Each active airplane's most recent flight: who flew it, and when. */
+export async function readLastFlown() {
+  const rows = await prisma.flight.findMany({
+    where: { aircraft: { active: true } },
+    distinct: ["aircraftId"],
+    orderBy: [{ aircraftId: "asc" }, { flownOn: "desc" }, { createdAt: "desc" }],
+    select: {
+      flownOn: true,
+      aircraft: { select: { tailNumber: true } },
+      pilot: { select: { name: true } },
+    },
+  });
+  return rows.map(clubLastFlight).sort((a, b) => a.tailNumber.localeCompare(b.tailNumber));
+}
+
+/** Everything GET /api/agent/club answers: the pilots, who last flew each airplane, the schedule. */
 export async function clubSnapshot(user: KeyUser, now = new Date()) {
-  const [pilots, schedule] = await Promise.all([readPilots(now), readBookings(user, now)]);
+  const [pilots, lastFlown, schedule] = await Promise.all([
+    readPilots(now),
+    readLastFlown(),
+    readBookings(user, now),
+  ]);
   return {
     generatedAt: now.toISOString(),
     clubTimeZone: CLUB_TIME_ZONE,
     pilots,
+    lastFlown,
     bookings: schedule,
   };
 }

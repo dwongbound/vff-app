@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clubPilot, type ClubPilotFlight } from "@/lib/agentView";
+import { clubLastFlight, clubPilot, type ClubPilotFlight } from "@/lib/agentView";
 import { AGENT_CLUB_TOOLS, AGENT_TOOLS, AGENT_WRITE_TOOLS, agentInstructions, agentToolsFor } from "@/lib/agentTools";
 
 const now = new Date("2026-11-13T20:00:00Z");
@@ -35,13 +35,21 @@ describe("clubPilot", () => {
   });
 });
 
+describe("clubLastFlight", () => {
+  it("is only the airplane, who flew it and the day", () => {
+    expect(
+      clubLastFlight({ flownOn: daysAgo(2), aircraft: { tailNumber: "N8318B" }, pilot: { name: "Alex Rivera" } })
+    ).toEqual({ tailNumber: "N8318B", pilot: "Alex Rivera", flownOn: daysAgo(2).toISOString() });
+  });
+});
+
 describe("agentToolsFor", () => {
   const names = (canWrite: boolean, club: boolean) => agentToolsFor(canWrite, club).map((t) => t.name);
-  it("lists get_pilots only for a club-data key, and no flight-by-flight tool", () => {
-    expect(AGENT_CLUB_TOOLS.map((t) => t.name)).toEqual(["get_pilots"]);
+  it("lists the club tools only for a club-data key, and no flight-by-flight tool", () => {
+    expect(AGENT_CLUB_TOOLS.map((t) => t.name)).toEqual(["get_pilots", "get_last_flown"]);
     expect(names(false, false)).not.toContain("get_pilots");
     expect(names(true, false)).not.toContain("get_pilots");
-    expect(names(false, true)).toContain("get_pilots");
+    expect(names(false, true)).toEqual(expect.arrayContaining(["get_pilots", "get_last_flown"]));
     expect(names(true, true)).toHaveLength(AGENT_TOOLS.length + AGENT_CLUB_TOOLS.length + AGENT_WRITE_TOOLS.length);
   });
 

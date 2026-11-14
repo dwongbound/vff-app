@@ -499,10 +499,11 @@ owns the only splash in the app.
   caller is an admin.
 - `agent/club` (GET) — a club-data key only (else 403): every pilot
   (`clubPilot` in lib/agentView.ts: certificate, declared total time, landings
-  in the last 90 days, a flight with no count counting as 1) and the schedule
+  in the last 90 days, a flight with no count counting as 1), who last flew
+  each active airplane (`clubLastFlight`: tail, pilot, day) and the schedule
   (lib/agentClub.ts). Deliberately narrow — it is what the club officer asked
-  for, so no flight-by-flight log, hours or emails. MCP twin: `get_pilots`,
-  listed only for such a key. `openapi` (GET, public) serves lib/openapi.json,
+  for, so no flight-by-flight log, hours or emails. MCP twins: `get_pilots`,
+  `get_last_flown`, listed only for such a key. `openapi` (GET, public) serves lib/openapi.json,
   rendered by `public/api-docs.html` (Swagger UI); `tests/unit/openapi.test.ts`
   holds the spec to the code's field names.
 - `agent` (GET) and `mcp` (POST) take `Authorization: Bearer vff_…`

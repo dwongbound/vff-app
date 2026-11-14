@@ -1,6 +1,6 @@
 // GET /api/agent/club — the club-wide read for a club officer's tools: every
-// pilot's ratings, total time and landings in the last 90 days, and the next
-// 30 days of bookings (lib/agentClub.ts). Nothing flight-by-flight.
+// pilot's ratings, total time and landings in the last 90 days, who last flew
+// each airplane, and the next 30 days of bookings (lib/agentClub.ts). Nothing flight-by-flight.
 //
 // Takes `Authorization: Bearer vff_…` ONLY, and only a key made with "club
 // data" by a member who is still an admin. Any other valid key gets 403.

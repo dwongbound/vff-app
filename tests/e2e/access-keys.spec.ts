@@ -257,6 +257,7 @@ test("an admin's club-data key reads every pilot's ratings and landings; an ordi
   expect(res.status()).toBe(200);
   const club = (await res.json()) as {
     pilots: { pilots: { name: string; certificate: string | null; landingsLast90Days: number }[] };
+    lastFlown: { tailNumber: string; pilot: string; flownOn: string }[];
     bookings: { bookings: unknown[] };
   };
   // Everyone, not just the key's owner, with what they put on their profile.
@@ -267,13 +268,15 @@ test("an admin's club-data key reads every pilot's ratings and landings; an ordi
     expect(Object.keys(p).sort()).toEqual(["certificate", "declaredTotalTimeHours", "landingsLast90Days", "name"]);
   }
   // Nothing flight-by-flight leaves through this key.
-  expect(Object.keys(club).sort()).toEqual(["bookings", "clubTimeZone", "generatedAt", "pilots"]);
+  expect(Object.keys(club).sort()).toEqual(["bookings", "clubTimeZone", "generatedAt", "lastFlown", "pilots"]);
+  // Who flew each airplane last: three fields, no more.
+  for (const f of club.lastFlown) expect(Object.keys(f).sort()).toEqual(["flownOn", "pilot", "tailNumber"]);
   expect(Array.isArray(club.bookings.bookings)).toBe(true);
 
   // The same over MCP, and only for the club key.
   const toolNames = async (k: string) =>
     ((await (await mcp(outside, k, "tools/list")).json()).result.tools as { name: string }[]).map((t) => t.name);
-  expect(await toolNames(key)).toContain("get_pilots");
+  expect(await toolNames(key)).toEqual(expect.arrayContaining(["get_pilots", "get_last_flown"]));
   expect(await toolNames(key)).not.toContain("get_club_flights");
   expect(await toolNames(plain.key)).not.toContain("get_pilots");
   const pilots = await tool(outside, key, "get_pilots");
