@@ -870,13 +870,31 @@ owns the only splash in the app.
   `buildXlsx` returns `Uint8Array<ArrayBuffer>` — the buffer parameter is
   spelled out because a bare `Uint8Array` isn't a `BlobPart`. ✅tested
 - `invoices.ts` — what an invoice SAYS: `invoiceLines` (a month's standing
-  lines, or every unpaid one for "all"), `invoiceFor` (subject, text, HTML —
-  null when there's nothing to send; a credit is worded, never "-$40 due";
-  every interpolated string escaped), `invoiceAddress`. ✅tested
+  lines, or every unpaid one for "all"), `invoiceFor` (subject, text, HTML
+  and the PDF `attachment` — null when there's nothing to send; every
+  interpolated string escaped), `invoiceAddress`. The EMAIL carries NO money
+  (Dylan, 2026-11-16): what's attached, `PAYMENT_INSTRUCTIONS` ("Please Zelle
+  to the club account or bring a check to the finance officer(s)."), the app
+  link and who to reply to. Every figure is in the PDF. ✅tested
+- `invoicePdf.ts` — the statement PDF: orange band, an Amount Due box (a
+  credit reads "The club owes you", never "-$40 due"), the lines (grouped by
+  month for "all", paginated with the header repeated), How to pay, totals.
+  A paid line is tagged by WHICH WAY the money went — green PAID CLUB on a
+  charge the member paid, blue PAID OUT on a credit the club paid back; never
+  a bare "PAID". `statementTotals` is the totals block, Dylan's own sum:
+  Charges − Owed (every credit) + Paid out − Paid club = Amount due, which is
+  the ledger's outstanding figure by another route, and is what the send
+  records. ✅tested
+- `pdf.ts` — a PDF writer by hand, for the same reason as `xlsx.ts`: the two
+  built-in Helvetica faces (nothing embedded), WinAnsi text (anything else
+  prints "?"), rects and lines, TOP-LEFT coordinates, uncompressed streams so
+  a test reads the words straight out of the bytes. ✅tested
 - `email.ts` — `emailStatus(env)` (the single "can this server send mail"
   answer, like `storageStatus`) and `sendEmails` (Resend's batch API by hand,
   or the `log` driver that dev and e2e run on — a test run must never mail a
-  member). Never throws; one result per message. ✅tested
+  member). Resend's batch endpoint takes no attachments, so a message WITH one
+  (every invoice) goes to `/emails` on its own, `SINGLE_SEND_GAP_MS` apart to
+  stay under the rate limit. Never throws; one result per message, in order. ✅tested
 - `ledgerView.ts` — the Finances page's grouping and narrowing of WIRE lines
   (ApiCharge): `statementsFor` (club lines first, then by name),
   `exportPeriods`/`monthsSpanned`/`selectLines` for the export window. ✅tested

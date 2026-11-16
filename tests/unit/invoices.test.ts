@@ -7,6 +7,7 @@ import {
   scopeLabel,
   type InvoiceCharge,
 } from "@/lib/invoices";
+import { PAYMENT_INSTRUCTIONS, statementPdf, statementTotals } from "@/lib/invoicePdf";
 
 function line(over: Partial<InvoiceCharge>): InvoiceCharge {
   return {
@@ -56,6 +57,11 @@ describe("invoiceLines", () => {
   });
 });
 
+/** The PDF's bytes as text: streams are uncompressed, so the words are in there. */
+function pdfText(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("latin1");
+}
+
 describe("invoiceFor", () => {
   it("is null when the scope has nothing in it", () => {
     expect(invoiceFor({ ...base, scope: "2026-10", charges: [line({})], balanceDueCents: 0 })).toBeNull();
@@ -64,30 +70,50 @@ describe("invoiceFor", () => {
     ).toBeNull();
   });
 
-  it("asks for what the month still owes, net of credits and payments", () => {
-    const inv = invoiceFor({
-      ...base,
-      scope: "2026-09",
-      charges: [
-        line({ amountCents: 15000 }),
-        line({ kind: "FUEL_CREDIT", amountCents: -4000, description: "Fuel" }),
-        line({ kind: "DUES", amountCents: 5000, description: "Dues", paidAt: "2026-09-02" }),
-      ],
-      balanceDueCents: 11000,
-    })!;
+  it("puts the money in an attached PDF and none of it in the email", () => {
+    const inv = invoiceFor(
+      {
+        ...base,
+        scope: "2026-09",
+        charges: [
+          line({ amountCents: 15000 }),
+          line({ kind: "FUEL_CREDIT", amountCents: -4000, description: "Fuel" }),
+          line({ kind: "DUES", amountCents: 5000, description: "Dues", paidAt: "2026-09-02" }),
+        ],
+        balanceDueCents: 11000,
+      },
+      new Date("2026-10-01T18:00:00Z")
+    )!;
     expect(inv.amountDueCents).toBe(11000);
     expect(inv.lineCount).toBe(3);
     expect(inv.subject).toBe("VFF Flying Club statement for September 2026");
     expect(inv.text).toContain("Hi Alex,");
-    expect(inv.text).toContain("Amount due: $110.00");
-    expect(inv.text).toContain("[paid]");
-    // Same as the headline, so no second line repeating it.
-    expect(inv.text).not.toContain("Across all months");
+    expect(inv.text).toContain("Attached is your VFF Flying Club statement for September 2026.");
+    expect(inv.text).not.toMatch(/\$\d/);
+    expect(inv.html).not.toMatch(/\$\d/);
+    expect(inv.attachment.filename).toBe("VFF statement 2026-09 - Alex Rivera.pdf");
+    const pdf = pdfText(inv.attachment.content);
+    expect(pdf.startsWith("%PDF-1.4")).toBe(true);
+    expect(pdf).toContain("(Alex Rivera)");
+    expect(pdf).toContain("($110.00)");
+    expect(pdf).toContain("(PAID CLUB)");
   });
 
-  it("adds the all-months balance when it differs from the month", () => {
+  it("tells the member how to pay, in the email and on the PDF", () => {
+    const inv = invoiceFor({ ...base, scope: "2026-09", charges: [line({})], balanceDueCents: 10000 })!;
+    expect(PAYMENT_INSTRUCTIONS).toBe(
+      "Please Zelle to the club account or bring a check to the finance officer(s)."
+    );
+    expect(inv.text).toContain(PAYMENT_INSTRUCTIONS);
+    expect(inv.html).toContain("Please Zelle to the club account");
+    expect(pdfText(inv.attachment.content)).toContain("(How to pay)");
+  });
+
+  it("adds the all-months balance to the PDF when it differs from the month", () => {
     const inv = invoiceFor({ ...base, scope: "2026-09", charges: [line({})], balanceDueCents: 25000 })!;
-    expect(inv.text).toContain("Across all months: you owe $250.00");
+    expect(pdfText(inv.attachment.content)).toContain("(Across all months: you owe $250.00)");
+    const same = invoiceFor({ ...base, scope: "2026-09", charges: [line({})], balanceDueCents: 10000 })!;
+    expect(pdfText(same.attachment.content)).not.toContain("Across all months");
   });
 
   it("says a credit in words rather than as a negative amount due", () => {
@@ -97,11 +123,13 @@ describe("invoiceFor", () => {
       charges: [line({ kind: "REIMBURSEMENT", amountCents: -4000, description: "Oil" })],
       balanceDueCents: -4000,
     })!;
-    expect(inv.text).toContain("The club owes you $40.00");
-    expect(inv.text).not.toContain("-$40.00 due");
+    const pdf = pdfText(inv.attachment.content);
+    expect(pdf).toContain("(THE CLUB OWES YOU)");
+    expect(pdf).toContain("($40.00)");
+    expect(pdf).not.toContain("(AMOUNT DUE)");
   });
 
-  it("groups the all-time letter by month", () => {
+  it("groups the all-time statement by month", () => {
     const inv = invoiceFor({
       ...base,
       scope: "all",
@@ -109,8 +137,11 @@ describe("invoiceFor", () => {
       balanceDueCents: 20000,
     })!;
     expect(inv.subject).toBe("VFF Flying Club: what you owe the club");
-    expect(inv.text.indexOf("August 2026")).toBeLessThan(inv.text.indexOf("September 2026"));
-    expect(inv.text).toContain("Amount due: $200.00");
+    expect(inv.attachment.filename).toBe("VFF unpaid - Alex Rivera.pdf");
+    const pdf = pdfText(inv.attachment.content);
+    expect(pdf.indexOf("(August 2026)")).toBeGreaterThan(-1);
+    expect(pdf.indexOf("(August 2026)")).toBeLessThan(pdf.indexOf("(September 2026)"));
+    expect(pdf).toContain("($200.00)");
   });
 
   it("escapes everything typed into the HTML", () => {
@@ -121,9 +152,81 @@ describe("invoiceFor", () => {
       charges: [line({ description: `<img src=x onerror="alert(1)">` })],
       balanceDueCents: 10000,
     })!;
-    expect(inv.html).not.toContain("<img");
     expect(inv.html).not.toContain("<b>Eve");
-    expect(inv.html).toContain("&lt;img");
+    expect(inv.html).toContain("&lt;b&gt;Eve");
+  });
+});
+
+describe("statementTotals", () => {
+  it("is charges − owed + paid out − paid club", () => {
+    const t = statementTotals([
+      { amountCents: 25000, paid: false },
+      { amountCents: 17280, paid: true },
+      { amountCents: -18873, paid: true },
+      { amountCents: -4000, paid: false },
+    ]);
+    expect(t).toEqual({
+      chargedCents: 42280,
+      owedCents: 22873,
+      paidOutCents: 18873,
+      paidClubCents: 17280,
+      dueCents: 42280 - 22873 + 18873 - 17280,
+    });
+  });
+
+  it("matches the ledger's outstanding figure", () => {
+    const rows = [
+      { amountCents: 15000, paid: false },
+      { amountCents: -4000, paid: false },
+      { amountCents: 5000, paid: true },
+      { amountCents: -3000, paid: true },
+    ];
+    // Unpaid lines only: 150 − 40 = 110.
+    expect(statementTotals(rows).dueCents).toBe(11000);
+  });
+});
+
+describe("statementPdf", () => {
+  const statement = {
+    title: "Statement for September 2026",
+    label: "September 2026",
+    grouped: false,
+    memberName: "Alex Rivera",
+    balanceDueCents: null,
+    financesUrl: "https://example.test/finances",
+    issuedOn: new Date("2026-10-01T18:00:00Z"),
+  };
+
+  it("tags a paid credit PAID OUT and a paid charge PAID CLUB, never plain PAID", () => {
+    const pdf = pdfText(
+      statementPdf({
+        ...statement,
+        rows: [
+          { date: "Sep 1", month: "2026-09", what: "Dues", kind: "Dues", amountCents: 25000, paid: true },
+          { date: "Sep 2", month: "2026-09", what: "Fuel", kind: "Fuel credit", amountCents: -4000, paid: true },
+        ],
+      })
+    );
+    expect(pdf).toContain("(PAID CLUB)");
+    expect(pdf).toContain("(PAID OUT)");
+    expect(pdf).not.toContain("(PAID)");
+    for (const label of ["Charges", "Owed", "Paid out", "Paid club", "Nothing owed"]) {
+      expect(pdf).toContain(`(${label})`);
+    }
+  });
+
+  it("runs a long statement onto more pages with numbered footers", () => {
+    const rows = Array.from({ length: 40 }, (_, i) => ({
+      date: `Sep ${i + 1}`,
+      month: "2026-09",
+      what: `Flight ${i}`,
+      kind: "Flight time",
+      amountCents: 10000,
+      paid: false,
+    }));
+    const pdf = pdfText(statementPdf({ ...statement, rows }));
+    expect(pdf).toMatch(/\/Count [2-9]/);
+    expect(pdf).toContain("(Page 1 of ");
   });
 });
 
