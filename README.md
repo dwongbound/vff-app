@@ -226,7 +226,11 @@ Two things send email:
 
 - The Finance Officer's **Send invoices** (Finances › Club view, on the
   summary card) emails each member their statement for a month, or everything
-  they still owe.
+  they still owe, as a PDF attachment. The email itself has no figures: it
+  says what's attached and asks them to Zelle the club account or bring a
+  check to the finance officer(s). The PDF totals read Charges − Owed
+  (credits) + Paid out (credits the club paid back) − Paid club (charges
+  already paid) = Amount due.
 - **Filing a squawk** emails every member holding the Safety Officer position
   (or, while nobody does, every admin), with a link straight to it on Plane
   Status › Squawks. The member who filed it isn't mailed, and replies go to

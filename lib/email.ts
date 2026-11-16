@@ -45,6 +45,11 @@ export function emailStatus(
   return { configured: true, driver: "resend", reason: null };
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: Uint8Array;
+}
+
 export interface OutgoingEmail {
   to: string;
   subject: string;
@@ -52,6 +57,8 @@ export interface OutgoingEmail {
   html: string;
   /** Where a reply lands — the officer who sent it, not a no-reply box. */
   replyTo?: string | null;
+  /** Files to attach (the invoice's PDF statement). */
+  attachments?: EmailAttachment[];
 }
 
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -60,13 +67,21 @@ export type SendResult = { ok: true } | { ok: false; error: string };
 export const BATCH_LIMIT = 100;
 
 /**
+ * Pause between single sends. Resend's batch endpoint doesn't take
+ * attachments, so a message carrying one goes on its own — and the API
+ * allows a couple of requests a second, so they go one at a time with room.
+ */
+export const SINGLE_SEND_GAP_MS = 600;
+
+/**
  * Send many messages, answering one result per message in the same order.
  * Never throws: a failure is a result, so the caller can say who didn't get
  * one rather than losing the whole run to the first refusal.
  */
 export async function sendEmails(
   messages: OutgoingEmail[],
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  gapMs: number = SINGLE_SEND_GAP_MS
 ): Promise<SendResult[]> {
   const status = emailStatus(env);
   if (!status.configured) {
@@ -75,31 +90,89 @@ export async function sendEmails(
 
   if (status.driver === "log") {
     for (const m of messages) {
-      console.log(`[email:log] to=${m.to} subject=${JSON.stringify(m.subject)}`);
+      const files = (m.attachments ?? []).map((a) => `${a.filename} (${a.content.length} bytes)`);
+      console.log(
+        `[email:log] to=${m.to} subject=${JSON.stringify(m.subject)}` +
+          (files.length > 0 ? ` attachments=${JSON.stringify(files)}` : "")
+      );
     }
     return messages.map(() => ({ ok: true }));
   }
 
-  const results: SendResult[] = [];
-  for (let i = 0; i < messages.length; i += BATCH_LIMIT) {
-    const chunk = messages.slice(i, i + BATCH_LIMIT);
-    results.push(...(await sendResendBatch(chunk, env)));
+  // Messages with attachments can't ride in a batch, so they go one by one;
+  // the rest still batch. Results come back in the caller's order either way.
+  const results: SendResult[] = new Array(messages.length);
+  const plain: number[] = [];
+  const attached: number[] = [];
+  messages.forEach((m, i) => ((m.attachments?.length ?? 0) > 0 ? attached : plain).push(i));
+
+  for (let i = 0; i < plain.length; i += BATCH_LIMIT) {
+    const chunk = plain.slice(i, i + BATCH_LIMIT);
+    const outcomes = await sendResendBatch(chunk.map((idx) => messages[idx]), env);
+    chunk.forEach((idx, j) => (results[idx] = outcomes[j]));
+  }
+  for (let j = 0; j < attached.length; j++) {
+    if (j > 0 && gapMs > 0) await new Promise((resolve) => setTimeout(resolve, gapMs));
+    const idx = attached[j];
+    results[idx] = await sendResendSingle(messages[idx], env);
   }
   return results;
 }
 
-async function sendResendBatch(
-  messages: OutgoingEmail[],
-  env: Record<string, string | undefined>
-): Promise<SendResult[]> {
-  const body = messages.map((m) => ({
+/** Bytes → base64, which is how Resend takes an attachment's content. */
+function base64(bytes: Uint8Array): string {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
+}
+
+/** One message's body for Resend, attachments included when it has any. */
+function resendBody(m: OutgoingEmail, env: Record<string, string | undefined>) {
+  return {
     from: env.EMAIL_FROM,
     to: [m.to],
     subject: m.subject,
     text: m.text,
     html: m.html,
     ...(m.replyTo ? { reply_to: m.replyTo } : {}),
-  }));
+    ...(m.attachments && m.attachments.length > 0
+      ? { attachments: m.attachments.map((a) => ({ filename: a.filename, content: base64(a.content) })) }
+      : {}),
+  };
+}
+
+/** The mail service's own sentence about a refusal, or a plain one. */
+async function refusal(res: Response, what: string): Promise<string> {
+  const detail = await res.json().catch(() => null);
+  return (
+    (detail && typeof detail.message === "string" && detail.message) ||
+    `The mail service refused the ${what} (HTTP ${res.status}).`
+  );
+}
+
+async function sendResendSingle(
+  message: OutgoingEmail,
+  env: Record<string, string | undefined>
+): Promise<SendResult> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(resendBody(message, env)),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: await refusal(res, "message") };
+  } catch {
+    return { ok: false, error: "Couldn't reach the mail service." };
+  }
+}
+
+async function sendResendBatch(
+  messages: OutgoingEmail[],
+  env: Record<string, string | undefined>
+): Promise<SendResult[]> {
+  const body = messages.map((m) => resendBody(m, env));
   try {
     const res = await fetch("https://api.resend.com/emails/batch", {
       method: "POST",
@@ -112,10 +185,7 @@ async function sendResendBatch(
     if (res.ok) return messages.map(() => ({ ok: true }));
     // A batch is validated as a whole, so a refusal applies to every message
     // in it. Resend's error body carries a human sentence; keep it.
-    const detail = await res.json().catch(() => null);
-    const error =
-      (detail && typeof detail.message === "string" && detail.message) ||
-      `The mail service refused the batch (HTTP ${res.status}).`;
+    const error = await refusal(res, "batch");
     return messages.map(() => ({ ok: false, error }));
   } catch {
     return messages.map(() => ({ ok: false, error: "Couldn't reach the mail service." }));
