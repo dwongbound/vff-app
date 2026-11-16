@@ -70,4 +70,29 @@ describe("sendEmails", () => {
       { ok: false, error: "Domain not verified" },
     ]);
   });
+
+  it("sends a message with an attachment on its own, base64, in order with the rest", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      String(url).endsWith("/batch")
+        ? new Response(JSON.stringify({ data: [{ id: "b" }] }), { status: 200 })
+        : new Response(JSON.stringify({ id: "s" }), { status: 200 })
+    );
+    const withPdf = { ...msg, attachments: [{ filename: "s.pdf", content: new Uint8Array([37, 80, 68, 70]) }] };
+    const out = await sendEmails([withPdf, msg], { RESEND_API_KEY: "k", EMAIL_FROM: "c@x.org" }, 0);
+    expect(out).toEqual([{ ok: true }, { ok: true }]);
+    const urls = fetchSpy.mock.calls.map(([url]) => String(url)).sort();
+    expect(urls).toEqual(["https://api.resend.com/emails", "https://api.resend.com/emails/batch"]);
+    const single = fetchSpy.mock.calls.find(([url]) => String(url) === "https://api.resend.com/emails")!;
+    const body = JSON.parse(String((single[1] as RequestInit).body));
+    expect(body.attachments).toEqual([{ filename: "s.pdf", content: "JVBERg==" }]);
+  });
+
+  it("reports a refused single send on that message alone", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ message: "Attachment too large" }), { status: 422 })
+    );
+    const withPdf = { ...msg, attachments: [{ filename: "s.pdf", content: new Uint8Array([1]) }] };
+    const out = await sendEmails([withPdf], { RESEND_API_KEY: "k", EMAIL_FROM: "c@x.org" }, 0);
+    expect(out).toEqual([{ ok: false, error: "Attachment too large" }]);
+  });
 });
