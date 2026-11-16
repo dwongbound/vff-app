@@ -1,5 +1,7 @@
 // What the Finance Officer's monthly invoice SAYS — pure, so the wording and
-// the arithmetic can be tested without a mail server.
+// the arithmetic can be tested without a mail server. The email is a short
+// note; every line and figure is in the attached PDF statement
+// (lib/invoicePdf.ts).
 //
 // Two scopes, the two questions an officer asks at the start of a month:
 //
@@ -21,13 +23,12 @@
 import { CLUB_NAME, CLUB_TIME_ZONE } from "./constants";
 import {
   CHARGE_KIND_LABELS,
-  formatMoney,
   formatPeriod,
   isPeriod,
-  totals,
   type ChargeKind,
   type Period,
 } from "./finance";
+import { PAYMENT_INSTRUCTIONS, statementPdf, statementTotals, type Statement } from "./invoicePdf";
 import { escapeHtml } from "./markdown";
 
 /** A month, or every unpaid line whenever it was billed. */
@@ -77,22 +78,45 @@ export interface InvoiceInput {
   financesUrl: string;
 }
 
+export interface InvoiceAttachment {
+  filename: string;
+  content: Uint8Array<ArrayBuffer>;
+}
+
 export interface Invoice {
   subject: string;
   text: string;
   html: string;
+  /** The statement itself, as a PDF: every line and every figure lives here. */
+  attachment: InvoiceAttachment;
   /** The amount the invoice is FOR: a month's outstanding, or everything owed. */
   amountDueCents: number;
   lineCount: number;
 }
 
-/** Null = nothing to invoice in this scope, so nothing is sent. */
-export function invoiceFor(input: InvoiceInput): Invoice | null {
+/**
+ * Null = nothing to invoice in this scope, so nothing is sent.
+ *
+ * The email itself carries NO money (Dylan, 2026-11-16): it says what's
+ * attached, how to pay and where to ask, and the figures live in the PDF —
+ * one document a member can file, forward or print, rather than a table
+ * that every mail client lays out differently.
+ */
+export function invoiceFor(input: InvoiceInput, issuedOn: Date = new Date()): Invoice | null {
   const lines = invoiceLines(input.scope, input.charges);
   if (lines.length === 0) return null;
 
-  const t = totals(lines);
-  const amountDueCents = t.outstandingCents;
+  const rows = lines.map((line) => ({
+    date: shortDate(line.incurredOn),
+    month: line.period,
+    what: line.description || CHARGE_KIND_LABELS[line.kind],
+    kind: CHARGE_KIND_LABELS[line.kind],
+    amountCents: line.amountCents,
+    paid: Boolean(line.paidAt),
+  }));
+  // The PDF's own sum (charges − owed − paid), so the figure recorded for
+  // the send is the one the member read.
+  const amountDueCents = statementTotals(rows).dueCents;
   const label = scopeLabel(input.scope);
   const firstName = input.memberName.split(/\s+/)[0] || input.memberName;
 
@@ -101,110 +125,67 @@ export function invoiceFor(input: InvoiceInput): Invoice | null {
       ? `${CLUB_NAME}: what you owe the club`
       : `${CLUB_NAME} statement for ${label}`;
 
-  // "You owe", "The club owes you" or "Nothing owed": a negative amount is a
-  // credit, and printing "-$40.00 due" asks the member to work it out.
-  const verdict = (cents: number) =>
-    cents > 0
-      ? `Amount due: ${formatMoney(cents)}`
-      : cents < 0
-        ? `The club owes you ${formatMoney(-cents)}`
-        : "Nothing owed — all settled";
-
   // The all-months balance is only worth a line when it says something the
   // headline doesn't: on a month invoice, and only when it differs.
   const showBalance = input.scope !== "all" && input.balanceDueCents !== amountDueCents;
 
-  const rows = lines.map((line) => ({
-    date: shortDate(line.incurredOn),
-    month: line.period,
-    what: line.description || CHARGE_KIND_LABELS[line.kind],
-    kind: CHARGE_KIND_LABELS[line.kind],
-    amount: formatMoney(line.amountCents),
-    paid: Boolean(line.paidAt),
-  }));
+  const statement: Statement = {
+    title: input.scope === "all" ? "Everything unpaid" : `Statement for ${label}`,
+    label,
+    grouped: input.scope === "all",
+    memberName: input.memberName,
+    rows,
+    balanceDueCents: showBalance ? input.balanceDueCents : null,
+    financesUrl: input.financesUrl,
+    issuedOn,
+  };
+  const attachment: InvoiceAttachment = {
+    filename: attachmentName(input.scope, input.memberName),
+    content: statementPdf(statement),
+  };
 
   const intro =
     input.scope === "all"
-      ? `Here is everything on your ${CLUB_NAME} account that is still unpaid.`
-      : `Here is your ${CLUB_NAME} statement for ${label}.`;
+      ? `Attached is a statement of everything on your ${CLUB_NAME} account that is still unpaid.`
+      : `Attached is your ${CLUB_NAME} statement for ${label}.`;
 
-  // ── Plain text ──
-  const textLines: string[] = [`Hi ${firstName},`, "", intro, ""];
-  let lastMonth: string | null = null;
-  for (const row of rows) {
-    if (input.scope === "all" && row.month !== lastMonth) {
-      if (lastMonth !== null) textLines.push("");
-      textLines.push(formatPeriod(row.month));
-      lastMonth = row.month;
-    }
-    textLines.push(
-      `  ${row.date}  ${row.what} (${row.kind})  ${row.amount}${row.paid ? "  [paid]" : ""}`
-    );
-  }
-  textLines.push("", verdict(amountDueCents));
-  if (showBalance) {
-    textLines.push(`Across all months: ${balancePhrase(input.balanceDueCents)}`);
-  }
-  textLines.push(
+  const text = [
+    `Hi ${firstName},`,
     "",
-    `See every line in the app: ${input.financesUrl}`,
+    intro,
+    "",
+    PAYMENT_INSTRUCTIONS,
+    "",
+    `You can also see every line in the app: ${input.financesUrl}`,
     "",
     "Reply to this email with any questions.",
     "",
     input.officerName,
-    CLUB_NAME
-  );
+    CLUB_NAME,
+  ].join("\n");
 
-  // ── HTML ── Every interpolated string is escaped: descriptions are typed
-  // by officers and members, and this lands in a mail client.
+  // Every interpolated string is escaped: names are typed by members, and
+  // this lands in a mail client.
   const e = escapeHtml;
-  const cell = "padding:6px 8px;border-bottom:1px solid #eee;";
-  let lastHtmlMonth: string | null = null;
-  const tableRows = rows
-    .map((row) => {
-      let header = "";
-      if (input.scope === "all" && row.month !== lastHtmlMonth) {
-        lastHtmlMonth = row.month;
-        header = `<tr><td colspan="3" style="padding:12px 8px 4px;font-weight:600;">${e(
-          formatPeriod(row.month)
-        )}</td></tr>`;
-      }
-      return (
-        header +
-        `<tr>` +
-        `<td style="${cell}color:#666;white-space:nowrap;">${e(row.date)}</td>` +
-        `<td style="${cell}">${e(row.what)}<br><span style="color:#888;font-size:12px;">${e(
-          row.kind
-        )}${row.paid ? " · paid" : ""}</span></td>` +
-        `<td style="${cell}text-align:right;white-space:nowrap;${
-          row.paid ? "color:#16a34a;" : ""
-        }">${e(row.amount)}</td>` +
-        `</tr>`
-      );
-    })
-    .join("");
-
   const html =
-    `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;color:#111;max-width:560px;">` +
+    `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111;max-width:560px;">` +
     `<p>Hi ${e(firstName)},</p>` +
     `<p>${e(intro)}</p>` +
-    `<table style="border-collapse:collapse;width:100%;">${tableRows}</table>` +
-    `<p style="font-size:18px;font-weight:700;margin:16px 0 4px;">${e(verdict(amountDueCents))}</p>` +
-    (showBalance
-      ? `<p style="color:#555;margin:0;">Across all months: ${e(balancePhrase(input.balanceDueCents))}</p>`
-      : "") +
-    `<p style="margin-top:20px;"><a href="${e(input.financesUrl)}">See every line in the app</a></p>` +
+    `<p style="padding:12px 14px;background:#fdf1ea;border-left:4px solid #c64912;margin:16px 0;">${e(PAYMENT_INSTRUCTIONS)}</p>` +
+    `<p><a href="${e(input.financesUrl)}">See every line in the app</a></p>` +
     `<p style="color:#555;">Reply to this email with any questions.</p>` +
     `<p>${e(input.officerName)}<br>${e(CLUB_NAME)}</p>` +
     `</div>`;
 
-  return { subject, text: textLines.join("\n"), html, amountDueCents, lineCount: lines.length };
+  return { subject, text, html, attachment, amountDueCents, lineCount: lines.length };
 }
 
-function balancePhrase(cents: number): string {
-  if (cents > 0) return `you owe ${formatMoney(cents)}`;
-  if (cents < 0) return `the club owes you ${formatMoney(-cents)}`;
-  return "nothing owed";
+/** "VFF statement 2026-08 - Alex Rivera.pdf" / "VFF unpaid - Alex Rivera.pdf". */
+export function attachmentName(scope: InvoiceScope, memberName: string): string {
+  // Only characters every mail client and file system is happy with.
+  const who = memberName.replace(/[^A-Za-z0-9 .'-]+/g, "").replace(/\s+/g, " ").trim() || "member";
+  const what = scope === "all" ? "VFF unpaid" : `VFF statement ${scope}`;
+  return `${what} - ${who}.pdf`;
 }
 
 function shortDate(value: Date | string): string {

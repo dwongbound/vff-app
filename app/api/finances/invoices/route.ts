@@ -3,8 +3,9 @@
 // GET  /api/finances/invoices?scope=YYYY-MM|all  — finance:manage. Who would
 //      get one, for how much, who can't (and why), and when each last went.
 // POST /api/finances/invoices  { scope, memberIds? }  — finance:manage.
-//      Sends to everyone sendable, or only the members named. One batch to
-//      the mail service, one InvoiceSend row per invoice that went out.
+//      Sends to everyone sendable, or only the members named, each with
+//      its statement as a PDF attachment. One InvoiceSend row per invoice
+//      that went out.
 //
 // Both build their list through `prepareInvoices`, so the window shows
 // exactly what is sent. The confirmation is the page's (a bulk action asks
@@ -104,6 +105,7 @@ export async function POST(req: Request) {
       text: p.invoice!.text,
       html: p.invoice!.html,
       replyTo: officer.email,
+      attachments: [p.invoice!.attachment],
     }))
   );
 
