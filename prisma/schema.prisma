@@ -217,6 +217,18 @@ model User {
   // never an event. Null = never asked, or Google stopped honouring it.
   googleListTokenEnc String?
 
+  // When an admin REMOVED this person from the club (Members › Remove), and
+  // who did it. A removal is a soft delete, never a row deletion: their flights
+  // are the airplane's history (every tach total and maintenance countdown is
+  // summed over them) and their statement lines are the club's books, so the
+  // row stays for those to point at. What removal does is take the person OUT
+  // of everything forward-looking — they can't sign in, their keys stop
+  // working, they leave the roster and every picker, no new dues or invoices
+  // reach them (lib/finance.ts `membersBilledBy`, lib/invoiceRun.ts). Null =
+  // a current member, which is every account that existed before this column.
+  removedAt   DateTime?
+  removedById String?
+
   reservations    Reservation[]
   flights         Flight[]
   checkouts       Checkout[]

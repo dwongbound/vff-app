@@ -32,7 +32,10 @@ export async function alertSafetyOfficers(squawkId: string, baseUrl: string): Pr
     if (!squawk) return;
 
     const people = await prisma.user.findMany({
-      where: { OR: [{ positions: { has: "SAFETY_OFFICER" } }, { isAdmin: true }] },
+      where: {
+        removedAt: null,
+        OR: [{ positions: { has: "SAFETY_OFFICER" } }, { isAdmin: true }],
+      },
       select: { id: true, email: true, username: true, isAdmin: true, positions: true },
     });
     const { addresses, fallback } = squawkAlertRecipients(people, squawk.reportedById);

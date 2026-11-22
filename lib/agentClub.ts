@@ -38,7 +38,12 @@ export async function readPilots(now: Date) {
   const from = new Date(now.getTime() - CLUB_RECENT_DAYS * 86_400_000);
   const [people, flights] = await Promise.all([
     prisma.user.findMany({
-      where: { OR: [{ clubMember: true }, { positions: { has: "INSTRUCTOR" } }] },
+      // Current pilots only: a removed member's flights still count toward
+      // the airplane's history, but they aren't one of the club's pilots.
+      where: {
+        removedAt: null,
+        OR: [{ clubMember: true }, { positions: { has: "INSTRUCTOR" } }],
+      },
       orderBy: { name: "asc" },
       select: { id: true, name: true, certificate: true },
     }),

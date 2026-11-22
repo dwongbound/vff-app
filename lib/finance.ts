@@ -425,15 +425,23 @@ export function ruleAppliesTo(rule: RecurringRule, period: Period): boolean {
  * private arrangement. Members who joined after the month ended are skipped,
  * so back-filling an old statement doesn't invent dues for someone who wasn't
  * in the club yet.
+ *
+ * The other end works the same way: a member an admin REMOVED (`leftAt`) is
+ * billed through the month they were removed in and never after. That month
+ * stays billed because it may already be on the books — dues materialise on
+ * the first read of a month — and a removal is not a refund.
  */
 export function membersBilledBy(
   rule: RecurringRule,
   period: Period,
-  members: { id: string; joinedAt: Date }[]
+  members: { id: string; joinedAt: Date; leftAt?: Date | null }[]
 ): string[] {
   if (!ruleAppliesTo(rule, period)) return [];
+  const start = periodStart(period);
   const end = periodEnd(period);
-  const eligible = members.filter((m) => m.joinedAt < end);
+  const eligible = members.filter(
+    (m) => m.joinedAt < end && (!m.leftAt || m.leftAt >= start)
+  );
   if (rule.memberId) {
     return eligible.some((m) => m.id === rule.memberId) ? [rule.memberId] : [];
   }

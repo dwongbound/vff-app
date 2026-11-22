@@ -47,8 +47,16 @@ export async function POST(req: Request) {
 
   const existing = await prisma.user.findFirst({
     where: { OR: [{ email }, { username: email }] },
-    select: { id: true },
+    select: { id: true, removedAt: true },
   });
+  // A removed member's row keeps their address (it's on their old flights and
+  // statement lines), so they can't simply sign up again with it.
+  if (existing?.removedAt) {
+    return NextResponse.json(
+      { error: "That email belongs to an account that was removed from the club. Ask a club admin." },
+      { status: 409 }
+    );
+  }
   if (existing) {
     return NextResponse.json(
       { error: "There's already an account with that email." },

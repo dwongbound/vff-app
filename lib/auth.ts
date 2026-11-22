@@ -46,6 +46,9 @@ export const authOptions: NextAuthOptions = {
           },
         });
         if (!user || !user.passwordHash) return null;
+        // A removed member can't sign in. Same null as a wrong password, so
+        // the login form doesn't confirm the address is a real account.
+        if (user.removedAt) return null;
 
         const passwordOk = await bcrypt.compare(
           credentials.password,
@@ -90,9 +93,10 @@ export const authOptions: NextAuthOptions = {
       // when they made the Google account, not as they typed it here.
       const existing = await prisma.user.findFirst({
         where: { email: { equals: email, mode: "insensitive" } },
-        select: { id: true },
+        select: { id: true, removedAt: true },
       });
-      return existing ? true : "/login?error=GoogleNoAccount";
+      // A removed member reads as having no account, same as a stranger.
+      return existing && !existing.removedAt ? true : "/login?error=GoogleNoAccount";
     },
 
     async jwt({ token, user, account, trigger, session }) {
@@ -156,8 +160,11 @@ export async function getSessionUser() {
   // A NextAuth JWT stays cryptographically valid even after its user row is
   // gone (account deleted, or a dev reseed rebuilt the table with new ids).
   // Re-check the id so a "ghost" session is treated as logged out.
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+  //
+  // A REMOVED member's session is ended the same way: the token outlives the
+  // removal, so the check has to happen here, on every request.
+  const user = await prisma.user.findFirst({
+    where: { id: session.user.id, removedAt: null },
     // positions and clubMember come along for the ride so capability checks
     // never need a second query — and, like isAdmin, are read fresh rather than
     // trusted from the token, which could predate an office being handed over

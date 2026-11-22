@@ -1,7 +1,9 @@
 "use client";
 // The club roster: who else flies here, how to reach them, and who runs the
-// place. Admins get the one control that matters — handing the admin flag to
-// somebody else — inline on each row.
+// place. Admins get the controls that matter inline on each row — handing the
+// admin flag to somebody else, their offices, and Remove (a soft delete: the
+// person's flights and statement lines stay, they stop signing in and being
+// billed — see DELETE /api/members/[id]).
 //
 // Pilot paperwork (medical, flight review, total time) is deliberately absent:
 // that's the member's own business and lives on /profile.
@@ -9,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import Badge from "@/components/common/Badge";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import ConfirmModal from "@/components/common/ConfirmModal";
 import LoadingDots from "@/components/common/LoadingDots";
 import Modal from "@/components/common/Modal";
 import { usePageLoading } from "@/components/LoadingProvider";
@@ -32,6 +35,10 @@ export default function MembersPage() {
   const [error, setError] = useState<string | null>(null);
   // The member whose offices are open for editing, if any.
   const [editing, setEditing] = useState<ApiMember | null>(null);
+  // The member an admin is about to remove, while the confirmation is open.
+  const [removing, setRemoving] = useState<ApiMember | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   usePageLoading(members === null);
 
@@ -84,6 +91,25 @@ export default function MembersPage() {
     }
     // Refetch rather than patching in place: the sort is admins-first, so the
     // row moves.
+    await load();
+  }
+
+  /** Remove the member being confirmed, then drop their row. */
+  async function confirmRemove() {
+    if (!removing) return;
+    setRemoveError(null);
+    setRemoveBusy(true);
+    const result = await sendJson<{ ok: true }>(
+      `/api/members/${removing.id}`,
+      "DELETE"
+    );
+    setRemoveBusy(false);
+    if (!result.ok) {
+      // Shown inside the dialog, where the choice was made.
+      setRemoveError(result.error ?? "Could not remove that member.");
+      return;
+    }
+    setRemoving(null);
     await load();
   }
 
@@ -175,9 +201,46 @@ export default function MembersPage() {
                 )}
               </Button>
             )}
+            {/* Not on your own row or an admin's: the server refuses both
+                (removalError), and a button that can only fail is noise. */}
+            {me?.isAdmin && !member.me && !member.isAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                destructive
+                className="text-red-600 dark:text-red-400"
+                aria-label={`Remove ${member.name} from the club`}
+                onClick={() => {
+                  setRemoveError(null);
+                  setRemoving(member);
+                }}
+              >
+                Remove
+              </Button>
+            )}
           </Card>
         ))}
       </div>
+
+      <ConfirmModal
+        open={removing !== null}
+        title={`Remove ${removing?.name ?? "member"}?`}
+        confirmLabel="Remove"
+        tone="danger"
+        busy={removeBusy}
+        error={removeError}
+        onConfirm={confirmRemove}
+        onCancel={() => setRemoving(null)}
+      >
+        <p>
+          They won&apos;t be able to sign in, and they won&apos;t be billed dues
+          or sent invoices from here on.
+        </p>
+        <p>
+          Their flights stay in the log and in the airplane&apos;s totals, and
+          their existing statement lines stay on the books.
+        </p>
+      </ConfirmModal>
 
       {editing && (
         <RolesModal

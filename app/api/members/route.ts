@@ -15,6 +15,8 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const rows = await prisma.user.findMany({
+    // Removed members are off the roster: they're nobody to call any more.
+    where: { removedAt: null },
     // Admins first, then alphabetically — the roster reads as "who runs this
     // club, and who's in it".
     orderBy: [{ isAdmin: "desc" }, { name: "asc" }],
