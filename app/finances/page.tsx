@@ -149,6 +149,10 @@ export default function FinancesPage() {
   const canManage = me?.capabilities.includes("finance:manage") ?? false;
   const canReadAll = me?.capabilities.includes("finance:read-all") ?? false;
   const canClaim = me?.capabilities.includes("finance:claim-own") ?? false;
+  // Any flying member may charge or split with others (lib/positions.ts).
+  const canCharge = me?.capabilities.includes("finance:charge") ?? false;
+  // More than the claim on offer, so the way in says "Add money".
+  const addsMoney = canManage || canCharge;
 
   const [view, setView] = useState<View>("mine");
   const club = view !== "mine" && canReadAll;
@@ -541,8 +545,8 @@ export default function FinancesPage() {
             onSendInvoices={canManage ? () => setInvoicesOpen(true) : undefined}
           />
 
-          {(canManage || canClaim) && !touch && (
-            <AddPanel officer={canManage} onOpen={() => setAddFor(currentPeriod())} />
+          {(addsMoney || canClaim) && !touch && (
+            <AddPanel officer={addsMoney} onOpen={() => setAddFor(currentPeriod())} />
           )}
 
           {filter && (
@@ -612,9 +616,9 @@ export default function FinancesPage() {
       )}
 
       {/* In <body>, not here: see Floating — <main> moves during a pull. */}
-      {(canManage || canClaim) && touch && ledger && (
+      {(addsMoney || canClaim) && touch && ledger && (
         <Floating>
-          <AddFab officer={canManage} onOpen={() => setAddFor(currentPeriod())} />
+          <AddFab officer={addsMoney} onOpen={() => setAddFor(currentPeriod())} />
         </Floating>
       )}
 
@@ -633,6 +637,7 @@ export default function FinancesPage() {
       {addFor && me && (
         <AddMoneyModal
           officer={canManage}
+          canCharge={canCharge}
           me={{ id: me.id, name: me.name }}
           period={addFor}
           onClose={() => setAddFor(null)}

@@ -114,7 +114,19 @@ export type Capability =
    * void), and it carries its own kind (REIMBURSEMENT) so it's never mistaken
    * for a line an officer wrote.
    */
-  | "finance:claim-own";
+  | "finance:claim-own"
+  /**
+   * Charge OTHER members: one line on somebody's statement, or a bill split
+   * among people (Dylan, 2026-11-22: "anyone could charge anyone / split").
+   * The line lands on their statement straight away, no approval step.
+   *
+   * Membership rather than an office, because the usual case is two pilots
+   * splitting a fuel bill or a landing fee and the Finance Officer shouldn't
+   * have to be in the middle of it. What it does NOT carry: club funds,
+   * recurring charges, the rate, paying/voiding/deleting lines and
+   * reimbursing anyone but yourself, which all stay `finance:manage`.
+   */
+  | "finance:charge";
 
 const POSITION_CAPABILITIES: Record<Position, Capability[]> = {
   PRESIDENT: [],
@@ -139,6 +151,7 @@ const MEMBERSHIP_CAPABILITIES: Capability[] = [
   "reservation:book",
   "finance:read-own",
   "finance:claim-own",
+  "finance:charge",
 ];
 
 /** Every capability that exists — what an admin implicitly holds. */
@@ -151,6 +164,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "reservation:book",
   "finance:read-own",
   "finance:claim-own",
+  "finance:charge",
 ];
 
 /** The minimum a permission check needs to know about someone. */
