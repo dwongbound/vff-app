@@ -20,7 +20,8 @@
 // The two club views read the same data, so flipping between them is free;
 // only crossing between Mine and Club goes back to the server.
 //
-// Adding money is ONE dashed "+" panel at the top, for everyone: a member can
+// Adding money is ONE "+" for everyone — a dashed panel at the top on a
+// desktop, a floating button in the corner on a phone or tablet: a member can
 // claim a reimbursement for themselves, and the Finance Officer gets the rest
 // — reimburse anyone, charge members (split or each), move the club's own
 // funds, and the recurring rules. See components/finances/AddMoneyModal.tsx.
@@ -37,7 +38,7 @@ import {
   type ReactNode,
 } from "react";
 import Badge from "@/components/common/Badge";
-import { SM_UP, useMediaQuery } from "@/components/useMediaQuery";
+import { SM_UP, TOUCH_LAYOUT, useMediaQuery } from "@/components/useMediaQuery";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import ConfirmModal from "@/components/common/ConfirmModal";
@@ -151,6 +152,9 @@ export default function FinancesPage() {
   const [view, setView] = useState<View>("mine");
   const club = view !== "mine" && canReadAll;
   const wide = useIsWide();
+  // On a phone or tablet, adding money is a floating "+" in the corner, like
+  // Reservations' (Dylan, 2026-11-21); on a desktop it's the dashed panel.
+  const touch = useMediaQuery(TOUCH_LAYOUT, false);
   // One member's lines only — picked from the club summary's chips. Club
   // views only; the server does the narrowing, so every month shown (and
   // every month lazily loaded after it) is that member's.
@@ -536,7 +540,7 @@ export default function FinancesPage() {
             onSendInvoices={canManage ? () => setInvoicesOpen(true) : undefined}
           />
 
-          {(canManage || canClaim) && (
+          {(canManage || canClaim) && !touch && (
             <AddPanel officer={canManage} onOpen={() => setAddFor(currentPeriod())} />
           )}
 
@@ -607,6 +611,13 @@ export default function FinancesPage() {
       )}
 
       {/* In <body>, not here: see Floating — <main> moves during a pull. */}
+      {(canManage || canClaim) && touch && ledger && (
+        <Floating>
+          <AddFab officer={canManage} onOpen={() => setAddFor(currentPeriod())} />
+        </Floating>
+      )}
+
+      {/* In <body>, not here: see Floating — <main> moves during a pull. */}
       {toast && (
         <Floating>
           <div
@@ -674,7 +685,37 @@ function filterName(
 }
 
 /**
- * The one way in to adding money: a dashed "+" panel, the shape that says
+ * The phone and tablet way in to adding money: the same floating "+" as the
+ * Reservations page, above the bottom pill on a phone and in the corner on a
+ * tablet (no pill there). Drawn, not typed, for the same reason as that one:
+ * a "+" glyph sits above the disc's centre.
+ */
+function AddFab({ officer, onOpen }: { officer: boolean; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={officer ? "Add money" : "Claim reimbursement"}
+      className="fixed right-5 bottom-26 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg transition active:scale-95 md:right-6 md:bottom-6"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="26"
+        height="26"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        aria-hidden
+      >
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * The desktop way in to adding money: a dashed "+" panel, the shape that says
  * "something goes here" rather than "here is a setting". Everyone with a
  * statement sees it; what it opens depends on who you are.
  */

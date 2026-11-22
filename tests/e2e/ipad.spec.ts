@@ -92,14 +92,27 @@ test("no field zooms the page on focus, and no form is wider than the screen", a
   await expectFormsFitTouchScreen(page);
 });
 
-test("Finances keeps its table on a tablet, with the + panel above it", async ({ page }) => {
+test("Finances keeps its table on a tablet, with a floating + in the corner", async ({ page }) => {
   await page.goto("/finances");
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible({
     timeout: 60_000,
   });
   await expect(main.getByRole("table").first()).toBeVisible();
-  await expect(main.getByRole("button", { name: "Add money", exact: true })).toBeVisible();
+  // The dashed panel is the desktop's; a tablet gets the floating "+", like
+  // Reservations', pinned in the bottom-right corner (no bottom pill here).
+  await expect(main.getByRole("button", { name: "Add money", exact: true })).toHaveCount(0);
+  const fab = page.getByRole("button", { name: "Add money", exact: true });
+  await expect(fab).toBeVisible();
+  const box = (await fab.boundingBox())!;
+  const view = page.viewportSize()!;
+  expect(view.width - (box.x + box.width)).toBeLessThan(40);
+  expect(view.height - (box.y + box.height)).toBeLessThan(40);
+  await fab.click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("group", { name: "What kind of money" })).toBeVisible();
+  await sheet.getByRole("button", { name: "Close dialog" }).click();
+  await expect(sheet).toBeHidden();
   const overflow = await page.evaluate(() => {
     const scroller = document.getElementById("app-scroll")!;
     return scroller.scrollWidth - scroller.clientWidth;

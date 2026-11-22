@@ -121,6 +121,7 @@ async function ledgerLines(page: Page, all = false) {
     amountCents: number;
     kind: string;
     paidAt: string | null;
+    period: string;
     member: { name: string } | null;
   }[] = [];
   let before: string | null = null;
@@ -447,10 +448,12 @@ test("the month header's + adds a line to THAT month", async ({ page }) => {
 
   const modal = page.getByRole("dialog");
   await expect(modal.getByText(monthName(1))).toBeVisible();
-  // The date box is bounded to the month the header named.
+  // The date box opens on the LAST day of the month the header named.
   const date = modal.getByLabel("Date");
-  expect(await date.getAttribute("min")).toMatch(/-01$/);
-  expect(await date.inputValue()).toBe(await date.getAttribute("max"));
+  const lastMonthEnd = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
+  expect(await date.inputValue()).toBe(
+    `${lastMonthEnd.getFullYear()}-${String(lastMonthEnd.getMonth() + 1).padStart(2, "0")}-${String(lastMonthEnd.getDate()).padStart(2, "0")}`
+  );
 
   await mode(modal, "Charge");
   await modal.getByRole("button", { name: "Choose people" }).click();
@@ -467,6 +470,35 @@ test("the month header's + adds a line to THAT month", async ({ page }) => {
   await expect(
     main.getByRole("region", { name: monthName(0) }).getByRole("row").filter({ hasText: label })
   ).toHaveCount(0);
+});
+
+test("a line can be back-dated into an earlier month from this month's +", async ({ page }) => {
+  const label = unique("Back-dated club fees");
+  await signIn(page, "robin@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+
+  const modal = await openAdd(page);
+  await expect(modal.getByText(monthName(0))).toBeVisible();
+  await mode(modal, "Charge");
+  await modal.getByRole("button", { name: "Choose people" }).click();
+  await modal.getByRole("checkbox", { name: "Alex Rivera" }).check();
+  await modal.getByLabel("What for").fill(label);
+  await modal.getByLabel("Total", { exact: true }).fill("9.00");
+  // Two months back: not this month, and not the header it was opened from.
+  const then = new Date(new Date().getFullYear(), new Date().getMonth() - 2, 15);
+  await modal
+    .getByLabel("Date")
+    .fill(`${then.getFullYear()}-${String(then.getMonth() + 1).padStart(2, "0")}-15`);
+  // The subtitle follows the date, naming the month the line will land in.
+  await expect(modal.getByText(monthName(2))).toBeVisible();
+  await modal.getByRole("button", { name: "Charge 1 person" }).click();
+  await expect(modal).toBeHidden({ timeout: 30_000 });
+
+  const lines = await ledgerLines(page, true);
+  const line = lines.find((l) => l.description === label);
+  expect(line?.period).toBe(
+    `${then.getFullYear()}-${String(then.getMonth() + 1).padStart(2, "0")}`
+  );
 });
 
 test("voiding a line asks first, then strikes it through rather than deleting it", async ({

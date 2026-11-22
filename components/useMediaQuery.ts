@@ -23,3 +23,10 @@ export function useMediaQuery(query: string, serverValue: boolean): boolean {
 /** Tailwind's `sm` (640px) and `md` (768px — the narrowest iPad) breakpoints. */
 export const SM_UP = "(min-width: 640px)";
 export const MD_UP = "(min-width: 768px)";
+
+/**
+ * Phones and tablets: below a laptop's width, or any touch screen (an iPad in
+ * landscape is wider than 1024px). Where an action floats as a "+" in the
+ * corner, like the Reservations page's, rather than sitting in the page.
+ */
+export const TOUCH_LAYOUT = "(max-width: 1023px), (pointer: coarse)";
