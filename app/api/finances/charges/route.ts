@@ -18,7 +18,9 @@
 //                           balance the moment it's written (see the Charge
 //                           model and `balanceContribution`).
 //   memberId              — the original one-off against a member, signed:
-//                           negative is a credit. `finance:manage`.
+//                           negative is a credit. Any flying member may
+//                           CHARGE someone (`finance:charge`, positive only);
+//                           a credit needs `finance:manage`.
 //
 // Amount is sent in dollars because that's what the form asks for and what
 // the receipt says; it's stored in cents. Charging several members at once is
@@ -61,9 +63,18 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
-  } else if (!officer) {
+  } else if (body.club === true || !memberId) {
+    // Club funds stay the officer's: they move the club's own balance.
+    if (!officer) {
+      return NextResponse.json(
+        { error: "Only the Finance Officer or an admin can add club funds." },
+        { status: 403 }
+      );
+    }
+  } else if (!can(user, "finance:charge")) {
+    // A charge to a member: any flying member may (`finance:charge`).
     return NextResponse.json(
-      { error: "Only the Finance Officer or an admin can add charges." },
+      { error: "Only club members can charge members." },
       { status: 403 }
     );
   }
@@ -101,6 +112,14 @@ export async function POST(req: Request) {
           ? "Enter what you spent, as a positive amount."
           : "Enter an amount (negative for a credit).",
       },
+      { status: 400 }
+    );
+  }
+  // A member who isn't an officer may only CHARGE: a credit is money the club
+  // owes somebody, which is a reimbursement (their own) or the officer's call.
+  if (!reimbursement && !officer && parsed < 0) {
+    return NextResponse.json(
+      { error: "Enter what they owe, as a positive amount." },
       { status: 400 }
     );
   }
