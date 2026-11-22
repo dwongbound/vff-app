@@ -39,6 +39,7 @@ import {
   currentPeriod,
   formatMoney,
   formatPeriod,
+  isPeriod,
   parseDollars,
   periodEnd,
   type Period,
@@ -87,16 +88,21 @@ export default function AddMoneyModal({
     fetchJsonArray<ApiMember>("/api/members").then(setRoster);
   }, [officer]);
 
-  // Shared by every form: what for, how much, and the day within the month.
+  // Shared by every form: what for, how much, and the day.
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const monthFirst = `${period}-01`;
-  const monthLast = dayKey(new Date(periodEnd(period).getTime() - 1));
-  // Today for the current month; the month's LAST day for an earlier one,
-  // which keeps a line added after the fact inside the month it belongs to.
-  const [day, setDay] = useState(() =>
-    period === currentPeriod() ? dayKey(new Date()) : monthLast
-  );
+  // Opens on today for the current month; the month's LAST day for an earlier
+  // one, which keeps a line added after the fact inside the month it came
+  // from. Any day may be picked, though: an officer entering September's fees
+  // in November wants them on September's statement (Dylan, 2026-11-21), and
+  // the server files a line under the month of its date.
+  const [day, setDay] = useState(() => {
+    if (period === currentPeriod()) return dayKey(new Date());
+    return dayKey(new Date(periodEnd(period).getTime() - 1));
+  });
+  // The month the line will land in, which the window's subtitle names so a
+  // back-dated line says where it's going.
+  const landsIn = landingPeriod(day) ?? period;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -141,8 +147,8 @@ export default function AddMoneyModal({
       setError("Enter an amount greater than zero.");
       return;
     }
-    if (day < monthFirst || day > monthLast) {
-      setError(`Pick a day in ${formatPeriod(period)}.`);
+    if (!landingPeriod(day)) {
+      setError("Pick a date.");
       return;
     }
     // Local NOON, not a bare date: "2026-08-01" parses as UTC midnight, which
@@ -248,7 +254,7 @@ export default function AddMoneyModal({
       open
       onClose={onClose}
       title={title}
-      subtitle={formatPeriod(period)}
+      subtitle={formatPeriod(landsIn)}
       footer={
         mode === "recurring" ? undefined : (
           <>
@@ -360,8 +366,6 @@ export default function AddMoneyModal({
               <Input
                 label="Date"
                 type="date"
-                min={monthFirst}
-                max={monthLast}
                 value={day}
                 onChange={(e) => setDay(e.target.value)}
               />
@@ -516,6 +520,13 @@ function Segmented<T>({
       })}
     </div>
   );
+}
+
+/** "2026-09-30" → "2026-09", the month a line dated that day is filed under; null for a blank or half-typed date. */
+function landingPeriod(day: string): Period | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const month = day.slice(0, 7);
+  return isPeriod(month) ? month : null;
 }
 
 /** "YYYY-MM-DD" in local time — what a date input holds. */

@@ -311,8 +311,10 @@ test("Finances on a phone is a list, not a table, and nothing scrolls sideways",
   });
   expect(overflow, culprits.join("\n")).toBeLessThanOrEqual(0);
 
-  // The dashed + panel opens the add-money sheet.
-  await main.getByRole("button", { name: "Add money", exact: true }).click();
+  // On a phone the dashed panel gives way to a floating "+" (like
+  // Reservations'), which opens the add-money sheet.
+  await expect(main.getByRole("button", { name: "Add money", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add money", exact: true }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("group", { name: "What kind of money" })).toBeVisible();
   await sheet.getByRole("button", { name: "Close dialog" }).click();
