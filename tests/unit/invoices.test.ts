@@ -7,7 +7,7 @@ import {
   scopeLabel,
   type InvoiceCharge,
 } from "@/lib/invoices";
-import { PAYMENT_INSTRUCTIONS, statementPdf, statementTotals } from "@/lib/invoicePdf";
+import { PAYBACK_INSTRUCTIONS, PAYMENT_INSTRUCTIONS, statementPdf, statementTotals } from "@/lib/invoicePdf";
 
 function line(over: Partial<InvoiceCharge>): InvoiceCharge {
   return {
@@ -127,6 +127,24 @@ describe("invoiceFor", () => {
     expect(pdf).toContain("(THE CLUB OWES YOU)");
     expect(pdf).toContain("($40.00)");
     expect(pdf).not.toContain("(AMOUNT DUE)");
+  });
+
+  it("tells a member who is owed money how they get paid, not how to pay", () => {
+    const inv = invoiceFor({
+      ...base,
+      scope: "2026-09",
+      charges: [line({ kind: "REIMBURSEMENT", amountCents: -4000, description: "Oil" })],
+      balanceDueCents: -4000,
+    })!;
+    expect(PAYBACK_INSTRUCTIONS).toBe("The finance officer will pay this back to you.");
+    expect(inv.text).toContain(PAYBACK_INSTRUCTIONS);
+    expect(inv.html).toContain(PAYBACK_INSTRUCTIONS);
+    expect(inv.text).not.toContain("Zelle");
+    expect(inv.html).not.toContain("Zelle");
+    const pdf = pdfText(inv.attachment.content);
+    expect(pdf).toContain("(Getting paid back)");
+    expect(pdf).not.toContain("(How to pay)");
+    expect(pdf).not.toContain("Zelle");
   });
 
   it("groups the all-time statement by month", () => {

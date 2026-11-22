@@ -28,7 +28,7 @@ import {
   type ChargeKind,
   type Period,
 } from "./finance";
-import { PAYMENT_INSTRUCTIONS, statementPdf, statementTotals, type Statement } from "./invoicePdf";
+import { paymentNote, statementPdf, statementTotals, type Statement } from "./invoicePdf";
 import { escapeHtml } from "./markdown";
 
 /** A month, or every unpaid line whenever it was billed. */
@@ -144,6 +144,9 @@ export function invoiceFor(input: InvoiceInput, issuedOn: Date = new Date()): In
     content: statementPdf(statement),
   };
 
+  // A credit statement asks for nothing, so it says how the member is paid back instead.
+  const instructions = paymentNote(amountDueCents).text;
+
   const intro =
     input.scope === "all"
       ? `Attached is a statement of everything on your ${CLUB_NAME} account that is still unpaid.`
@@ -154,7 +157,7 @@ export function invoiceFor(input: InvoiceInput, issuedOn: Date = new Date()): In
     "",
     intro,
     "",
-    PAYMENT_INSTRUCTIONS,
+    instructions,
     "",
     `You can also see every line in the app: ${input.financesUrl}`,
     "",
@@ -171,7 +174,7 @@ export function invoiceFor(input: InvoiceInput, issuedOn: Date = new Date()): In
     `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111;max-width:560px;">` +
     `<p>Hi ${e(firstName)},</p>` +
     `<p>${e(intro)}</p>` +
-    `<p style="padding:12px 14px;background:#fdf1ea;border-left:4px solid #c64912;margin:16px 0;">${e(PAYMENT_INSTRUCTIONS)}</p>` +
+    `<p style="padding:12px 14px;background:#fdf1ea;border-left:4px solid #c64912;margin:16px 0;">${e(instructions)}</p>` +
     `<p><a href="${e(input.financesUrl)}">See every line in the app</a></p>` +
     `<p style="color:#555;">Reply to this email with any questions.</p>` +
     `<p>${e(input.officerName)}<br>${e(CLUB_NAME)}</p>` +

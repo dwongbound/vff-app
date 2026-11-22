@@ -918,7 +918,10 @@ owns the only splash in the app.
   interpolated string escaped), `invoiceAddress`. The EMAIL carries NO money
   (Dylan, 2026-11-16): what's attached, `PAYMENT_INSTRUCTIONS` ("Please Zelle
   to the club account or bring a check to the finance officer(s)."), the app
-  link and who to reply to. Every figure is in the PDF. ✅tested
+  link and who to reply to. A CREDIT statement (the club owes the member) says
+  `PAYBACK_INSTRUCTIONS` instead ("The finance officer will pay this back to
+  you."), and the PDF's box reads "Getting paid back" — `paymentNote(dueCents)`
+  picks one. Every figure is in the PDF. ✅tested
 - `invoicePdf.ts` — the statement PDF: orange band, an Amount Due box (a
   credit reads "The club owes you", never "-$40 due"), the lines (grouped by
   month for "all", paginated with the header repeated), How to pay, totals.
