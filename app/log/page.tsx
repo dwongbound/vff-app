@@ -24,6 +24,7 @@ import ExportButton from "@/components/common/ExportButton";
 import InfoTip from "@/components/common/InfoTip";
 import FlightDetailModal from "@/components/FlightDetailModal";
 import FlightEntryModal from "@/components/FlightEntryModal";
+import LandingsByAirport from "@/components/LandingsByAirport";
 import { FlightTypeChip } from "@/components/FlightType";
 import { RulesModal } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
@@ -344,6 +345,10 @@ function FlightLog() {
           </>
         )}
       </div>
+
+      {/* Where the club landed, month by month — a Club question, and the
+          one a landing-fee reimbursement claim is made from. */}
+      {filter === "all" && <LandingsByAirport />}
 
       {/* Your currency is a "Mine" question, so it only appears there — the
           club view is about the airplane and the people flying it.

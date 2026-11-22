@@ -27,6 +27,8 @@ import { EMPTY_FUEL, editFuel, fuelPayload } from "@/lib/fuel";
 import { toDateInputValue } from "@/lib/dates";
 import { formatHours, tachHours, validateMeters } from "@/lib/hours";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
+import { landingAirportsError } from "@/lib/landingAirports";
+import LandedAtInput, { landedAtCodes } from "@/components/LandedAtInput";
 import { newRequestId } from "@/lib/outbox";
 import type { ApiAircraft, ApiFlight, ApiMember } from "@/lib/types";
 import { FlightTypeSelect } from "@/components/FlightType";
@@ -61,6 +63,8 @@ export default function FlightEntryModal({
   const [hobbsStart, setHobbsStart] = useState("");
   const [hobbsEnd, setHobbsEnd] = useState("");
   const [landings, setLandings] = useState("1");
+  // The "Landed at" line — see components/LandedAtInput.tsx.
+  const [landedAt, setLandedAt] = useState("");
   const [nightLandings, setNightLandings] = useState("0");
   const [withInstructor, setWithInstructor] = useState(false);
   const [purpose, setPurpose] = useState<Purpose | "">("");
@@ -132,7 +136,8 @@ export default function FlightEntryModal({
       })
     : null;
 
-  const ready = bothTach && !meterError && flownOn !== "" && !busy;
+  const ready =
+    bothTach && !meterError && !landingAirportsError(landedAt) && flownOn !== "" && !busy;
 
   async function save() {
     setError(null);
@@ -153,6 +158,8 @@ export default function FlightEntryModal({
       hobbsStart: numeric(hobbsStart),
       hobbsEnd: numeric(hobbsEnd),
       landings: numeric(landings) ?? 1,
+      // One entry per landing; when given, the server takes the count from it.
+      landingAirports: landedAtCodes(landedAt),
       nightLandings: numeric(nightLandings) ?? 0,
       withInstructor,
       // Only sent alongside the assertion it belongs to: unticking the box
@@ -270,6 +277,8 @@ export default function FlightEntryModal({
             min="0"
             value={landings}
             onChange={(e) => setLandings(e.target.value)}
+            // Counted off the airports list while there is one.
+            readOnly={landedAtCodes(landedAt).length > 0}
           />
           <Input
             label="Night landings"
@@ -364,6 +373,20 @@ export default function FlightEntryModal({
             }
           />
         </div>
+        <LandedAtInput
+          value={landedAt}
+          onChange={(next, parsed) => {
+            setLandedAt(next);
+            if (parsed && parsed.landings > 0) {
+              setLandings(String(parsed.landings));
+              setArrival(parsed.arrival ?? "");
+              // The same fee prefill typing in To does.
+              if (!landingFeeEdited) {
+                setLandingFeeDollars(landingFeeInputFor(parsed.arrival));
+              }
+            }
+          }}
+        />
         <Input
           label="Route"
           value={route}
