@@ -14,6 +14,7 @@ import Select from "@/components/common/Select";
 import Textarea from "@/components/common/Textarea";
 import GoogleCalendarPanel from "@/components/GoogleCalendarPanel";
 import SignupCodesPanel from "@/components/SignupCodesPanel";
+import AirportsPanel from "@/components/AirportsPanel";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
 import { usePageLoading } from "@/components/LoadingProvider";
 import { useMe } from "@/components/MeProvider";
@@ -98,6 +99,12 @@ export default function SettingsPage() {
           it's a fact about each airplane. */}
       <div className="border-t border-gray-200 pt-4 dark:border-gray-700">
         <GoogleCalendarPanel />
+      </div>
+
+      {/* Where the airplane lands and what that costs — the default each
+          flight form fills its landing fee in from. */}
+      <div className="border-t border-gray-200 pt-4 dark:border-gray-700">
+        <AirportsPanel />
       </div>
 
       {/* Who can get IN, under who can fly: the fleet is what the club has, and

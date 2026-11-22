@@ -69,6 +69,14 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   consent trip, or Google SIGN-IN, which asks for the same scope
   (`GOOGLE_SIGN_IN_PARAMS`, no forced consent) so a Google member's picker
   works straight away.
+  `removedAt`/`removedById` are Members › Remove, a SOFT delete (rows that
+  point at the person — flights, statement lines — stay): a removed member
+  can't sign in (`authorize`, Google `signIn`, `getSessionUser`), their keys
+  stop (`getKeyUser`) and are revoked, and every forward-looking read filters
+  `removedAt: null` — roster, pickers, split "everyone", new charges and
+  recurring rules, invoices, the club-data pilots list, squawk mail. Dues bill
+  THROUGH the month they were removed in (`membersBilledBy`'s `leftAt`). Their
+  address can't sign up again (409 saying why); there is no restore in the UI.
 - **Aircraft** — tail number, model, `hourlyRateCents`, `fuelCapacityGal`,
   `homeBase`, plus `lastTach`/`lastHobbs` advanced by each filed flight.
   Everything else is keyed by aircraft, so a second airplane is a row.
@@ -159,6 +167,12 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   against `lib/checkouts.ts` + `checkoutVersion` (per-kind: PREFLIGHT is at 8,
   continuing the old checklist's v3; RUNWAY at 4; TURNOFF at 5);
   `completedAt` = signed off. Photos and squawks point at `checkoutId`.
+- **Flight** `landingAirports` (String[], default empty) — where each landing
+  was, one entry per landing. Empty = not said (every row before 2026-11-22
+  except Quick Log entries, which the migration backfilled from their route).
+  When the API is given it, `landings` is its length, so the currency rules and
+  the landings report read one answer; the edit modal sends it only when the
+  box changed, so saving an old entry never writes a guess.
 - **Flight** also carries `nightLandings` (full-stop, for currency) and
   `withInstructor` (selects the third column of the operating rules) and
   `purpose`, the flight's TYPE in the booking vocabulary (`ReservationPurpose`,
@@ -278,7 +292,8 @@ what's being typed. A blank name, non-number total time or half-typed invite
 address is held back client-side, not sent) ·
 `profile` (ends with `AccessKeysCard`, outside the form: keys are made and revoked on the spot) ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
-its Google Calendar link, then the sign-up code lists).
+its Google Calendar link, Airports and their landing fees, then the sign-up
+code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
 flight log, a READ-ONLY reservations calendar (no New, no per-day "+", every
 booking opens the read-only view the modal already had for somebody else's),
@@ -420,9 +435,11 @@ owns the only splash in the app.
   answer matters, so the club needs no cron. `?open=1` also orders by
   `updatedAt`, not `createdAt` — with `limit=1` you want the run you last
   touched, not the one you started first.
-- `members` (GET roster, any member) · `members/[id]` (PATCH `isAdmin`,
+- `members` (GET roster, any member; removed members left out) · `members/[id]` (PATCH `isAdmin`,
   `positions` and/or `clubMember`, admin; 409 if it would leave the club with
-  no admin, and 409 on un-membering an admin. There is no matching "last
+  no admin, and 409 on un-membering an admin. DELETE = remove from the club,
+  admin, soft — `removalError` refuses yourself, an admin (demote first) and a
+  second removal. There is no matching "last
   Finance Officer" rule — admins can already do the job).
 - `aircraft` (GET all + open squawks, POST admin) · `aircraft/[id]` (PATCH,
   admin — includes renaming the tail number and the W&B basis; an unknown
@@ -667,11 +684,25 @@ owns the only splash in the app.
   on the page with what the manual gives instead and why it can't just be
   adopted. Keyed on the same profile id as `weightBalance.ts`, and null for an
   unknown one for the same reason. ✅tested
-- `landingAirports.ts` — the Quick Log "Landed at" box: a line of identifiers →
-  `{ codes, landings, arrival, route }`, which are columns the `Flight` row
-  already has, so no schema change. Repeats are counted every time (six
+- `landingAirports.ts` — the "Landed at" line (Quick Log, and `LandedAtInput`
+  on the post-flight form and both flight modals): a line of identifiers →
+  `{ codes, landings, arrival, route }`. The codes are stored too, as
+  `Flight.landingAirports` (one per landing; `landingAirportsFromBody` is the
+  API's reader, list or line, 400 naming a bad token), and when given they ARE
+  the count and the default arrival. Repeats are counted every time (six
   circuits is KTOA six times), any sane separator is accepted, and an empty box
   is a gap rather than a zero-landing claim. ✅tested
+- `landingReport.ts` — the club's landings by airport, month by month, for
+  claiming landing fees back (Dylan, 2026-11-22). `landingsOf` reads a flight's
+  list; an entry without one is counted at its arrival, else the airplane's
+  `homeBase`, else "Not recorded", and flagged ASSUMED rather than silently
+  placed. Fees go to the field the flight ended at. Served club-wide by
+  `GET /api/reports/landings?months=N` (any member; default 12, max 120; filed
+  flights only), drawn by `LandingsByAirport`, a pop-up opened from the log's
+  Club-view "Landings / month" tile (the one tile that's a button, with a
+  chevron after its label; a bar per airport, assumed part lighter, month
+  picker, Export in the footer; fetched on first open) and exported by
+  `landingReportSheet` in `exports.ts`. ✅tested
 - `inflightReference.ts` — the card's takeoff/climb/cruise/descent phases and
   the KTOA (Zamperini Field, the club's home) frequency block, as read-only data. Deliberately NOT checkout items:
   nothing ticked in the air, nothing blocking a sign-off. The climb's Vx / Vy /
@@ -704,8 +735,9 @@ owns the only splash in the app.
   its last day (0 days left ⇒ due today, still legal). ✅tested
 - `operatingRules.ts` — VFF-OR-A as data: `pilotTier`, `ruleFor`,
   `landingCurrency`, `hoursInLastYear`, the mnemonics. ✅tested
-- `members.ts` — `MEMBER_SELECT` (roster columns; deliberately no paperwork)
-  and `adminChangeError`, whose one rule is "never demote the last admin". ✅tested
+- `members.ts` — `MEMBER_SELECT` (roster columns; deliberately no paperwork),
+  `adminChangeError`, whose one rule is "never demote the last admin", and
+  `removalError` (who Members › Remove refuses). ✅tested
 - `signupCodes.ts` — the front door as rules: `normalizeCode` (upper, space-free
   — a code gets read down a phone), `signupCodeError`, `accountFromCodeKind`
   (the ONE place a code's list maps to what the account is),
@@ -811,8 +843,14 @@ owns the only splash in the app.
   `fuelAddedGal` + `fuelCostDollars`); there is no price column — it's always
   total ÷ gallons, which is how the log shows "22.1 gal × $6.99 = **$154.48**"
   (`fuelSummary` / `FuelSummary`). Drafts keep all three strings. ✅tested
-- `landingFees.ts` — what a field charges to land: the fee TABLE (KTOA $6) and
-  `landingFeeFor` / `landingFeeInputFor`. Only a DEFAULT — what the club bills is
+- `landingFees.ts` — what a field charges to land. The fee TABLE is the
+  **Airport** model (`code` id, `landingFeeCents` nullable; the migration and
+  the seed both start it at KTOA $6), edited by admins in Club settings ›
+  Airports (`AirportsPanel`) through `GET/POST /api/airports` (GET any member)
+  and `PATCH/DELETE /api/airports/[code]`. The forms read it with
+  `useLandingFees()` (components/useLandingFees.ts) and pass the map to
+  `landingFeeFor(airport, table)` / `landingFeeInputFor(airport, table)`;
+  `feeTableFrom`, `airportCodeError`, `feeFromBody` are the rest. Only a DEFAULT — what the club bills is
   `Flight.landingFeeCents`, the figure the pilot left in the box, because rates
   change and fees get waived. Per FLIGHT, not per landing: eight touch-and-goes
   is one visit to one desk. ✅tested

@@ -62,6 +62,12 @@ export async function GET(req: Request) {
   // "you owe nothing" is an answer, and a missing row looks like a bug.
   const members = clubWide
     ? await prisma.user.findMany({
+        // A removed member still appears on a month they have lines in —
+        // that's history — but isn't handed an empty "owes nothing" row on
+        // every month after they left.
+        where: {
+          OR: [{ removedAt: null }, { id: { in: charges.flatMap((c) => (c.memberId ? [c.memberId] : [])) } }],
+        },
         select: { id: true, name: true, email: true },
         orderBy: { name: "asc" },
       })

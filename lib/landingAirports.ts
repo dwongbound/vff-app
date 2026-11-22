@@ -90,3 +90,29 @@ export function landingAirportsError(input: string): string | null {
   if (!bad) return null;
   return `"${bad}" doesn't look like an airport identifier — use codes like KTOA or L35, separated by commas.`;
 }
+
+/**
+ * A `landingAirports` value off a request body, as the list the column stores.
+ *
+ * Takes either a list (what the forms send) or one line of text (what an
+ * assistant writing "KTOA, KSMO" sends), and runs both through the same
+ * tokenizer as the Quick Log box so "ktoa → ksmo" and ["KTOA","KSMO"] store
+ * the same thing. A token that isn't an identifier is an error naming it,
+ * never silently dropped: dropping it would also drop a landing from the count.
+ */
+export function landingAirportsFromBody(
+  value: unknown
+): { codes: string[] } | { error: string } {
+  if (value == null) return { codes: [] };
+  let line: string;
+  if (typeof value === "string") {
+    line = value;
+  } else if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+    line = value.join(",");
+  } else {
+    return { error: "Landed at should be a list of airport identifiers." };
+  }
+  const error = landingAirportsError(line);
+  if (error) return { error };
+  return { codes: parseLandingAirports(line).codes };
+}

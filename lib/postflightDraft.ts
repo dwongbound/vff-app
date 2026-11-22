@@ -53,6 +53,11 @@ export interface PostflightForm {
   hobbsStart: string;
   hobbsEnd: string;
   landings: string;
+  /**
+   * The "Landed at" line as typed — every field landed at, in order
+   * (lib/landingAirports.ts). Typing in it fills in Landings and To.
+   */
+  landedAt: string;
   nightLandings: string;
   withInstructor: boolean;
   instructorId: string;
@@ -202,6 +207,8 @@ export function parsePostflightDraft(
     hobbsStart: str(row.hobbsStart),
     hobbsEnd: str(row.hobbsEnd),
     landings: str(row.landings),
+    // Absent on drafts saved before the box existed; str() reads that as "".
+    landedAt: str(row.landedAt),
     nightLandings: str(row.nightLandings),
     withInstructor: bool(row.withInstructor),
     instructorId: str(row.instructorId),
@@ -301,6 +308,7 @@ export function postflightDraftHasProgress(form: PostflightForm): boolean {
   if (Object.values(form.edited).some(Boolean)) return true;
 
   const typed = [
+    form.landedAt,
     form.departure,
     form.arrival,
     form.route,

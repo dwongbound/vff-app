@@ -55,12 +55,15 @@ test("files a flight from four numbers, and counts the airports as landings", as
     landings: number;
     arrival: string | null;
     route: string | null;
+    landingAirports: string[];
     tachEnd: number | null;
     filedAt: string | null;
   };
   expect(flight.landings).toBe(3);
   expect(flight.arrival).toBe("KTOA");
   expect(flight.route).toBe("KTOA → KSMO → KTOA");
+  // …and the list itself is kept, for the landings-by-airport report.
+  expect(flight.landingAirports).toEqual(["KTOA", "KSMO", "KTOA"]);
   expect(flight.filedAt).not.toBeNull();
 });
 

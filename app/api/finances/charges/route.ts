@@ -129,8 +129,10 @@ export async function POST(req: Request) {
 
   const target = reimbursement ? memberId || user.id : clubLine ? null : memberId;
   if (target) {
-    const member = await prisma.user.findUnique({
-      where: { id: target },
+    // Nobody adds new lines to a removed member's statement. Their existing
+    // lines can still be paid, voided or deleted through charges/[id].
+    const member = await prisma.user.findFirst({
+      where: { id: target, removedAt: null },
       select: { id: true },
     });
     if (!member) {

@@ -27,6 +27,9 @@ import { EMPTY_FUEL, editFuel, fuelPayload } from "@/lib/fuel";
 import { toDateInputValue } from "@/lib/dates";
 import { formatHours, tachHours, validateMeters } from "@/lib/hours";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
+import { landingAirportsError } from "@/lib/landingAirports";
+import LandedAtInput, { landedAtCodes } from "@/components/LandedAtInput";
+import { useLandingFees } from "@/components/useLandingFees";
 import { newRequestId } from "@/lib/outbox";
 import type { ApiAircraft, ApiFlight, ApiMember } from "@/lib/types";
 import { FlightTypeSelect } from "@/components/FlightType";
@@ -61,6 +64,8 @@ export default function FlightEntryModal({
   const [hobbsStart, setHobbsStart] = useState("");
   const [hobbsEnd, setHobbsEnd] = useState("");
   const [landings, setLandings] = useState("1");
+  // The "Landed at" line — see components/LandedAtInput.tsx.
+  const [landedAt, setLandedAt] = useState("");
   const [nightLandings, setNightLandings] = useState("0");
   const [withInstructor, setWithInstructor] = useState(false);
   const [purpose, setPurpose] = useState<Purpose | "">("");
@@ -96,6 +101,17 @@ export default function FlightEntryModal({
   // off a receipt, and a default that overwrote a remembered figure would be
   // worse than no default at all.
   const [landingFeeEdited, setLandingFeeEdited] = useState(false);
+  // The club's landing fees (Club settings › Airports), for the fee prefill.
+  const feeTable = useLandingFees();
+  // The table arrives a moment after the modal does, so an airport typed
+  // before it landed gets its fee once it's here — same mirroring rule.
+  useEffect(() => {
+    if (!landingFeeEdited && arrival.trim()) {
+      setLandingFeeDollars(landingFeeInputFor(arrival, feeTable));
+    }
+    // Only on the table's arrival; typing in To prefills through its onChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feeTable]);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +148,8 @@ export default function FlightEntryModal({
       })
     : null;
 
-  const ready = bothTach && !meterError && flownOn !== "" && !busy;
+  const ready =
+    bothTach && !meterError && !landingAirportsError(landedAt) && flownOn !== "" && !busy;
 
   async function save() {
     setError(null);
@@ -153,6 +170,8 @@ export default function FlightEntryModal({
       hobbsStart: numeric(hobbsStart),
       hobbsEnd: numeric(hobbsEnd),
       landings: numeric(landings) ?? 1,
+      // One entry per landing; when given, the server takes the count from it.
+      landingAirports: landedAtCodes(landedAt),
       nightLandings: numeric(nightLandings) ?? 0,
       withInstructor,
       // Only sent alongside the assertion it belongs to: unticking the box
@@ -270,6 +289,8 @@ export default function FlightEntryModal({
             min="0"
             value={landings}
             onChange={(e) => setLandings(e.target.value)}
+            // Counted off the airports list while there is one.
+            readOnly={landedAtCodes(landedAt).length > 0}
           />
           <Input
             label="Night landings"
@@ -341,7 +362,7 @@ export default function FlightEntryModal({
               // matters as much as filling it in: retyping KTOA → KCMA must not
               // leave the home field's $6 sitting there to be billed.
               if (!landingFeeEdited) {
-                setLandingFeeDollars(landingFeeInputFor(e.target.value));
+                setLandingFeeDollars(landingFeeInputFor(e.target.value, feeTable));
               }
             }}
             placeholder="KTOA"
@@ -358,12 +379,26 @@ export default function FlightEntryModal({
               setLandingFeeDollars(e.target.value);
             }}
             hint={
-              landingFeeFor(arrival) != null && !landingFeeEdited
+              landingFeeFor(arrival, feeTable) != null && !landingFeeEdited
                 ? `${arrival.trim().toUpperCase()}'s usual fee — change if you paid another`
                 : "Dollars, billed to the pilot"
             }
           />
         </div>
+        <LandedAtInput
+          value={landedAt}
+          onChange={(next, parsed) => {
+            setLandedAt(next);
+            if (parsed && parsed.landings > 0) {
+              setLandings(String(parsed.landings));
+              setArrival(parsed.arrival ?? "");
+              // The same fee prefill typing in To does.
+              if (!landingFeeEdited) {
+                setLandingFeeDollars(landingFeeInputFor(parsed.arrival, feeTable));
+              }
+            }
+          }}
+        />
         <Input
           label="Route"
           value={route}

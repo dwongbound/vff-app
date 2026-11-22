@@ -490,6 +490,9 @@ export default function QuickLogPage() {
       // The airports line becomes the three columns the log already has: how
       // many landings, where the airplane ended up, and the route written out.
       landings: landed.landings,
+      // …and the list itself, one entry per landing, which is what the
+      // club's landings-by-airport report counts.
+      landingAirports: landed.codes,
       arrival: landed.arrival,
       route: landed.route,
       // Gallons and the TOTAL, which is what the club stores and credits.

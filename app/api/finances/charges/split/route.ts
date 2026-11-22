@@ -75,10 +75,12 @@ export async function POST(req: Request) {
   // Ordered by name so the odd cents of a split always land on the same
   // people, whichever order the form listed them in.
   const members = await prisma.user.findMany({
+    // Removed members can't be charged: naming one is a 404 below, and
+    // "everyone" means everyone still in the club.
     where:
       requested.length > 0
-        ? { id: { in: requested } }
-        : { clubMember: true },
+        ? { id: { in: requested }, removedAt: null }
+        : { clubMember: true, removedAt: null },
     select: { id: true },
     orderBy: [{ name: "asc" }, { id: "asc" }],
   });

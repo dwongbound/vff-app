@@ -32,6 +32,28 @@ export const MEMBER_SELECT = {
   createdAt: true,
 } as const;
 
+/**
+ * Why an admin may NOT remove this person from the club, or null when they may.
+ *
+ * Removing is a soft delete (User.removedAt): flights and statement lines stay,
+ * the person stops signing in and stops being billed. Two refusals:
+ * - yourself, since the button would sign you out of your own club mid-click,
+ *   and "who removed the last admin" has no good answer;
+ * - an admin, who must be demoted first. That is the same last-admin rule as
+ *   `adminChangeError`, reached by a route that can't skip it, and it makes
+ *   taking away the keys to the club two deliberate steps instead of one.
+ */
+export function removalError(target: {
+  id: string;
+  isAdmin: boolean;
+  removedAt: Date | null;
+}, actorId: string): string | null {
+  if (target.removedAt) return "That member has already been removed.";
+  if (target.id === actorId) return "You can't remove yourself — ask another admin.";
+  if (target.isAdmin) return "Remove admin from this member first.";
+  return null;
+}
+
 export interface AdminChange {
   /** The member whose flag is being changed, as they are stored today. */
   target: { id: string; isAdmin: boolean };

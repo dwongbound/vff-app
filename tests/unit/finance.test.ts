@@ -280,6 +280,14 @@ describe("recurring rules", () => {
     expect(membersBilledBy(rule, "2026-06", roster)).toEqual(["old"]);
   });
 
+  // A removed member: billed through the month they left, never after.
+  it("stops billing a removed member after the month they left", () => {
+    const left = [...roster, { id: "gone", joinedAt: new Date(2025, 0, 1), leftAt: new Date(2026, 6, 15) }];
+    expect(membersBilledBy(rule, "2026-07", left)).toContain("gone");
+    expect(membersBilledBy(rule, "2026-08", left)).not.toContain("gone");
+    expect(membersBilledBy({ ...rule, memberId: "gone" }, "2026-09", left)).toEqual([]);
+  });
+
   it("bills only the named member for a private rule", () => {
     const personal = { ...rule, memberId: "old" };
     expect(membersBilledBy(personal, "2026-08", roster)).toEqual(["old"]);

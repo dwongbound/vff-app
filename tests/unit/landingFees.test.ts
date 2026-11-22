@@ -7,9 +7,11 @@
 // KTOA charges something other than $6.
 import { describe, expect, it } from "vitest";
 import {
-  LANDING_FEES_CENTS,
-  landingFeeFor,
-  landingFeeInputFor,
+  airportCodeError,
+  feeFromBody,
+  feeTableFrom,
+  landingFeeFor as feeFrom,
+  landingFeeInputFor as inputFrom,
   normalizeAirport,
 } from "@/lib/landingFees";
 import { chargesForFlight, landingFeeCharge, type BillableFlight } from "@/lib/finance";
@@ -29,10 +31,31 @@ const flight: BillableFlight = {
   arrival: "KTOA",
 };
 
+// The club's table as the API hands it back: KTOA at $6, and a field listed
+// with no fee on file.
+const TABLE = feeTableFrom([
+  { code: "ktoa", landingFeeCents: 600 },
+  { code: "KSMO", landingFeeCents: null },
+]);
+const landingFeeFor = (airport: string | null | undefined) => feeFrom(airport, TABLE);
+const landingFeeInputFor = (airport: string | null | undefined) => inputFrom(airport, TABLE);
+
 describe("the fee table", () => {
   it("knows the club's home field", () => {
     expect(landingFeeFor("KTOA")).toBe(600);
-    expect(LANDING_FEES_CENTS.KTOA).toBe(600);
+    expect(TABLE.KTOA).toBe(600);
+  });
+
+  it("says nothing for a field listed without a fee", () => {
+    expect(landingFeeFor("KSMO")).toBeNull();
+    expect(landingFeeInputFor("KSMO")).toBe("");
+  });
+
+  it("checks an identifier typed into settings", () => {
+    expect(airportCodeError("ktoa")).toBeNull();
+    expect(airportCodeError("L35")).toBeNull();
+    expect(airportCodeError("")).toMatch(/identifier/);
+    expect(airportCodeError("Torrance")).toMatch(/TORRANCE/);
   });
 
   // A member types into a phone keyboard; the API upper-cases on the way in,
@@ -165,5 +188,20 @@ describe("reading money off a request body", () => {
     expect(fuelCostCentsFrom({ fuelCostCents: 4_720 })).toBe(4_720);
     expect(fuelCostCentsFrom({ fuelCostDollars: 47.2 })).toBe(4_720);
     expect(fuelCostCentsFrom({})).toBeNull();
+  });
+});
+
+describe("feeFromBody", () => {
+  it("reads dollars to cents, keeps zero, and treats an empty box as no fee", () => {
+    expect(feeFromBody({ landingFeeDollars: "6" })).toBe(600);
+    expect(feeFromBody({ landingFeeDollars: "15.50" })).toBe(1550);
+    expect(feeFromBody({ landingFeeDollars: "0" })).toBe(0);
+    expect(feeFromBody({ landingFeeDollars: "" })).toBeNull();
+    expect(feeFromBody({})).toBeNull();
+  });
+
+  it("refuses a negative or unreadable fee", () => {
+    expect(feeFromBody({ landingFeeDollars: "-3" })).toBe("invalid");
+    expect(feeFromBody({ landingFeeDollars: "six" })).toBe("invalid");
   });
 });
