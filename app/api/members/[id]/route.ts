@@ -1,5 +1,6 @@
 // Promote a member to club admin, hand the flag back, or set which club
-// offices they hold.
+// offices they hold (PATCH) — or remove them from the club (DELETE, a soft
+// delete; see the handler).
 //
 // Admin-only, and re-checked against the database by getAdminUser() rather than
 // trusted from the session token — a token minted before the flag was revoked
@@ -11,7 +12,7 @@
 // with no Finance Officer is inconvenienced, not locked out.
 import { NextResponse } from "next/server";
 import { getAdminUser } from "@/lib/auth";
-import { adminChangeError, MEMBER_SELECT } from "@/lib/members";
+import { adminChangeError, MEMBER_SELECT, removalError } from "@/lib/members";
 import { parsePositions } from "@/lib/positions";
 import { prisma } from "@/lib/prisma";
 import { serializeMember } from "@/lib/serialize";
@@ -37,8 +38,9 @@ export async function PATCH(
     );
   }
 
-  const target = await prisma.user.findUnique({
-    where: { id },
+  // A removed member is gone from the roster, so there's nothing left to edit.
+  const target = await prisma.user.findFirst({
+    where: { id, removedAt: null },
     select: MEMBER_SELECT,
   });
   if (!target) {
@@ -51,7 +53,9 @@ export async function PATCH(
     const nextIsAdmin: boolean = body.isAdmin;
     // Counted inside the same request as the update so the "last admin" check
     // reflects the roster as it is right now.
-    const totalAdmins = await prisma.user.count({ where: { isAdmin: true } });
+    const totalAdmins = await prisma.user.count({
+      where: { isAdmin: true, removedAt: null },
+    });
     const problem = adminChangeError({
       target: { id: target.id, isAdmin: target.isAdmin },
       nextIsAdmin,
@@ -100,4 +104,49 @@ export async function PATCH(
   });
 
   return NextResponse.json(serializeMember(updated, admin.id));
+}
+
+/**
+ * Remove a member from the club. Admin-only, and a SOFT delete: the row stays,
+ * stamped `removedAt`/`removedById`, because their flights are the airplane's
+ * history (tach totals, maintenance countdowns) and their statement lines are
+ * the club's books. From here on they can't sign in, their access keys stop
+ * working, and they drop off the roster, every picker, future dues and
+ * invoices — each of those reads filters on `removedAt: null`.
+ *
+ * Their open access keys are revoked as well, so the profile card's list is
+ * honest if the account is ever looked at again.
+ */
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return NextResponse.json({ error: "Admins only." }, { status: 403 });
+  }
+
+  const { id } = await params;
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, isAdmin: true, removedAt: true },
+  });
+  if (!target) {
+    return NextResponse.json({ error: "No such member." }, { status: 404 });
+  }
+  const problem = removalError(target, admin.id);
+  if (problem) return NextResponse.json({ error: problem }, { status: 409 });
+
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id },
+      data: { removedAt: now, removedById: admin.id },
+    }),
+    prisma.accessKey.updateMany({
+      where: { userId: id, revokedAt: null },
+      data: { revokedAt: now },
+    }),
+  ]);
+  return NextResponse.json({ ok: true });
 }

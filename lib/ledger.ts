@@ -190,9 +190,15 @@ export async function ensureRecurringChargesFor(periods: Period[]) {
   if (rules.length === 0) return;
 
   const members = await prisma.user.findMany({
-    select: { id: true, createdAt: true },
+    select: { id: true, createdAt: true, removedAt: true },
   });
-  const roster = members.map((m) => ({ id: m.id, joinedAt: m.createdAt }));
+  // Removed members stay on this roster: the months they WERE here still
+  // bill, and `membersBilledBy` stops them at the month they left.
+  const roster = members.map((m) => ({
+    id: m.id,
+    joinedAt: m.createdAt,
+    leftAt: m.removedAt,
+  }));
 
   const rows: {
     memberId: string;

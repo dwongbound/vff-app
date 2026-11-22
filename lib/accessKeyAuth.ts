@@ -33,11 +33,13 @@ export async function getKeyUser(req: Request) {
           positions: true,
           clubMember: true,
           totalTimeHours: true,
+          removedAt: true,
         },
       },
     },
   });
-  if (!row || row.revokedAt) return null;
+  // A removed member's keys die with the membership.
+  if (!row || row.revokedAt || row.user.removedAt) return null;
   if (shouldTouchLastUsed(row.lastUsedAt)) {
     await prisma.accessKey.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } });
   }

@@ -69,6 +69,14 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
   consent trip, or Google SIGN-IN, which asks for the same scope
   (`GOOGLE_SIGN_IN_PARAMS`, no forced consent) so a Google member's picker
   works straight away.
+  `removedAt`/`removedById` are Members › Remove, a SOFT delete (rows that
+  point at the person — flights, statement lines — stay): a removed member
+  can't sign in (`authorize`, Google `signIn`, `getSessionUser`), their keys
+  stop (`getKeyUser`) and are revoked, and every forward-looking read filters
+  `removedAt: null` — roster, pickers, split "everyone", new charges and
+  recurring rules, invoices, the club-data pilots list, squawk mail. Dues bill
+  THROUGH the month they were removed in (`membersBilledBy`'s `leftAt`). Their
+  address can't sign up again (409 saying why); there is no restore in the UI.
 - **Aircraft** — tail number, model, `hourlyRateCents`, `fuelCapacityGal`,
   `homeBase`, plus `lastTach`/`lastHobbs` advanced by each filed flight.
   Everything else is keyed by aircraft, so a second airplane is a row.
@@ -420,9 +428,11 @@ owns the only splash in the app.
   answer matters, so the club needs no cron. `?open=1` also orders by
   `updatedAt`, not `createdAt` — with `limit=1` you want the run you last
   touched, not the one you started first.
-- `members` (GET roster, any member) · `members/[id]` (PATCH `isAdmin`,
+- `members` (GET roster, any member; removed members left out) · `members/[id]` (PATCH `isAdmin`,
   `positions` and/or `clubMember`, admin; 409 if it would leave the club with
-  no admin, and 409 on un-membering an admin. There is no matching "last
+  no admin, and 409 on un-membering an admin. DELETE = remove from the club,
+  admin, soft — `removalError` refuses yourself, an admin (demote first) and a
+  second removal. There is no matching "last
   Finance Officer" rule — admins can already do the job).
 - `aircraft` (GET all + open squawks, POST admin) · `aircraft/[id]` (PATCH,
   admin — includes renaming the tail number and the W&B basis; an unknown
@@ -704,8 +714,9 @@ owns the only splash in the app.
   its last day (0 days left ⇒ due today, still legal). ✅tested
 - `operatingRules.ts` — VFF-OR-A as data: `pilotTier`, `ruleFor`,
   `landingCurrency`, `hoursInLastYear`, the mnemonics. ✅tested
-- `members.ts` — `MEMBER_SELECT` (roster columns; deliberately no paperwork)
-  and `adminChangeError`, whose one rule is "never demote the last admin". ✅tested
+- `members.ts` — `MEMBER_SELECT` (roster columns; deliberately no paperwork),
+  `adminChangeError`, whose one rule is "never demote the last admin", and
+  `removalError` (who Members › Remove refuses). ✅tested
 - `signupCodes.ts` — the front door as rules: `normalizeCode` (upper, space-free
   — a code gets read down a phone), `signupCodeError`, `accountFromCodeKind`
   (the ONE place a code's list maps to what the account is),

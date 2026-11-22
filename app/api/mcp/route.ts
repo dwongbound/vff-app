@@ -118,7 +118,7 @@ async function activeFleet() {
 async function instructorId(name: string | null): Promise<string | null> {
   if (!name) return null;
   const instructors = await prisma.user.findMany({
-    where: { positions: { has: "INSTRUCTOR" } },
+    where: { positions: { has: "INSTRUCTOR" }, removedAt: null },
     select: { id: true, name: true },
   });
   return unwrap(pickInstructor(instructors, name)).id;
