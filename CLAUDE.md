@@ -266,8 +266,9 @@ stacked LIST below it — one or the other via `useIsWide`, never both in the
 DOM. Money is added through ONE "+" — a dashed panel on a desktop, a
 floating corner button like Reservations' on a phone or tablet
 (`TOUCH_LAYOUT` in components/useMediaQuery.ts, never both in the DOM) →
-`components/finances/AddMoneyModal.tsx`: a member gets only "Claim a
-reimbursement"; an officer gets Reimburse / Charge members / Club funds /
+`components/finances/AddMoneyModal.tsx`: a member gets Reimburse (their own
+claim) / Charge members (charge or split with anyone, lands at once —
+`finance:charge`, Dylan 2026-11-22); an officer gets Reimburse / Charge members / Club funds /
 Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
 `profile` (AUTOSAVES — no Save button: `lib/autosave.ts` queues edits into one
 PATCH a moment after typing stops, one request in flight at a time, and the
@@ -455,9 +456,10 @@ owns the only splash in the app.
   dollars, stored negative as kind REIMBURSEMENT — a member may file one for
   THEMSELVES with `finance:claim-own`, anyone else's needs `finance:manage`);
   `club: true` (the "Club funds" form — the club's own money, officer only,
-  which changes the club's balance on the spot); or `memberId` (the
-  officer's signed one-off). Sending a member and `club` together is a 400.
-  `finances/charges/split` (POST, `finance:manage`) — one amount over many
+  which changes the club's balance on the spot); or `memberId` (a one-off
+  against a member: any member may CHARGE with `finance:charge`, positive only;
+  a negative credit needs `finance:manage`). Sending a member and `club` together is a 400.
+  `finances/charges/split` (POST, `finance:charge` — any flying member) — one amount over many
   members, `mode: "split"` (a TOTAL, shared to the cent by `splitCents`, odd
   cents to the first BY NAME, each line saying "share of $X") or `"each"`;
   no `memberIds` = every `clubMember`. One transaction.
@@ -783,7 +785,8 @@ owns the only splash in the app.
   side of the due list — reading it is open to every member, because "the annual
   is out next week" is not privileged); INSTRUCTOR holds `flight:sign`. MEMBERSHIP (rather than any
   office) carries `reservation:book` + `finance:read-own` +
-  `finance:claim-own` (file a reimbursement for yourself), which is what an
+  `finance:claim-own` (file a reimbursement for yourself) + `finance:charge`
+  (charge or split with other members), which is what an
   instructor-only account lacks — `Principal.clubMember` is optional and absent
   means TRUE, so every caller predating instructor accounts still behaves.
   `isInstructor()` is the one place a position is tested DIRECTLY, and the

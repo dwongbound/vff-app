@@ -225,19 +225,20 @@ test("a member can only claim a reimbursement for themselves", async ({ page }) 
 
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { name: "Your balance" })).toBeVisible();
-  // No officer tools: the panel is the claim, and lines carry no buttons.
-  await expect(main.getByRole("button", { name: "Add money" })).toHaveCount(0);
+  // No officer tools on the lines.
   await expect(main.getByRole("button", { name: "Void" })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Mark all paid" })).toHaveCount(0);
 
   const before = (await page.request.get("/api/finances/ledger").then((r) => r.json()))
     .summary.members[0]?.outstandingCents ?? 0;
 
-  const modal = await openAdd(page, "Claim reimbursement");
+  // A member's "+" opens on the claim, with Charge beside it and nothing else.
+  const modal = await openAdd(page);
   await expect(modal.getByRole("heading", { name: "Claim reimbursement" })).toBeVisible();
-  // One form only: no member picker, no other modes.
+  const modes = modal.getByRole("group", { name: "What kind of money" }).getByRole("button");
+  await expect(modes).toHaveText(["Reimburse", "Charge"]);
+  // The claim is always their own: no member picker.
   await expect(modal.getByLabel("Member")).toHaveCount(0);
-  await expect(modal.getByRole("group", { name: "What kind of money" })).toHaveCount(0);
   await modal.getByLabel("What for").fill(label);
   await modal.getByLabel("Amount", { exact: true }).fill("18.40");
   await expect(modal.getByText("The club will owe you $18.40.")).toBeVisible();
@@ -253,28 +254,68 @@ test("a member can only claim a reimbursement for themselves", async ({ page }) 
   expect(after).toBe(before - 1840);
 
   // The API holds the line, not the form.
+  const robin = await memberId(page, "Robin Patel");
   const forSomeoneElse = await page.request.post("/api/finances/charges", {
-    data: {
-      reimbursement: true,
-      memberId: await memberId(page, "Robin Patel"),
-      description: "Not mine",
-      amountDollars: 5,
-    },
+    data: { reimbursement: true, memberId: robin, description: "Not mine", amountDollars: 5 },
   });
   expect(forSomeoneElse.status()).toBe(403);
-  for (const data of [
-    { memberId: "anyone", description: "Nice try", amountDollars: 10 },
-    { club: true, description: "Nice try", amountDollars: 10 },
-  ]) {
-    const res = await page.request.post("/api/finances/charges", { data });
-    expect(res.status()).toBe(403);
-  }
-  const split = await page.request.post("/api/finances/charges/split", {
-    data: { mode: "each", description: "Nice try", amountDollars: 10 },
+  // Club funds stay the officer's.
+  const club = await page.request.post("/api/finances/charges", {
+    data: { club: true, description: "Nice try", amountDollars: 10 },
   });
-  expect(split.status()).toBe(403);
+  expect(club.status()).toBe(403);
+  // A member may charge someone, but never credit them: that's a reimbursement.
+  const credit = await page.request.post("/api/finances/charges", {
+    data: { memberId: robin, description: "Nice try", amountDollars: -10 },
+  });
+  expect(credit.status()).toBe(400);
   const paid = await page.request.post("/api/finances/charges/paid", { data: { ids: ["x"] } });
   expect(paid.status()).toBe(403);
+  const rules = await page.request.post("/api/finances/recurring", {
+    data: { description: "Nice try", amountDollars: 10 },
+  });
+  expect(rules.status()).toBe(403);
+});
+
+test("a member can split a bill with another member, and it lands on their statement", async ({
+  page,
+}) => {
+  const label = unique("Fuel at KSBA");
+  await signIn(page, "alex@vffclub.test");
+  await gotoTab(page, "/finances", "Finances");
+
+  const modal = await openAdd(page);
+  await mode(modal, "Charge");
+  await expect(modal.getByRole("heading", { name: "Charge members" })).toBeVisible();
+  await modal.getByRole("button", { name: /^Split a total/ }).click();
+  await modal.getByRole("button", { name: "Choose people" }).click();
+  await modal.getByRole("checkbox", { name: "Alex Rivera" }).check();
+  await modal.getByRole("checkbox", { name: "Robin Patel" }).check();
+  await modal.getByLabel("What for").fill(label);
+  await modal.getByLabel("Total", { exact: true }).fill("80");
+  await expect(modal.getByText("2 people × $40.00 = $80.00 — split evenly.")).toBeVisible();
+  await modal.getByRole("button", { name: "Charge 2 people" }).click();
+  await expect(modal).toBeHidden({ timeout: 30_000 });
+
+  // Their own half is on their statement straight away.
+  const main = page.getByRole("main");
+  await expect(main.getByRole("row").filter({ hasText: label })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // And Robin's half is on Robin's, with no approval step.
+  await signIn(page, "robin@vffclub.test");
+  const lines = (await ledgerLines(page)).filter((c) => c.description.startsWith(label));
+  expect(lines).toHaveLength(1);
+  expect(lines[0].amountCents).toBe(4000);
+  expect(lines[0].paidAt).toBeNull();
+
+  // Tidy up as the officer.
+  for (const line of (await ledgerLines(page, true)).filter((c) =>
+    c.description.startsWith(label)
+  )) {
+    await page.request.delete(`/api/finances/charges/${line.id}`);
+  }
 });
 
 test("asking for the club's ledger without the office returns your own", async ({
