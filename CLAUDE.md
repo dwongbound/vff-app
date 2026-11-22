@@ -256,7 +256,7 @@ Next **16** (App Router) · React **19** · TypeScript **6** · Tailwind **4**
 `log` · `reservations` · `members` ·
 `finances` (every month in one scroll, sticky month headers carrying "Mark
 all paid" for officers, older months lazy-loaded off an IntersectionObserver
-on `#app-scroll`; views Mine / Club (by person) — with a "+" on each month's
+on `#app-scroll`; views Mine / Club (by person) — each card headed by that member's UNPAID figure, the same number as their Mine view, with a "+" on each month's
 header / Club (by month); an Everything/Outstanding switch beside the view
 switch filters all three (Everything by default); the club summary's member
 chips narrow the club views to one member, server-side, with a loader while

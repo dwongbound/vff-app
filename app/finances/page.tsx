@@ -82,6 +82,7 @@ import type {
   ApiLedgerPage,
   ApiMember,
   ApiRecurringCharge,
+  ApiStatement,
   ApiUserSummary,
 } from "@/lib/types";
 
@@ -1087,15 +1088,7 @@ function MonthList({
                       ? "Club"
                       : statement.member.name}
                   </h3>
-                  {/* The month's total for this person, in the card's own
-                      header rather than a footer row of its own. */}
-                  <span
-                    className={`tabular text-sm font-semibold ${
-                      statement.balanceCents < 0 ? "text-green-600 dark:text-green-400" : ""
-                    }`}
-                  >
-                    {formatMoney(statement.balanceCents)}
-                  </span>
+                  <PersonFigure statement={statement} />
                 </div>
                 <ChargeLines
                   caption={`${statement.member.name}'s charges for ${formatPeriod(m.period)}`}
@@ -1116,6 +1109,31 @@ function MonthList({
         </section>
       ))}
     </>
+  );
+}
+
+/**
+ * The figure in a by-person card's header. A member's card shows what they
+ * still OWE for the month, the same "unpaid" figure as the month header and
+ * their own Mine view, so the two screens agree; a paid line no longer counts
+ * in it. The club's own card has nothing to owe, so it shows the month's net.
+ */
+function PersonFigure({ statement }: { statement: ApiStatement }) {
+  if (statement.member === CLUB_ACCOUNT) {
+    return (
+      <span className={`tabular text-sm font-semibold ${figureTone(statement.balanceCents)}`}>
+        {formatMoney(statement.balanceCents)}
+      </span>
+    );
+  }
+  const unpaid = statement.charges.reduce((sum, c) => sum + owedContribution(c), 0);
+  return (
+    <span className="text-xs text-gray-500 dark:text-gray-400">
+      <span className={`tabular text-sm font-semibold ${figureTone(unpaid)}`}>
+        {formatMoney(unpaid)}
+      </span>{" "}
+      unpaid
+    </span>
   );
 }
 
