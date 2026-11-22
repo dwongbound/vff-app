@@ -1127,3 +1127,22 @@ model AccessKey {
   @@index([userId])
   @@map("access_keys")
 }
+
+// An airport the club lands at, and what it charges to land there.
+//
+// The club's own table, edited from Club settings › Airports (admins), and
+// what every flight form opens its Landing fee box at when the pilot names
+// that field (lib/landingFees.ts). Only ever a DEFAULT: what bills is the
+// figure left on the flight (`Flight.landingFeeCents`), so changing a fee here
+// never restates a flight already filed. Keyed by the identifier as the
+// flight API stores one (trimmed, upper-case), so "ktoa" finds KTOA.
+// `landingFeeCents` null = the field is listed but has no fee on file; 0 =
+// it charges nothing. The migration starts the table with KTOA at $6.
+model Airport {
+  code            String   @id
+  landingFeeCents Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("airports")
+}

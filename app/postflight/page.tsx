@@ -52,6 +52,7 @@ import { clubDateKey, formatDay, formatTime, formatTimeRange, toDateInputValue }
 import { endFollowsCard } from "@/lib/flightSession";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
 import LandedAtInput, { landedAtCodes } from "@/components/LandedAtInput";
+import { useLandingFees } from "@/components/useLandingFees";
 import { landingAirportsError } from "@/lib/landingAirports";
 import {
   flightCostCents,
@@ -281,6 +282,8 @@ export default function PostflightPage() {
   // meter card sat there reading "1" under a checklist reading 1506.1. What
   // decides whether a prefill still applies has to be "has the member edited
   // THIS box", never "does it happen to hold something".
+  // The club's landing fees (Club settings › Airports), for the fee prefill.
+  const feeTable = useLandingFees();
   const [edited, setEdited] = useState({
     tachStart: false,
     tachEnd: false,
@@ -345,7 +348,7 @@ export default function PostflightPage() {
 
   // The landing fee follows the airport you say you landed at, by the same
   // "mirrors until you type in it" rule as the meters above. It's a DEFAULT and
-  // not a stamp: the table in lib/landingFees.ts is what the club expects KTOA
+  // not a stamp: the table in Club settings is what the club expects KTOA
   // to charge, while what gets billed is whatever the pilot leaves in the box.
   //
   // Clearing back to "" when the airport has no fee on file is deliberate. Fly
@@ -353,8 +356,8 @@ export default function PostflightPage() {
   // or an untouched box would bill a fee for a field that never charged one.
   useEffect(() => {
     if (edited.landingFee) return;
-    setLandingFee(landingFeeInputFor(arrival));
-  }, [arrival, edited.landingFee]);
+    setLandingFee(landingFeeInputFor(arrival, feeTable));
+  }, [arrival, edited.landingFee, feeTable]);
 
   // ── Autosave ────────────────────────────────────────────────────────────
   //
@@ -1006,7 +1009,7 @@ export default function PostflightPage() {
               setLandingFee(e.target.value);
             }}
             hint={
-              landingFeeFor(arrival) != null && !edited.landingFee
+              landingFeeFor(arrival, feeTable) != null && !edited.landingFee
                 ? `${arrival.trim().toUpperCase()}'s usual fee — change it if you paid something else`
                 : "dollars, billed to you"
             }

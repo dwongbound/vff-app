@@ -449,7 +449,7 @@ test("the flight log fits a phone: three stats in a row, + Add flight at the rig
   });
 
   // Three stat tiles on ONE row, not two and one.
-  const tiles = main.getByText(/^(Hours this year|Flights|Landings)$/);
+  const tiles = main.getByText(/^(Hours|Flights|Landings) \/ month$/);
   await expect(tiles).toHaveCount(3);
   const tops = await tiles.evaluateAll((els) =>
     els.map((el) => Math.round(el.getBoundingClientRect().top))
@@ -490,7 +490,7 @@ test("the flight log shows tach and Hobbs hours on a phone, without overflow", a
   const firstRow = main.locator("li button").first();
   await expect(firstRow).toContainText(/tach/);
   await expect(firstRow).toContainText(/Hobbs/);
-  await expect(main.getByText("Hours this year", { exact: true }).locator("..")).toContainText(
+  await expect(main.getByText("Hours / month", { exact: true }).locator("..")).toContainText(
     /Hobbs/
   );
 

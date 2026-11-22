@@ -1,7 +1,7 @@
 // The club's landings by airport, month by month — what a landing-fee
 // reimbursement claim is made from. A flight that lists where it landed is
-// counted at those fields; the Flight log's Club view shows the month as a bar
-// per airport and exports it.
+// counted at those fields; the Flight log's Club view opens it from the
+// Landings tile, a bar per airport, and exports it.
 import { expect, test } from "@playwright/test";
 import { clearOpenSessions, gotoTab, openPostflightSection, signIn } from "./helpers";
 
@@ -46,21 +46,27 @@ test("a flight's listed airports land in this month's report", async ({ page }) 
   expect(countAt(after, "KWHP")).toBe(countAt(beforeBody, "KWHP") + 1);
   expect(countAt(after, "KTOA")).toBe(countAt(beforeBody, "KTOA") + 2);
 
-  // On the page: the Club view's card, this month, a line for KWHP.
+  // On the page: the Club view's Landings tile opens the report, this month,
+  // a line for KWHP.
   await gotoTab(page, "/log", "Flight log");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Club", exact: true }).click();
-  const card = main.getByRole("list", { name: /^Landings in / });
+  await main.getByRole("button", { name: /^Landings \/ month/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Landings by airport" })).toBeVisible();
+  const card = dialog.getByRole("list", { name: /^Landings in / });
   await expect(card).toBeVisible();
   await expect(card.getByText("KWHP", { exact: true })).toBeVisible();
 
   // Export hands over the spreadsheet for the claim.
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    // The card's Export comes after the log's own one, at the top of the page.
-    main.getByRole("button", { name: "Export" }).last().click(),
+    dialog.getByRole("button", { name: "Export" }).click(),
   ]);
   expect(download.suggestedFilename()).toMatch(/landings-by-airport.*\.xlsx$/);
+
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
 });
 
 test("a listed airport that isn't one is refused, naming it", async ({ page }) => {
