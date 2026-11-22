@@ -28,10 +28,12 @@ import { prisma } from "@/lib/prisma";
 const MAX_MEMBERS = 500;
 
 export async function POST(req: Request) {
-  const officer = await getCapableUser("finance:manage");
-  if (!officer) {
+  // Any flying member may charge or split with others (`finance:charge`);
+  // officers and admins hold it too.
+  const user = await getCapableUser("finance:charge");
+  if (!user) {
     return NextResponse.json(
-      { error: "Only the Finance Officer or an admin can charge members." },
+      { error: "Only club members can charge members." },
       { status: 403 }
     );
   }
@@ -108,7 +110,7 @@ export async function POST(req: Request) {
           description: lineDescription,
           period: periodOf(incurredOn),
           incurredOn,
-          createdById: officer.id,
+          createdById: user.id,
         },
       })
     )

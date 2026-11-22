@@ -82,6 +82,7 @@ describe("positions", () => {
   // an office can't quietly satisfy this test.
   it("gives a plain member membership and no office powers", () => {
     expect([...capabilitiesFor(nobody)].sort()).toEqual([
+      "finance:charge",
       "finance:claim-own",
       "finance:read-own",
       "reservation:book",
@@ -103,6 +104,7 @@ describe("positions", () => {
     expect(can(cfi, "reservation:book")).toBe(false);
     expect(can(cfi, "finance:read-own")).toBe(false);
     expect(can(cfi, "finance:claim-own")).toBe(false);
+    expect(can(cfi, "finance:charge")).toBe(false);
     // And nothing an officer holds.
     expect(can(cfi, "squawk:manage")).toBe(false);
     expect(can(cfi, "finance:manage")).toBe(false);

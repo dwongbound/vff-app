@@ -2,9 +2,11 @@
 // Everything that puts money on the books by hand, behind the Finances page's
 // one dashed "+" panel.
 //
-// A member sees ONE form: claim a reimbursement for yourself. The API holds
-// that line (`finance:claim-own` only ever credits the person filing it); the
-// form just never offers anything else.
+// A member sees TWO: claim a reimbursement for yourself, and Charge members —
+// the same charge/split form the officer has, so two pilots can split a fuel
+// bill without the Finance Officer (`finance:charge`, Dylan 2026-11-22). The
+// API holds both lines: a claim only ever credits the person filing it, and a
+// member's charge is only ever positive.
 //
 // The Finance Officer sees four, picked from a segmented control at the top:
 //
@@ -48,6 +50,9 @@ import type { ApiMember } from "@/lib/types";
 
 type Mode = "reimburse" | "charge" | "funds" | "recurring";
 
+/** The modes a member who isn't an officer gets, in the control's order. */
+const MEMBER_MODES: Mode[] = ["reimburse", "charge"];
+
 /** The window's title for each of the officer's modes. */
 const OFFICER_TITLES: Record<Mode, string> = {
   reimburse: "Reimburse a member",
@@ -65,6 +70,7 @@ const MODE_LABELS: Record<Mode, string> = {
 
 export default function AddMoneyModal({
   officer,
+  canCharge = false,
   me,
   period,
   onClose,
@@ -73,6 +79,8 @@ export default function AddMoneyModal({
 }: {
   /** Holds `finance:manage` — gets every mode rather than just the claim. */
   officer: boolean;
+  /** Holds `finance:charge` — a member who may also charge or split. */
+  canCharge?: boolean;
   me: { id: string; name: string };
   /** The month a new line lands in — this month, or the header it came from. */
   period: Period;
@@ -82,11 +90,14 @@ export default function AddMoneyModal({
 }) {
   const [mode, setMode] = useState<Mode>(officer ? "charge" : "reimburse");
   const [roster, setRoster] = useState<ApiMember[] | null>(null);
+  // Which modes the control offers: all four, the member's two, or none
+  // (claim only, so no control at all).
+  const modes = availableModes(officer, canCharge);
 
   useEffect(() => {
-    if (!officer) return;
+    if (!officer && !canCharge) return;
     fetchJsonArray<ApiMember>("/api/members").then(setRoster);
-  }, [officer]);
+  }, [officer, canCharge]);
 
   // Shared by every form: what for, how much, and the day.
   const [description, setDescription] = useState("");
@@ -217,7 +228,7 @@ export default function AddMoneyModal({
   }
   const preview = previewText();
 
-  const title = officer ? OFFICER_TITLES[mode] : "Claim reimbursement";
+  const title = titleFor(mode, officer);
 
   /** The button says what pressing it records. */
   function submitLabelText(): string {
@@ -269,13 +280,15 @@ export default function AddMoneyModal({
       }
     >
       <div className="space-y-4">
-        {officer && (
+        {modes.length > 1 && (
           <div
             role="group"
             aria-label="What kind of money"
-            className="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700/50 sm:grid-cols-4"
+            className={`grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700/50 ${
+              modes.length > 2 ? "sm:grid-cols-4" : ""
+            }`}
           >
-            {(Object.keys(MODE_LABELS) as Mode[]).map((m) => (
+            {modes.map((m) => (
               <button
                 key={m}
                 type="button"
@@ -520,6 +533,19 @@ function Segmented<T>({
       })}
     </div>
   );
+}
+
+/** The modes on offer: an officer's four, a member's two, or just the claim. */
+function availableModes(officer: boolean, canCharge: boolean): Mode[] {
+  if (officer) return Object.keys(MODE_LABELS) as Mode[];
+  if (canCharge) return MEMBER_MODES;
+  return ["reimburse"];
+}
+
+/** The window's title. A member's reimburse is always their own claim. */
+function titleFor(mode: Mode, officer: boolean): string {
+  if (mode === "reimburse" && !officer) return "Claim reimbursement";
+  return OFFICER_TITLES[mode];
 }
 
 /** "2026-09-30" → "2026-09", the month a line dated that day is filed under; null for a blank or half-typed date. */
