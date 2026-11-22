@@ -502,6 +502,15 @@ model Flight {
 
   landings Int @default(1)
 
+  // WHERE those landings were, one entry per landing, in order: KTOA, KSMO,
+  // KTOA is three landings at two fields. Empty = the pilot didn't say, which
+  // is every row filed before this column and any form left blank. When it is
+  // filled in, `landings` is its length (the API holds that), so the count the
+  // currency rules read and the list the landings report reads can't disagree.
+  // It exists for the club's monthly landings-by-airport report, which is what
+  // a landing-fee reimbursement claim is made from (lib/landingReport.ts).
+  landingAirports String[] @default([])
+
   // Night landings must be to a full stop to count for currency (VFF-OR-A /
   // 61.57(b)), so they're recorded separately rather than inferred. Always a
   // subset of `landings`.

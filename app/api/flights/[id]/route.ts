@@ -41,6 +41,7 @@ import { resolveInstructor, resolutionFailed } from "@/lib/instructors";
 import { canEditLogEntry, resolveTimes } from "@/lib/flightSession";
 import { advanceMeters } from "@/lib/flightSessions";
 import { normalizeLogEntry } from "@/lib/markdown";
+import { landingAirportsFromBody } from "@/lib/landingAirports";
 
 export async function GET(
   _req: Request,
@@ -104,6 +105,7 @@ export async function PATCH(
       endedAt: true,
       logEntry: true,
       landings: true,
+      landingAirports: true,
       nightLandings: true,
       departure: true,
       arrival: true,
@@ -185,6 +187,21 @@ export async function PATCH(
   for (const field of ["departure", "arrival"] as const) {
     if (field in body) {
       data[field] = body[field] ? String(body[field]).trim().toUpperCase() : null;
+    }
+  }
+  // The airports list, same rule as the POST: once given, it IS the count,
+  // and its last entry is the arrival unless the body named one. Sent only
+  // when the pilot touched the box, so saving an old entry whose airports were
+  // never recorded leaves it as it was rather than writing a guess.
+  if ("landingAirports" in body) {
+    const airports = landingAirportsFromBody(body.landingAirports);
+    if ("error" in airports) {
+      return NextResponse.json({ error: airports.error }, { status: 400 });
+    }
+    data.landingAirports = airports.codes;
+    if (airports.codes.length) {
+      data.landings = airports.codes.length;
+      if (!data.arrival) data.arrival = airports.codes[airports.codes.length - 1];
     }
   }
   for (const field of ["route", "notes"] as const) {
@@ -300,6 +317,10 @@ export async function PATCH(
     const next = data[key];
     const prev = stored[key];
     if (key === "flownOn") return dayKey(next) !== dayKey(prev);
+    // A list is a new array every time; what matters is the airports in it.
+    if (Array.isArray(next) || Array.isArray(prev)) {
+      return String(next) !== String(prev);
+    }
     if (next instanceof Date || prev instanceof Date) {
       return minuteKey(next) !== minuteKey(prev);
     }

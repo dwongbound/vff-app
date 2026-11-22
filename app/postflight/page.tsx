@@ -51,6 +51,8 @@ import {
 import { clubDateKey, formatDay, formatTime, formatTimeRange, toDateInputValue } from "@/lib/dates";
 import { endFollowsCard } from "@/lib/flightSession";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
+import LandedAtInput, { landedAtCodes } from "@/components/LandedAtInput";
+import { landingAirportsError } from "@/lib/landingAirports";
 import {
   flightCostCents,
   formatCents,
@@ -99,6 +101,8 @@ export default function PostflightPage() {
   const [hobbsStart, setHobbsStart] = useState("");
   const [hobbsEnd, setHobbsEnd] = useState("");
   const [landings, setLandings] = useState("1");
+  // The "Landed at" line — see components/LandedAtInput.tsx.
+  const [landedAt, setLandedAt] = useState("");
   const [nightLandings, setNightLandings] = useState("0");
   const [withInstructor, setWithInstructor] = useState(false);
   const [departure, setDeparture] = useState("");
@@ -371,6 +375,7 @@ export default function PostflightPage() {
       hobbsStart,
       hobbsEnd,
       landings,
+      landedAt,
       nightLandings,
       withInstructor,
       instructorId,
@@ -404,6 +409,7 @@ export default function PostflightPage() {
       hobbsStart,
       hobbsEnd,
       landings,
+      landedAt,
       nightLandings,
       withInstructor,
       instructorId,
@@ -435,6 +441,7 @@ export default function PostflightPage() {
       setHobbsStart(stored.hobbsStart);
       setHobbsEnd(stored.hobbsEnd);
       if (stored.landings) setLandings(stored.landings);
+      setLandedAt(stored.landedAt);
       if (stored.nightLandings) setNightLandings(stored.nightLandings);
       setWithInstructor(stored.withInstructor);
       setInstructorId(stored.instructorId);
@@ -486,6 +493,7 @@ export default function PostflightPage() {
       landingFee: false,
     });
     setLandings("1");
+    setLandedAt("");
     setNightLandings("0");
     setWithInstructor(false);
     setInstructorId("");
@@ -568,6 +576,11 @@ export default function PostflightPage() {
       setError(meterError ?? "Enter the tach reading at shutdown.");
       return;
     }
+    const landedAtError = landingAirportsError(landedAt);
+    if (landedAtError) {
+      setError(landedAtError);
+      return;
+    }
 
     setBusy(true);
     setQueued(false);
@@ -588,6 +601,8 @@ export default function PostflightPage() {
       hobbsStart: hobbsPair ? Number(hobbsStart) : null,
       hobbsEnd: hobbsPair ? Number(hobbsEnd) : null,
       landings: Number(landings || 1),
+      // One entry per landing; when given, the server takes the count from it.
+      landingAirports: landedAtCodes(landedAt),
       nightLandings: Number(nightLandings || 0),
       withInstructor,
       // Only alongside the assertion it belongs to, and only when the booking
@@ -670,6 +685,7 @@ export default function PostflightPage() {
       landingFee: false,
     });
     setLandings("1");
+    setLandedAt("");
     setNightLandings("0");
     setWithInstructor(false);
     setInstructorId("");
@@ -948,6 +964,9 @@ export default function PostflightPage() {
             step="1"
             value={landings}
             onChange={(e) => setLandings(e.target.value)}
+            // Counted off the airports list while there is one, so the two
+            // can't disagree.
+            readOnly={landedAtCodes(landedAt).length > 0}
           />
           <Input
             label="Night landings"
@@ -993,6 +1012,16 @@ export default function PostflightPage() {
             }
           />
         </div>
+        <LandedAtInput
+          value={landedAt}
+          onChange={(next, parsed) => {
+            setLandedAt(next);
+            if (parsed && parsed.landings > 0) {
+              setLandings(String(parsed.landings));
+              setArrival(parsed.arrival ?? "");
+            }
+          }}
+        />
         <Input
           label="Route (optional)"
           value={route}
