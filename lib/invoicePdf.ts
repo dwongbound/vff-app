@@ -11,9 +11,18 @@ import { CLUB_NAME, CLUB_TIME_ZONE } from "./constants";
 import { formatMoney, formatPeriod } from "./finance";
 import { fitText, PAGE_HEIGHT, PAGE_WIDTH, PdfDocument, wrapText } from "./pdf";
 
-/** The one payment instruction every invoice carries (Dylan, 2026-11-16). */
+/** The payment instruction on an invoice that asks for money (Dylan, 2026-11-16). */
 export const PAYMENT_INSTRUCTIONS =
   "Please Zelle to the club account or bring a check to the finance officer(s).";
+
+/** What a CREDIT statement says instead: there is nothing for the member to pay (Dylan, 2026-11-22). */
+export const PAYBACK_INSTRUCTIONS = "The finance officer will pay this back to you.";
+
+/** The box beside the totals: how to pay when the member owes, how they get paid when the club owes them. */
+export function paymentNote(dueCents: number): { heading: string; text: string } {
+  if (dueCents < 0) return { heading: "Getting paid back", text: PAYBACK_INSTRUCTIONS };
+  return { heading: "How to pay", text: PAYMENT_INSTRUCTIONS };
+}
 
 export interface StatementRow {
   date: string;
@@ -239,6 +248,7 @@ export function statementPdf(s: Statement): Uint8Array<ArrayBuffer> {
   });
 
   // ── How to pay (left) beside the totals (right) ── kept together on one page.
+  const note = paymentNote(sums.dueCents);
   const totals: [string, string][] = [
     ["Charges", formatMoney(sums.chargedCents)],
     ["Owed", signed("\u2212", sums.owedCents)],
@@ -247,7 +257,7 @@ export function statementPdf(s: Statement): Uint8Array<ArrayBuffer> {
   ];
   const totalsHeight = totals.length * 18 + 40;
   const payWidth = RIGHT - MARGIN - 250;
-  const payLines = wrapText(PAYMENT_INSTRUCTIONS, "regular", 10, payWidth - 32);
+  const payLines = wrapText(note.text, "regular", 10, payWidth - 32);
   const payHeight = 34 + payLines.length * 14 + 26;
   const closingHeight = 20 + Math.max(totalsHeight, payHeight) + 34;
   if (y + closingHeight > BODY_BOTTOM) {
@@ -261,7 +271,7 @@ export function statementPdf(s: Statement): Uint8Array<ArrayBuffer> {
 
   doc.rect(MARGIN, top, payWidth, payHeight, { fill: BRAND_TINT });
   doc.rect(MARGIN, top, 4, payHeight, { fill: BRAND });
-  doc.text(MARGIN + 18, top + 22, "How to pay", { font: "bold", size: 11, color: INK });
+  doc.text(MARGIN + 18, top + 22, note.heading, { font: "bold", size: 11, color: INK });
   payLines.forEach((line, i) => doc.text(MARGIN + 18, top + 40 + i * 14, line, { size: 10, color: INK }));
   doc.text(MARGIN + 18, top + payHeight - 12, "Questions? Reply to the email this came with.", {
     size: 8.5,
