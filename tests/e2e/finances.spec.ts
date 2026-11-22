@@ -630,7 +630,12 @@ test("Mark all paid settles a whole month in one tap", async ({ page }) => {
   }
   // Nothing left open in that month, so the button goes.
   await expect(section.getByRole("button", { name: "Mark all paid" })).toHaveCount(0);
-  await expect(section.getByText("$0.00 unpaid")).toBeVisible();
+  // The month header AND each member's card now read "$0.00 unpaid": a card
+  // counts only what is still owed, the same figure as that member's Mine view.
+  await expect(section.getByText("$0.00 unpaid").first()).toBeVisible();
+  await expect
+    .poll(() => section.getByText("$0.00 unpaid").count())
+    .toBeGreaterThanOrEqual(2);
   // And the club's worth went up by at least the two lines we know about.
   expect(await figure(page, "Club balance")).toBeGreaterThanOrEqual(worthBefore + 4000);
 
