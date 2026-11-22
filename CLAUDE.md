@@ -292,7 +292,8 @@ what's being typed. A blank name, non-number total time or half-typed invite
 address is held back client-side, not sent) ·
 `profile` (ends with `AccessKeysCard`, outside the form: keys are made and revoked on the spot) ·
 `settings` (org settings, admin-only, reached from the avatar menu — the fleet,
-its Google Calendar link, then the sign-up code lists).
+its Google Calendar link, Airports and their landing fees, then the sign-up
+code lists).
 An instructor-only account gets Plane Status, the checkouts, Tools and the
 flight log, a READ-ONLY reservations calendar (no New, no per-day "+", every
 booking opens the read-only view the modal already had for somebody else's),
@@ -697,8 +698,10 @@ owns the only splash in the app.
   `homeBase`, else "Not recorded", and flagged ASSUMED rather than silently
   placed. Fees go to the field the flight ended at. Served club-wide by
   `GET /api/reports/landings?months=N` (any member; default 12, max 120; filed
-  flights only), drawn by `LandingsByAirport` on the log's Club view (a bar per
-  airport, assumed part lighter, month picker) and exported by
+  flights only), drawn by `LandingsByAirport`, a pop-up opened from the log's
+  Club-view "Landings / month" tile (the one tile that's a button, with a
+  chevron after its label; a bar per airport, assumed part lighter, month
+  picker, Export in the footer; fetched on first open) and exported by
   `landingReportSheet` in `exports.ts`. ✅tested
 - `inflightReference.ts` — the card's takeoff/climb/cruise/descent phases and
   the KTOA (Zamperini Field, the club's home) frequency block, as read-only data. Deliberately NOT checkout items:
@@ -840,8 +843,14 @@ owns the only splash in the app.
   `fuelAddedGal` + `fuelCostDollars`); there is no price column — it's always
   total ÷ gallons, which is how the log shows "22.1 gal × $6.99 = **$154.48**"
   (`fuelSummary` / `FuelSummary`). Drafts keep all three strings. ✅tested
-- `landingFees.ts` — what a field charges to land: the fee TABLE (KTOA $6) and
-  `landingFeeFor` / `landingFeeInputFor`. Only a DEFAULT — what the club bills is
+- `landingFees.ts` — what a field charges to land. The fee TABLE is the
+  **Airport** model (`code` id, `landingFeeCents` nullable; the migration and
+  the seed both start it at KTOA $6), edited by admins in Club settings ›
+  Airports (`AirportsPanel`) through `GET/POST /api/airports` (GET any member)
+  and `PATCH/DELETE /api/airports/[code]`. The forms read it with
+  `useLandingFees()` (components/useLandingFees.ts) and pass the map to
+  `landingFeeFor(airport, table)` / `landingFeeInputFor(airport, table)`;
+  `feeTableFrom`, `airportCodeError`, `feeFromBody` are the rest. Only a DEFAULT — what the club bills is
   `Flight.landingFeeCents`, the figure the pilot left in the box, because rates
   change and fees get waived. Per FLIGHT, not per landing: eight touch-and-goes
   is one visit to one desk. ✅tested
