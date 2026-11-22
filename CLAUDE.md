@@ -263,7 +263,9 @@ chips narrow the club views to one member, server-side, with a loader while
 it lands. Paid turns a row green and Void strikes it through, both on the
 spot; only Delete confirms. Lines are a TABLE from `sm` up and a
 stacked LIST below it — one or the other via `useIsWide`, never both in the
-DOM. Money is added through ONE dashed "+" panel →
+DOM. Money is added through ONE "+" — a dashed panel on a desktop, a
+floating corner button like Reservations' on a phone or tablet
+(`TOUCH_LAYOUT` in components/useMediaQuery.ts, never both in the DOM) →
 `components/finances/AddMoneyModal.tsx`: a member gets only "Claim a
 reimbursement"; an officer gets Reimburse / Charge members / Club funds /
 Recurring & rate. Mine's headline is RED when you owe, GREEN when owed) ·
