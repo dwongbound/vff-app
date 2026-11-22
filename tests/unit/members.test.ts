@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adminChangeError } from "@/lib/members";
+import { adminChangeError, removalError } from "@/lib/members";
 
 const target = (isAdmin: boolean) => ({ id: "u1", isAdmin });
 
@@ -62,5 +62,26 @@ describe("adminChangeError", () => {
         totalAdmins: 0,
       })
     ).toMatch(/at least one admin/i);
+  });
+});
+
+describe("removalError", () => {
+  const member = { id: "u2", isAdmin: false, removedAt: null };
+
+  it("lets an admin remove a plain member", () => {
+    expect(removalError(member, "u1")).toBeNull();
+  });
+
+  it("refuses removing yourself", () => {
+    expect(removalError(member, "u2")).toMatch(/yourself/);
+  });
+
+  // Demote first: the last-admin rule lives on that route.
+  it("refuses removing an admin", () => {
+    expect(removalError({ ...member, isAdmin: true }, "u1")).toMatch(/admin/);
+  });
+
+  it("refuses removing somebody twice", () => {
+    expect(removalError({ ...member, removedAt: new Date() }, "u1")).toMatch(/already/);
   });
 });

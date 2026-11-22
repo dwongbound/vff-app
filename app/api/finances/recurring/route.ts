@@ -75,8 +75,9 @@ export async function POST(req: Request) {
   // Null memberId = every member. That's the dues case.
   const memberId = typeof body.memberId === "string" && body.memberId ? body.memberId : null;
   if (memberId) {
-    const member = await prisma.user.findUnique({
-      where: { id: memberId },
+    // A standing charge for a removed member would never bill anyone.
+    const member = await prisma.user.findFirst({
+      where: { id: memberId, removedAt: null },
       select: { id: true },
     });
     if (!member) {

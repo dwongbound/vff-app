@@ -34,6 +34,7 @@ function flight(over: Partial<ApiFlightSummary> = {}): ApiFlightSummary {
     hobbsStart: null,
     hobbsEnd: null,
     landings: 1,
+    landingAirports: [],
     nightLandings: 0,
     withInstructor: false,
     departure: null,

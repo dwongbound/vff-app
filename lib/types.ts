@@ -171,6 +171,12 @@ export interface ApiFlightSummary {
   hobbsStart: number | null;
   hobbsEnd: number | null;
   landings: number;
+  /**
+   * Where each landing was, in order (one entry per landing). Empty when the
+   * pilot didn't say — every entry filed before the list existed, and any form
+   * left blank. The landings-by-airport report reads it (lib/landingReport.ts).
+   */
+  landingAirports: string[];
   nightLandings: number;
   withInstructor: boolean;
   /** What kind of flight — the booking vocabulary, shown as a chip on the log. */

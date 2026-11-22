@@ -217,6 +217,18 @@ model User {
   // never an event. Null = never asked, or Google stopped honouring it.
   googleListTokenEnc String?
 
+  // When an admin REMOVED this person from the club (Members › Remove), and
+  // who did it. A removal is a soft delete, never a row deletion: their flights
+  // are the airplane's history (every tach total and maintenance countdown is
+  // summed over them) and their statement lines are the club's books, so the
+  // row stays for those to point at. What removal does is take the person OUT
+  // of everything forward-looking — they can't sign in, their keys stop
+  // working, they leave the roster and every picker, no new dues or invoices
+  // reach them (lib/finance.ts `membersBilledBy`, lib/invoiceRun.ts). Null =
+  // a current member, which is every account that existed before this column.
+  removedAt   DateTime?
+  removedById String?
+
   reservations    Reservation[]
   flights         Flight[]
   checkouts       Checkout[]
@@ -489,6 +501,15 @@ model Flight {
   endedAt   DateTime?
 
   landings Int @default(1)
+
+  // WHERE those landings were, one entry per landing, in order: KTOA, KSMO,
+  // KTOA is three landings at two fields. Empty = the pilot didn't say, which
+  // is every row filed before this column and any form left blank. When it is
+  // filled in, `landings` is its length (the API holds that), so the count the
+  // currency rules read and the list the landings report reads can't disagree.
+  // It exists for the club's monthly landings-by-airport report, which is what
+  // a landing-fee reimbursement claim is made from (lib/landingReport.ts).
+  landingAirports String[] @default([])
 
   // Night landings must be to a full stop to count for currency (VFF-OR-A /
   // 61.57(b)), so they're recorded separately rather than inferred. Always a
@@ -1105,4 +1126,23 @@ model AccessKey {
 
   @@index([userId])
   @@map("access_keys")
+}
+
+// An airport the club lands at, and what it charges to land there.
+//
+// The club's own table, edited from Club settings › Airports (admins), and
+// what every flight form opens its Landing fee box at when the pilot names
+// that field (lib/landingFees.ts). Only ever a DEFAULT: what bills is the
+// figure left on the flight (`Flight.landingFeeCents`), so changing a fee here
+// never restates a flight already filed. Keyed by the identifier as the
+// flight API stores one (trimmed, upper-case), so "ktoa" finds KTOA.
+// `landingFeeCents` null = the field is listed but has no fee on file; 0 =
+// it charges nothing. The migration starts the table with KTOA at $6.
+model Airport {
+  code            String   @id
+  landingFeeCents Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("airports")
 }

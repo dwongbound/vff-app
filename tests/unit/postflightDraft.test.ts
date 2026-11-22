@@ -44,6 +44,7 @@ const EMPTY: PostflightForm = {
   hobbsStart: "",
   hobbsEnd: "",
   landings: "1",
+  landedAt: "",
   nightLandings: "0",
   withInstructor: false,
   purpose: "",

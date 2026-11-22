@@ -51,6 +51,9 @@ import {
 import { clubDateKey, formatDay, formatTime, formatTimeRange, toDateInputValue } from "@/lib/dates";
 import { endFollowsCard } from "@/lib/flightSession";
 import { landingFeeFor, landingFeeInputFor } from "@/lib/landingFees";
+import LandedAtInput, { landedAtCodes } from "@/components/LandedAtInput";
+import { useLandingFees } from "@/components/useLandingFees";
+import { landingAirportsError } from "@/lib/landingAirports";
 import {
   flightCostCents,
   formatCents,
@@ -99,6 +102,8 @@ export default function PostflightPage() {
   const [hobbsStart, setHobbsStart] = useState("");
   const [hobbsEnd, setHobbsEnd] = useState("");
   const [landings, setLandings] = useState("1");
+  // The "Landed at" line — see components/LandedAtInput.tsx.
+  const [landedAt, setLandedAt] = useState("");
   const [nightLandings, setNightLandings] = useState("0");
   const [withInstructor, setWithInstructor] = useState(false);
   const [departure, setDeparture] = useState("");
@@ -277,6 +282,8 @@ export default function PostflightPage() {
   // meter card sat there reading "1" under a checklist reading 1506.1. What
   // decides whether a prefill still applies has to be "has the member edited
   // THIS box", never "does it happen to hold something".
+  // The club's landing fees (Club settings › Airports), for the fee prefill.
+  const feeTable = useLandingFees();
   const [edited, setEdited] = useState({
     tachStart: false,
     tachEnd: false,
@@ -341,7 +348,7 @@ export default function PostflightPage() {
 
   // The landing fee follows the airport you say you landed at, by the same
   // "mirrors until you type in it" rule as the meters above. It's a DEFAULT and
-  // not a stamp: the table in lib/landingFees.ts is what the club expects KTOA
+  // not a stamp: the table in Club settings is what the club expects KTOA
   // to charge, while what gets billed is whatever the pilot leaves in the box.
   //
   // Clearing back to "" when the airport has no fee on file is deliberate. Fly
@@ -349,8 +356,8 @@ export default function PostflightPage() {
   // or an untouched box would bill a fee for a field that never charged one.
   useEffect(() => {
     if (edited.landingFee) return;
-    setLandingFee(landingFeeInputFor(arrival));
-  }, [arrival, edited.landingFee]);
+    setLandingFee(landingFeeInputFor(arrival, feeTable));
+  }, [arrival, edited.landingFee, feeTable]);
 
   // ── Autosave ────────────────────────────────────────────────────────────
   //
@@ -371,6 +378,7 @@ export default function PostflightPage() {
       hobbsStart,
       hobbsEnd,
       landings,
+      landedAt,
       nightLandings,
       withInstructor,
       instructorId,
@@ -404,6 +412,7 @@ export default function PostflightPage() {
       hobbsStart,
       hobbsEnd,
       landings,
+      landedAt,
       nightLandings,
       withInstructor,
       instructorId,
@@ -435,6 +444,7 @@ export default function PostflightPage() {
       setHobbsStart(stored.hobbsStart);
       setHobbsEnd(stored.hobbsEnd);
       if (stored.landings) setLandings(stored.landings);
+      setLandedAt(stored.landedAt);
       if (stored.nightLandings) setNightLandings(stored.nightLandings);
       setWithInstructor(stored.withInstructor);
       setInstructorId(stored.instructorId);
@@ -486,6 +496,7 @@ export default function PostflightPage() {
       landingFee: false,
     });
     setLandings("1");
+    setLandedAt("");
     setNightLandings("0");
     setWithInstructor(false);
     setInstructorId("");
@@ -568,6 +579,11 @@ export default function PostflightPage() {
       setError(meterError ?? "Enter the tach reading at shutdown.");
       return;
     }
+    const landedAtError = landingAirportsError(landedAt);
+    if (landedAtError) {
+      setError(landedAtError);
+      return;
+    }
 
     setBusy(true);
     setQueued(false);
@@ -588,6 +604,8 @@ export default function PostflightPage() {
       hobbsStart: hobbsPair ? Number(hobbsStart) : null,
       hobbsEnd: hobbsPair ? Number(hobbsEnd) : null,
       landings: Number(landings || 1),
+      // One entry per landing; when given, the server takes the count from it.
+      landingAirports: landedAtCodes(landedAt),
       nightLandings: Number(nightLandings || 0),
       withInstructor,
       // Only alongside the assertion it belongs to, and only when the booking
@@ -670,6 +688,7 @@ export default function PostflightPage() {
       landingFee: false,
     });
     setLandings("1");
+    setLandedAt("");
     setNightLandings("0");
     setWithInstructor(false);
     setInstructorId("");
@@ -948,6 +967,9 @@ export default function PostflightPage() {
             step="1"
             value={landings}
             onChange={(e) => setLandings(e.target.value)}
+            // Counted off the airports list while there is one, so the two
+            // can't disagree.
+            readOnly={landedAtCodes(landedAt).length > 0}
           />
           <Input
             label="Night landings"
@@ -987,12 +1009,22 @@ export default function PostflightPage() {
               setLandingFee(e.target.value);
             }}
             hint={
-              landingFeeFor(arrival) != null && !edited.landingFee
+              landingFeeFor(arrival, feeTable) != null && !edited.landingFee
                 ? `${arrival.trim().toUpperCase()}'s usual fee — change it if you paid something else`
                 : "dollars, billed to you"
             }
           />
         </div>
+        <LandedAtInput
+          value={landedAt}
+          onChange={(next, parsed) => {
+            setLandedAt(next);
+            if (parsed && parsed.landings > 0) {
+              setLandings(String(parsed.landings));
+              setArrival(parsed.arrival ?? "");
+            }
+          }}
+        />
         <Input
           label="Route (optional)"
           value={route}

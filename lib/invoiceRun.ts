@@ -32,8 +32,14 @@ export async function prepareInvoices(opts: {
   await materialise(scope);
 
   // `clubMember`: an instructor-only account has no statement to send.
+  // `removedAt`: nor does somebody no longer in the club — an invoice for a
+  // removed member is skipped, never sent.
   const members = await prisma.user.findMany({
-    where: { clubMember: true, ...(memberIds ? { id: { in: memberIds } } : {}) },
+    where: {
+      clubMember: true,
+      removedAt: null,
+      ...(memberIds ? { id: { in: memberIds } } : {}),
+    },
     select: { id: true, name: true, email: true, username: true },
     orderBy: { name: "asc" },
   });

@@ -898,6 +898,15 @@ async function main() {
     });
   }
 
+  // The landing-fee table starts as the migration starts it: KTOA at $6. Here
+  // too because a dev or CI database built by `db push` never runs the
+  // migration's INSERT. Left alone on a reseed — an admin may have changed it.
+  await prisma.airport.upsert({
+    where: { code: "KTOA" },
+    update: {},
+    create: { code: "KTOA", landingFeeCents: 600 },
+  });
+
   const aircraft = await prisma.aircraft.upsert({
     where: { tailNumber: TAIL_NUMBER },
     update: {},

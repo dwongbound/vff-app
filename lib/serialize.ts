@@ -380,6 +380,7 @@ interface FlightRow {
   hobbsStart: number | null;
   hobbsEnd: number | null;
   landings: number;
+  landingAirports: string[];
   nightLandings: number;
   withInstructor: boolean;
   purpose: Purpose | null;
@@ -428,6 +429,7 @@ function serializeFlightFields(
     hobbsStart: f.hobbsStart,
     hobbsEnd: f.hobbsEnd,
     landings: f.landings,
+    landingAirports: f.landingAirports,
     nightLandings: f.nightLandings,
     withInstructor: f.withInstructor,
     purpose: f.purpose,

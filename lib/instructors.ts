@@ -39,8 +39,8 @@ export async function resolveInstructor(
 ): Promise<InstructorResolution> {
   if (!raw) return { instructorId: null };
 
-  const candidate = await prisma.user.findUnique({
-    where: { id: String(raw) },
+  const candidate = await prisma.user.findFirst({
+    where: { id: String(raw), removedAt: null },
     select: { id: true, positions: true },
   });
   if (!candidate) {

@@ -52,6 +52,7 @@ import {
 import { normalizeLogEntry } from "@/lib/markdown";
 import { purposeFromBody, type Purpose } from "@/lib/constants";
 import { isUniqueViolation, requestIdFrom } from "@/lib/idempotency";
+import { landingAirportsFromBody } from "@/lib/landingAirports";
 
 
 /**
@@ -356,7 +357,18 @@ export async function POST(req: Request) {
     instant(body.endedAt) ?? end.endedAt
   );
 
-  const landings = Math.max(0, Math.round(num(body.landings) ?? 1));
+  // Where the landings were. When the pilot listed them, the list IS the
+  // count (and its last entry is where the airplane ended up, unless they said
+  // otherwise), so the currency rules and the landings report read one answer.
+  const airports = landingAirportsFromBody(body.landingAirports);
+  if ("error" in airports) {
+    return NextResponse.json({ error: airports.error }, { status: 400 });
+  }
+  const landingAirports = airports.codes;
+  const landings = landingAirports.length
+    ? landingAirports.length
+    : Math.max(0, Math.round(num(body.landings) ?? 1));
+  const arrivalIn = body.arrival ? String(body.arrival).trim().toUpperCase() : null;
   const data = {
     flownOn,
     // Filing is the stamp that turns a session into a log entry. Everything
@@ -370,6 +382,7 @@ export async function POST(req: Request) {
     startedAt: times.startedAt,
     endedAt: times.endedAt,
     landings,
+    landingAirports,
     // Night landings count toward currency only when they're a subset of the
     // flight's landings — clamp rather than reject, since the pilot is
     // reporting one number they already know.
@@ -382,7 +395,7 @@ export async function POST(req: Request) {
     instructorId: instructor.instructorId,
     purpose,
     departure: body.departure ? String(body.departure).trim().toUpperCase() : null,
-    arrival: body.arrival ? String(body.arrival).trim().toUpperCase() : null,
+    arrival: arrivalIn ?? landingAirports[landingAirports.length - 1] ?? null,
     route: body.route ? String(body.route).trim() : null,
     fuelAddedGal: num(body.fuelAddedGal),
     fuelCostCents: fuelCostCentsFrom(body),

@@ -22,6 +22,8 @@ interface MoneyInputProps
   onChange: (value: string) => void;
   hint?: ReactNode;
   error?: string | null;
+  /** Keep the label for screen readers only, where a row already says what the box is. */
+  hideLabel?: boolean;
 }
 
 export default function MoneyInput({
@@ -30,6 +32,7 @@ export default function MoneyInput({
   onChange,
   hint,
   error,
+  hideLabel = false,
   className = "",
   onBlur,
   id,
@@ -43,7 +46,14 @@ export default function MoneyInput({
   // assistive tech read.
   return (
     <div className="block">
-      <label htmlFor={inputId} className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+      <label
+        htmlFor={inputId}
+        className={
+          hideLabel
+            ? "sr-only"
+            : "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+        }
+      >
         {label}
       </label>
       <div className="relative">

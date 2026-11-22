@@ -24,6 +24,7 @@ import ExportButton from "@/components/common/ExportButton";
 import InfoTip from "@/components/common/InfoTip";
 import FlightDetailModal from "@/components/FlightDetailModal";
 import FlightEntryModal from "@/components/FlightEntryModal";
+import LandingsByAirport from "@/components/LandingsByAirport";
 import { FlightTypeChip } from "@/components/FlightType";
 import { RulesModal } from "@/components/OperatingRules";
 import { notifyAircraftChanged, useAircraft } from "@/components/AircraftProvider";
@@ -88,6 +89,8 @@ function FlightLog() {
   // themselves — "am I current", "what did I fly last month" — and the club
   // view is one tap away for the times they didn't.
   const [filter, setFilter] = useState<Filter>("mine");
+  // The Landings tile's pop-up (Club view): landings by airport.
+  const [landingsOpen, setLandingsOpen] = useState(false);
   // Latest at the top: the log is mostly read for "what happened last". The
   // button beside the switch flips it to read forwards from the start.
   const [order, setOrder] = useState<LogOrder>("newest");
@@ -176,9 +179,12 @@ function FlightLog() {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const yearStart = new Date(now.getFullYear(), 0, 1);
+    const thisMonth = inRange(visible, monthStart, nextMonth);
     return {
-      monthHours: totalTachHours(inRange(visible, monthStart, nextMonth)),
-      monthHobbs: totalHobbsHours(inRange(visible, monthStart, nextMonth)),
+      monthHours: totalTachHours(thisMonth),
+      monthHobbs: totalHobbsHours(thisMonth),
+      monthFlights: thisMonth.length,
+      monthLandings: totalLandings(thisMonth),
       yearHours: totalTachHours(inRange(visible, yearStart, nextMonth)),
       yearHobbs: totalHobbsHours(inRange(visible, yearStart, nextMonth)),
       flights: visible.length,
@@ -315,12 +321,18 @@ function FlightLog() {
         {filter === "all" ? (
           <>
             <HoursStat
-              label="Hours this month"
+              label="Hours / month"
               tach={stats.monthHours}
               hobbs={stats.monthHobbs}
             />
-            <Stat label="Flights" value={String(stats.flights)} />
-            <Stat label="Landings" value={String(stats.landings)} />
+            <Stat label="Flights / month" value={String(stats.monthFlights)} />
+            {/* The one tile that opens something: the club's landings by
+                airport, the figure a landing-fee reimbursement is claimed on. */}
+            <Stat
+              label="Landings / month"
+              value={String(stats.monthLandings)}
+              onClick={() => setLandingsOpen(true)}
+            />
           </>
         ) : asInstructor ? (
           <>
@@ -335,15 +347,19 @@ function FlightLog() {
         ) : (
           <>
             <HoursStat
-              label="Hours this year"
-              tach={stats.yearHours}
-              hobbs={stats.yearHobbs}
+              label="Hours / month"
+              tach={stats.monthHours}
+              hobbs={stats.monthHobbs}
             />
-            <Stat label="Flights" value={String(stats.flights)} />
-            <Stat label="Landings" value={String(stats.landings)} />
+            <Stat label="Flights / month" value={String(stats.monthFlights)} />
+            <Stat label="Landings / month" value={String(stats.monthLandings)} />
           </>
         )}
       </div>
+
+      {/* Where the club landed, month by month, opened from the Landings
+          tile. Mounted always so it can animate; it reads nothing until opened. */}
+      <LandingsByAirport open={landingsOpen} onClose={() => setLandingsOpen(false)} />
 
       {/* Your currency is a "Mine" question, so it only appears there — the
           club view is about the airplane and the people flying it.
@@ -612,14 +628,58 @@ function FlightLog() {
   );
 }
 
-/** One figure in the row of three: a short label, a big number. */
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <Card padded={false} className="p-2.5 sm:p-3">
-      <div className="text-[11px] leading-tight text-gray-500 dark:text-gray-400 sm:text-xs">
-        {label}
+/**
+ * One figure in the row of three: a short label, a big number. With `onClick`
+ * the whole tile is a button and the label ends in a chevron, so it reads as
+ * something that opens rather than a figure that happens to be tappable.
+ */
+function Stat({
+  label,
+  value,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
+      <div className="flex items-center gap-0.5 whitespace-nowrap text-[11px] leading-tight tracking-tight text-gray-500 dark:text-gray-400 sm:text-xs sm:tracking-normal">
+        <span>{label}</span>
+        {onClick && (
+          <svg
+            aria-hidden
+            viewBox="0 0 16 16"
+            className="h-2.5 w-2.5 shrink-0 text-indigo-600 dark:text-indigo-400 sm:h-3 sm:w-3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M6 3.5 10.5 8 6 12.5" />
+          </svg>
+        )}
       </div>
       <div className="text-lg font-bold tabular sm:text-xl">{value}</div>
+    </>
+  );
+  if (!onClick) {
+    return (
+      <Card padded={false} className="px-2 py-2.5 sm:p-3">
+        {body}
+      </Card>
+    );
+  }
+  return (
+    <Card padded={false} className="p-0">
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex h-full w-full flex-col justify-start rounded-[inherit] px-2 py-2.5 text-left transition-colors hover:bg-gray-50 active:bg-gray-100 dark:hover:bg-gray-700/50 dark:active:bg-gray-700 sm:p-3"
+      >
+        {body}
+      </button>
     </Card>
   );
 }
@@ -631,8 +691,8 @@ function Stat({ label, value }: { label: string; value: string }) {
  */
 function HoursStat({ label, tach, hobbs }: { label: string; tach: number; hobbs: number }) {
   return (
-    <Card padded={false} className="p-2.5 sm:p-3">
-      <div className="text-[11px] leading-tight text-gray-500 dark:text-gray-400 sm:text-xs">
+    <Card padded={false} className="px-2 py-2.5 sm:p-3">
+      <div className="whitespace-nowrap text-[11px] leading-tight tracking-tight text-gray-500 dark:text-gray-400 sm:text-xs sm:tracking-normal">
         {label}
       </div>
       <div className="text-lg font-bold tabular sm:text-xl">

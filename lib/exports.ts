@@ -30,6 +30,7 @@ import {
 import { CHARGE_KIND_LABELS, formatPeriod, type Period } from "./finance";
 import { tachHours } from "./hours";
 import { markdownToText } from "./markdown";
+import type { LandingMonth } from "./landingReport";
 import type { Sheet } from "./xlsx";
 import type {
   ApiFlightSummary,
@@ -504,4 +505,32 @@ export function financesWorkbook({
   }
 
   return sheets;
+}
+
+/**
+ * The landings-by-airport report as a sheet — what goes with a landing-fee
+ * reimbursement claim. One row per month × airport, oldest month first like
+ * the club's other sheets, money as summable dollars. "Assumed" is its own
+ * column rather than folded in, so whoever files the claim can see which
+ * landings a pilot listed and which were counted at the flight's arrival
+ * field because nobody said (see lib/landingReport.ts).
+ */
+export function landingReportSheet(months: LandingMonth[]): Sheet {
+  const rows: (string | number | null)[][] = [
+    ["Month", "Airport", "Landings", "Assumed", "Flights", "Landing fees recorded"],
+  ];
+  const oldestFirst = [...months].sort((a, b) => (a.period < b.period ? -1 : 1));
+  for (const month of oldestFirst) {
+    for (const line of month.airports) {
+      rows.push([
+        formatPeriod(month.period),
+        line.airport,
+        line.landings,
+        line.assumed,
+        line.flights,
+        line.feeCents / 100,
+      ]);
+    }
+  }
+  return { name: "Landings by airport", rows };
 }

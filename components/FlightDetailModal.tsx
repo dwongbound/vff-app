@@ -48,6 +48,8 @@ import FuelFields from "@/components/FuelFields";
 import FuelSummary from "@/components/FuelSummary";
 import { editFuel, fuelEntryFor, fuelPayload, type FuelEntry } from "@/lib/fuel";
 import type { Purpose } from "@/lib/constants";
+import { landingAirportsError } from "@/lib/landingAirports";
+import LandedAtInput, { landedAtCodes } from "@/components/LandedAtInput";
 
 /** The editable half of a log entry, as the inputs hold it (strings). */
 interface EditForm {
@@ -60,6 +62,8 @@ interface EditForm {
   hobbsStart: string;
   hobbsEnd: string;
   landings: string;
+  /** The "Landed at" line — see components/LandedAtInput.tsx. */
+  landedAt: string;
   nightLandings: string;
   departure: string;
   arrival: string;
@@ -91,6 +95,7 @@ function formFor(flight: ApiFlight): EditForm {
     hobbsStart: text(flight.hobbsStart),
     hobbsEnd: text(flight.hobbsEnd),
     landings: text(flight.landings),
+    landedAt: flight.landingAirports.join(", "),
     nightLandings: text(flight.nightLandings),
     departure: flight.departure ?? "",
     arrival: flight.arrival ?? "",
@@ -216,6 +221,11 @@ export default function FlightDetailModal({
       setSaveError(problem);
       return;
     }
+    const landedAtProblem = landingAirportsError(form.landedAt);
+    if (landedAtProblem) {
+      setSaveError(landedAtProblem);
+      return;
+    }
 
     setSaveError(null);
     setSaving(true);
@@ -237,6 +247,12 @@ export default function FlightDetailModal({
       hobbsStart: numeric(form.hobbsStart),
       hobbsEnd: numeric(form.hobbsEnd),
       landings: numeric(form.landings) ?? 1,
+      // The airports list only when the pilot changed it: saving an older
+      // entry whose airports were never recorded must leave it that way
+      // rather than write anything on its behalf.
+      ...(form.landedAt !== formFor(flight).landedAt
+        ? { landingAirports: landedAtCodes(form.landedAt) }
+        : {}),
       nightLandings: numeric(form.nightLandings) ?? 0,
       departure: form.departure.trim() || null,
       arrival: form.arrival.trim() || null,
@@ -458,6 +474,8 @@ export default function FlightDetailModal({
                 step="1"
                 value={form.landings}
                 onChange={(e) => set({ landings: e.target.value })}
+                // Counted off the airports list while there is one.
+                readOnly={landedAtCodes(form.landedAt).length > 0}
               />
               <Input
                 label="Night landings"
@@ -483,6 +501,25 @@ export default function FlightDetailModal({
               />
             </div>
 
+            <LandedAtInput
+              value={form.landedAt}
+              onChange={(next, parsed) => {
+                if (parsed && parsed.landings > 0) {
+                  set({
+                    landedAt: next,
+                    landings: String(parsed.landings),
+                    arrival: parsed.arrival ?? "",
+                  });
+                } else {
+                  set({ landedAt: next });
+                }
+              }}
+              hint={
+                flight.landingAirports.length === 0 && flight.landings > 0
+                  ? `${flight.landings} ${flight.landings === 1 ? "landing" : "landings"} on file, airports not listed — add them for the landings report`
+                  : undefined
+              }
+            />
             <Input
               label="Route"
               value={form.route}
@@ -637,6 +674,18 @@ export default function FlightDetailModal({
                 />
               )}
             </section>
+
+            {/* Skipped when it's the route word for word (a Quick Log entry
+                writes its route from this same list). */}
+            {flight.landingAirports.length > 0 &&
+              flight.landingAirports.join(" → ") !== flight.route && (
+              <section>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Landed at
+                </h3>
+                <p className="text-sm">{flight.landingAirports.join(" → ")}</p>
+              </section>
+            )}
 
             {(flight.departure || flight.arrival || flight.route) && (
               <section>
